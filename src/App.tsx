@@ -29,6 +29,7 @@ import {
   Edit2, 
   Trash2, 
   LogOut, 
+  LogIn,
   MoreVertical,
   Sparkles,
   ExternalLink,
@@ -43,9 +44,71 @@ import {
   Disc
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import {auth, db, logout, signInWithGoogle} from './lib/firebase';
+import { auth, db, signInWithGoogle, logout } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist } from './types';
-import { signInAnonymously } from 'firebase/auth';
+
+// Components
+const LoginView = () => {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      console.error('Login error:', err);
+      // provide more user friendly error messages
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('A janela de login foi fechada antes de completar o acesso.');
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        setError('Apenas uma janela de login pode ser aberta por vez.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('O seu navegador bloqueou a janela de login. Por favor, permita popups para este site.');
+      } else {
+        setError('Ocorreu um erro ao tentar entrar com o Google. Tente novamente.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
+      <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-200">
+        <Music className="text-white w-10 h-10" />
+      </div>
+      <h1 className="text-3xl font-bold text-gray-900 mb-2">Vilmardigital-Notas</h1>
+      <p className="text-gray-500 mb-10 max-w-xs">Acesse e organize suas cifras de forma simples e rápida para as missas.</p>
+      
+      <div className="flex flex-col gap-4 w-full max-w-xs">
+        <button 
+          onClick={handleLogin}
+          disabled={loading}
+          className="flex items-center justify-center gap-3 bg-white border border-gray-300 px-6 py-3 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <LogIn className="w-5 h-5" />
+          )}
+          {loading ? 'Entrando...' : 'Entrar com Google'}
+        </button>
+
+        {error && (
+          <motion.p 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-red-500 text-sm font-medium bg-red-50 p-3 rounded-lg border border-red-100"
+          >
+            {error}
+          </motion.p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   switch (category) {
@@ -299,22 +362,23 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        signInAnonymously(auth).catch(err => console.error("Anonymous auth failed:", err));
-      } else {
-        setUser(u);
-        setLoading(false);
-      }
+      setUser(u);
+      setLoading(false);
     });
     return unsubscribe;
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setSongs([]);
+      setPlaylists([]);
+      return;
+    }
 
-    // Songs Listener - Removed ownerId restriction to allow public viewing
+    // Songs Listener
     const songsQuery = query(
       collection(db, 'songs'), 
+      where('ownerId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -325,9 +389,10 @@ export default function App() {
       console.error("Songs listener error:", error);
     });
 
-    // Playlists Listener - Removed ownerId restriction to allow public viewing
+    // Playlists Listener
     const playlistsQuery = query(
       collection(db, 'playlists'),
+      where('ownerId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -427,6 +492,8 @@ export default function App() {
     </div>
   );
 
+  if (!user) return <LoginView />;
+
   const filteredSongs = songs
     .filter(s => !selectedCategory || s.category === selectedCategory)
     .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -473,6 +540,9 @@ export default function App() {
              viewMode === 'suggestions' ? 'Sugestões para Missa' : ''}
           </h1>
         </div>
+        <button onClick={logout} className="p-2 text-gray-400">
+          <LogOut className="w-5 h-5" />
+        </button>
       </header>
 
       <main className="flex-1 overflow-auto">

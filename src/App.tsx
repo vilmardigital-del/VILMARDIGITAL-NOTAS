@@ -11,7 +11,12 @@ import {
   serverTimestamp,
   orderBy
 } from 'firebase/firestore';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword
+} from 'firebase/auth';
 import { 
   Heart,
   Sun,
@@ -41,29 +46,130 @@ import {
   X,
   Youtube,
   Minus,
-  Disc
+  Disc,
+  Lock,
+  User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, db, signInWithGoogle, logout } from './lib/firebase';
+import { auth, db, logout } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist } from './types';
 
 // Components
-const LoginView = () => (
-  <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
-    <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-200">
-      <Music className="text-white w-10 h-10" />
+const LoginView = () => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    
+    // Validamos as credenciais solicitadas pelo usuário
+    if (username !== 'vilmardigital' || password !== '123456') {
+      setError('Usuário ou senha incorretos.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Usamos um email fictício para o Firebase Auth baseado no usuário
+      const email = `${username}@vilmardigital.com`;
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err: any) {
+        // Se o usuário não existir, tentamos criar (primeiro acesso)
+        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+          try {
+            await createUserWithEmailAndPassword(auth, email, password);
+          } catch (createErr: any) {
+            setError('Erro ao autenticar. Verifique sua conexão.');
+          }
+        } else {
+          setError('Erro de autenticação: ' + err.message);
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-6">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md bg-white p-8 rounded-3xl shadow-xl shadow-gray-200/50 flex flex-col items-center"
+      >
+        <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-200 relative overflow-hidden group">
+          <Music className="text-white w-10 h-10 relative z-10" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-transparent to-white/20"></div>
+        </div>
+        
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Vilmardigital-Notas</h1>
+        <p className="text-gray-500 mb-8 text-center text-sm">Entre com suas credenciais para gerenciar suas cifras.</p>
+
+        <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Usuário</label>
+            <div className="relative">
+              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input 
+                type="text" 
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="Seu usuário"
+                className="w-full bg-gray-50 border border-gray-100 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input 
+                type="password" 
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Sua senha"
+                className="w-full bg-gray-50 border border-gray-100 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
+                required
+              />
+            </div>
+          </div>
+
+          {error && (
+            <motion.p 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-red-500 text-sm font-medium mt-1 text-center"
+            >
+              {error}
+            </motion.p>
+          )}
+
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl mt-4 shadow-lg shadow-blue-100 active:scale-95 disabled:scale-100 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" />
+                Entrar
+              </>
+            )}
+          </button>
+        </form>
+      </motion.div>
+      <p className="mt-8 text-gray-400 text-xs">Exclusivo para vilmardigital</p>
     </div>
-    <h1 className="text-3xl font-bold text-gray-900 mb-2">Vilmardigital-Notas</h1>
-    <p className="text-gray-500 mb-10 max-w-xs">Acesse e organize suas cifras de forma simples e rápida para as missas.</p>
-    <button 
-      onClick={signInWithGoogle}
-      className="flex items-center gap-3 bg-white border border-gray-300 px-6 py-3 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
-    >
-      <LogIn className="w-5 h-5" />
-      Entrar com Google
-    </button>
-  </div>
-);
+  );
+};
 
 const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   switch (category) {

@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidSong(data) {
+      return data.keys().hasAll(['title', 'content', 'category', 'ownerId']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Comum", "Ofertório", "Final"] &&
+             data.ownerId == request.auth.uid &&
+             (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500));
+    }
+
+    function isValidPlaylist(data) {
+      return data.keys().hasAll(['title', 'songIds', 'ownerId']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.songIds is list && data.songIds.size() <= 50 &&
+             data.ownerId == request.auth.uid;
+    }
+
+    match /songs/{songId} {
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidSong(request.resource.data);
+      allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidSong(request.resource.data);
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /playlists/{playlistId} {
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidPlaylist(request.resource.data);
+      allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidPlaylist(request.resource.data);
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}

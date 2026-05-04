@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "Song": {
+      "title": "Song",
+      "description": "A musical piece with chords and lyrics.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the song."
+        },
+        "artist": {
+          "type": "string",
+          "description": "The artist or composer of the song."
+        },
+        "content": {
+          "type": "string",
+          "description": "The chords and lyrics content."
+        },
+        "category": {
+          "type": "string",
+          "description": "The liturgical category (e.g., Entrada, Glória).",
+          "enum": ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Comum", "Ofertório", "Final"]
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "description": "YouTube link for the song."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The user ID of the owner."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of last update."
+        }
+      },
+      "required": ["title", "content", "category", "ownerId"]
+    },
+    "Playlist": {
+      "title": "Playlist",
+      "description": "A collection of songs for a specific event/Mass.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the playlist."
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "The date of the event."
+        },
+        "songIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered list of song IDs."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The user ID of the owner."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of last update."
+        }
+      },
+      "required": ["title", "songIds", "ownerId"]
+    }
+  },
+  "firestore": {
+    "/songs/{songId}": {
+      "schema": "Song",
+      "description": "Collection of songs stored by users."
+    },
+    "/playlists/{playlistId}": {
+      "schema": "Playlist",
+      "description": "Collection of playlists for users."
+    }
+  }
+}

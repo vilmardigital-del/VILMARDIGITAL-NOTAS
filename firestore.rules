@@ -31,16 +31,16 @@ service cloud.firestore {
     }
 
     match /songs/{songId} {
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
       allow create: if isSignedIn() && isValidSong(request.resource.data);
       allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidSong(request.resource.data);
       allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
     }
 
     match /playlists/{playlistId} {
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
       allow create: if isSignedIn() && isValidPlaylist(request.resource.data);
       allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidPlaylist(request.resource.data);
       allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;

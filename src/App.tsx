@@ -369,16 +369,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setSongs([]);
-      setPlaylists([]);
-      return;
-    }
+    if (!user) return;
 
     // Songs Listener
     const songsQuery = query(
       collection(db, 'songs'), 
-      where('ownerId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -392,7 +387,6 @@ export default function App() {
     // Playlists Listener
     const playlistsQuery = query(
       collection(db, 'playlists'),
-      where('ownerId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 

@@ -39,13 +39,114 @@ import {
   X,
   Youtube,
   Minus,
-  Disc
+  Disc,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist } from './types';
 
 // Components
+const PasswordView = ({ onUnlock }: { onUnlock: () => void }) => {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(false);
+  const correctPassword = import.meta.env.VITE_APP_PASSWORD || '123456';
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === correctPassword) {
+      onUnlock();
+    } else {
+      setError(true);
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 px-6 text-center select-none overflow-hidden">
+      <motion.div 
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ 
+          type: "spring",
+          stiffness: 260,
+          damping: 20,
+          duration: 0.6 
+        }}
+        className="mb-8 relative"
+      >
+        {/* Animated Glow Effect */}
+        <motion.div 
+          animate={{ 
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.6, 0.3]
+          }}
+          transition={{ 
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute inset-0 bg-blue-500 rounded-full blur-3xl"
+        />
+        
+        <div className="relative w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/50">
+          <motion.div
+             animate={{ rotate: [0, 10, -10, 0] }}
+             transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <Music className="text-white w-12 h-12" />
+          </motion.div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="w-full max-w-xs"
+      >
+        <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Vilmardigital</h1>
+        <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative group">
+            <input 
+              type="password"
+              placeholder="Digite a senha de acesso"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={`w-full bg-zinc-900 border ${error ? 'border-red-500 bg-red-500/10' : 'border-zinc-800 focus:border-blue-500'} text-white px-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium text-center tracking-widest`}
+              autoFocus
+            />
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute -bottom-6 left-0 right-0 text-red-500 text-xs font-medium"
+              >
+                Senha incorreta. Tente novamente.
+              </motion.div>
+            )}
+          </div>
+
+          <motion.button 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-blue-600/30 mt-2"
+          >
+            Acessar
+          </motion.button>
+        </form>
+      </motion.div>
+
+      <div className="absolute bottom-8 text-zinc-600 text-sm font-light">
+        © 2026 Vilmardigital • Versão 2.4
+      </div>
+    </div>
+  );
+};
+
 const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   switch (category) {
     case 'Entrada': return <DoorOpen className={className} />;
@@ -275,6 +376,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 export default function App() {
+  const [isUnlocked, setIsUnlocked] = useState(() => localStorage.getItem('isUnlocked') === 'true');
   const [loading, setLoading] = useState(true);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -413,6 +515,15 @@ export default function App() {
     </div>
   );
 
+  if (!isUnlocked) {
+    return (
+      <PasswordView onUnlock={() => {
+        setIsUnlocked(true);
+        localStorage.setItem('isUnlocked', 'true');
+      }} />
+    );
+  }
+
   const filteredSongs = songs
     .filter(s => !selectedCategory || s.category === selectedCategory)
     .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -459,6 +570,15 @@ export default function App() {
              viewMode === 'suggestions' ? 'Sugestões para Missa' : ''}
           </h1>
         </div>
+        <button 
+          onClick={() => {
+            setIsUnlocked(false);
+            localStorage.removeItem('isUnlocked');
+          }}
+          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+        >
+          <Lock className="w-5 h-5" />
+        </button>
       </header>
 
       <main className="flex-1 overflow-auto">

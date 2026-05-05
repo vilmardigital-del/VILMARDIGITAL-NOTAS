@@ -47,6 +47,19 @@ import { auth, db } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist } from './types';
 
 // Components
+const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
+  <div className={`relative flex items-center justify-center ${className}`}>
+    {/* Guitar Pick Shape SVG */}
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full drop-shadow-sm">
+      <path 
+        d="M 10 32 C 10 15 25 2 50 2 C 75 2 90 15 90 32 C 90 55 65 92 50 98 C 35 92 10 55 10 32 Z" 
+        fill="#ea580c" 
+      />
+    </svg>
+    <Music className="relative z-10 w-[45%] h-[45%] text-white -translate-y-1" />
+  </div>
+);
+
 const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => void }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
@@ -89,16 +102,12 @@ const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => vo
             repeat: Infinity,
             ease: "easeInOut"
           }}
-          className="absolute inset-0 bg-blue-500 rounded-full blur-3xl"
+          className="absolute inset-0 bg-orange-500 rounded-full blur-3xl"
         />
         
-        <div className="relative w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/50">
-          <motion.div
-             animate={{ rotate: [0, 10, -10, 0] }}
-             transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <Music className="text-white w-12 h-12" />
-          </motion.div>
+        <div className="relative w-32 h-32 bg-white rounded-[32px] flex items-center justify-center p-5 shadow-2xl shadow-orange-500/20 group hover:shadow-orange-500/30 transition-all duration-500">
+          <Logo className="w-20 h-20" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 to-transparent rounded-[32px] pointer-events-none" />
         </div>
       </motion.div>
 
@@ -118,7 +127,7 @@ const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => vo
               placeholder="Digite a senha de acesso"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`w-full bg-zinc-900 border ${error ? 'border-red-500 bg-red-500/10' : 'border-zinc-800 focus:border-blue-500'} text-white px-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium text-center tracking-widest`}
+              className={`w-full bg-zinc-900 border ${error ? 'border-red-500 bg-red-500/10' : 'border-zinc-800 focus:border-orange-500'} text-white px-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium text-center tracking-widest`}
               autoFocus
             />
             {error && (
@@ -136,7 +145,7 @@ const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => vo
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-blue-600/30 mt-2"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-orange-600/30 mt-2"
           >
             Acessar
           </motion.button>
@@ -157,6 +166,8 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Glória': return <Sun className={className} />;
     case 'Santo': return <Crown className={className} />;
     case 'Aleluia': return <Mic2 className={className} />;
+    case 'Salmos': return <Music className={className} />;
+    case 'Cordeiro': return <Heart className={className} />;
     case 'Ofertório': return <Gift className={className} />;
     case 'Final': return <Flag className={className} />;
     default: return <Music className={className} />;
@@ -240,7 +251,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext }: {
             )}
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <div className="text-blue-600">
+                <div className="text-orange-600">
                   {getCategoryIcon(song.category, "w-4 h-4")}
                 </div>
                 <p className="text-sm text-gray-500 uppercase tracking-widest">{song.category}</p>
@@ -257,7 +268,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext }: {
               >
                 <Minus className="w-4 h-4" />
               </button>
-              <span className="text-xs font-bold w-8 text-center text-blue-600">
+              <span className="text-xs font-bold w-8 text-center text-orange-600">
                 {transpose > 0 ? `+${transpose}` : transpose}
               </span>
               <button 
@@ -384,6 +395,7 @@ export default function App() {
     return (saved === 'admin' || saved === 'viewer') ? saved : null;
   });
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   
@@ -442,12 +454,13 @@ export default function App() {
 
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingSong) return;
+    if (!editingSong || saving) return;
 
+    setSaving(true);
     try {
       const data = {
-        title: editingSong.title,
-        content: editingSong.content,
+        title: editingSong.title || '',
+        content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
         youtubeUrl: editingSong.youtubeUrl || '',
         updatedAt: serverTimestamp()
@@ -465,13 +478,16 @@ export default function App() {
       setViewMode('songs');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'songs');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleCreateOrUpdatePlaylist = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingPlaylist) return;
+    if (!editingPlaylist || saving) return;
 
+    setSaving(true);
     try {
       const data = {
         title: editingPlaylist.title || 'Nova Playlist',
@@ -492,6 +508,8 @@ export default function App() {
       setViewMode('playlist-list');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'playlists');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -517,7 +535,7 @@ export default function App() {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600"></div>
+      <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-600"></div>
     </div>
   );
 
@@ -542,7 +560,7 @@ export default function App() {
     : [];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans mb-20">
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
@@ -559,16 +577,14 @@ export default function App() {
               <ChevronLeft className="w-6 h-6" />
             </button>
           ) : (
-            <div className="relative flex items-center justify-center">
-              <div className="bg-gradient-to-tr from-blue-600 to-cyan-400 p-1.5 rounded-full shadow-lg relative cursor-pointer group flex items-center justify-center">
-                <Disc className="text-white w-6 h-6 animate-[spin_5s_linear_infinite]" />
-                <div className="absolute w-1.5 h-1.5 bg-white rounded-full border border-blue-400"></div>
-              </div>
+            <div className="shrink-0 bg-white rounded-lg p-0.5 shadow-sm border border-gray-100">
+              <Logo className="w-8 h-8" />
             </div>
-          )}
-          <h1 className="font-bold text-lg text-gray-900">
-            {viewMode === 'categories' ? 'Vilmardigital-Notas' : 
-             viewMode === 'playlist-list' ? 'Playlists' :
+          )
+        }
+          <h1 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+            <span className={viewMode === 'categories' ? "inline" : "hidden sm:inline"}>Vilmardigital</span>
+            {viewMode === 'playlist-list' ? 'Playlists' :
              viewMode === 'songs' ? selectedCategory : 
              viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
              viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
@@ -587,7 +603,7 @@ export default function App() {
         </button>
       </header>
 
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto pb-32">
         <AnimatePresence mode="wait">
           {/* CATEGORIES TAB: Categories View */}
           {activeTab === 'songs' && viewMode === 'categories' && (
@@ -596,7 +612,7 @@ export default function App() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="p-4 grid grid-cols-2 gap-4"
+              className="p-4 grid grid-cols-2 gap-3"
             >
               {CATEGORIES.map(category => (
                 <button
@@ -605,9 +621,9 @@ export default function App() {
                     setSelectedCategory(category);
                     setViewMode('songs');
                   }}
-                  className="bg-white p-6 rounded-2xl border border-gray-200 flex flex-col items-start gap-4 hover:border-blue-300 hover:shadow-md transition-all group active:scale-95"
+                  className="bg-white p-4 rounded-2xl border border-gray-200 flex flex-col items-start gap-3 hover:border-orange-300 hover:shadow-md transition-all group active:scale-95"
                 >
-                  <div className="bg-blue-50 text-blue-600 p-3 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                  <div className="bg-orange-50 text-orange-600 p-2 rounded-xl group-hover:bg-orange-600 group-hover:text-white transition-colors">
                     {getCategoryIcon(category)}
                   </div>
                   <div className="text-left">
@@ -637,7 +653,7 @@ export default function App() {
                   placeholder="Buscar cifra..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
+                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-shadow"
                 />
               </div>
 
@@ -652,7 +668,7 @@ export default function App() {
                         onClick={() => setViewingSong(song)}
                         className="flex-1 cursor-pointer overflow-hidden flex items-center gap-3"
                       >
-                        <div className="shrink-0 text-blue-600 bg-blue-50 p-2 rounded-lg">
+                        <div className="shrink-0 text-orange-600 bg-orange-50 p-2 rounded-lg">
                           {getCategoryIcon(song.category, "w-4 h-4")}
                         </div>
                         <div className="min-w-0">
@@ -669,7 +685,7 @@ export default function App() {
                               setEditingSong(song);
                               setViewMode('edit-song');
                             }}
-                            className="p-2 text-gray-400 hover:text-blue-600"
+                            className="p-2 text-gray-400 hover:text-orange-600"
                           >
                             <Edit2 className="w-5 h-5" />
                           </button>
@@ -739,7 +755,7 @@ export default function App() {
                     value={editingSong?.title || ''}
                     onChange={e => setEditingSong({...editingSong, title: e.target.value})}
                     placeholder="Título da música"
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                   />
                 </div>
 
@@ -748,7 +764,7 @@ export default function App() {
                   <select 
                     value={editingSong?.category || selectedCategory || 'Comum'}
                     onChange={e => setEditingSong({...editingSong, category: e.target.value as Category})}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none appearance-none"
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -763,7 +779,7 @@ export default function App() {
                       value={editingSong?.youtubeUrl || ''}
                       onChange={e => setEditingSong({...editingSong, youtubeUrl: e.target.value})}
                       placeholder="https://www.youtube.com/watch?v=..."
-                      className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                      className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                     />
                   </div>
                 </div>
@@ -776,7 +792,7 @@ export default function App() {
                     value={editingSong?.content || ''}
                     onChange={e => setEditingSong({...editingSong, content: e.target.value})}
                     placeholder="Cole aqui a cifra..."
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm leading-relaxed"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
                   />
                 </div>
 
@@ -790,9 +806,10 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-transform"
+                    disabled={saving}
+                    className="flex-1 bg-orange-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100"
                   >
-                    Salvar
+                    {saving ? 'Salvando...' : 'Salvar'}
                   </button>
                 </div>
               </form>
@@ -815,7 +832,7 @@ export default function App() {
                   placeholder="Buscar playlist..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 outline-none"
                 />
               </div>
 
@@ -854,7 +871,7 @@ export default function App() {
                               setEditingPlaylist(playlist);
                               setViewMode('edit-playlist');
                             }}
-                            className="p-2 text-gray-400 hover:text-blue-600"
+                            className="p-2 text-gray-400 hover:text-orange-600"
                           >
                             <Edit2 className="w-5 h-5" />
                           </button>
@@ -915,7 +932,7 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="p-4"
             >
-              <div className="bg-blue-600 rounded-3xl p-6 mb-8 text-white shadow-xl shadow-blue-100">
+              <div className="bg-orange-600 rounded-3xl p-6 mb-8 text-white shadow-xl shadow-orange-100">
                 <h2 className="text-2xl font-bold mb-2">{selectedPlaylist.title}</h2>
                 <p className="opacity-80 flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
@@ -933,11 +950,11 @@ export default function App() {
                     }}
                     className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left"
                   >
-                    <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+                    <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm">
                       {index + 1}
                     </div>
                     <div className="flex-1 overflow-hidden flex items-center gap-3">
-                      <div className="text-blue-600">
+                      <div className="text-orange-600">
                         {getCategoryIcon(song.category, "w-4 h-4")}
                       </div>
                       <div className="min-w-0">
@@ -969,7 +986,7 @@ export default function App() {
                     value={editingPlaylist?.title || ''}
                     onChange={e => setEditingPlaylist({...editingPlaylist, title: e.target.value})}
                     placeholder="Missa de Domingo, etc."
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                   />
                 </div>
                 <div>
@@ -978,7 +995,7 @@ export default function App() {
                     type="date"
                     value={editingPlaylist?.date || ''}
                     onChange={e => setEditingPlaylist({...editingPlaylist, date: e.target.value})}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                   />
                 </div>
                 
@@ -1001,17 +1018,17 @@ export default function App() {
                           }}
                           className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
                             isSelected 
-                              ? 'bg-blue-600 border-blue-600 text-white shadow-md' 
+                              ? 'bg-orange-600 border-orange-600 text-white shadow-md' 
                               : 'bg-white border-gray-200 text-gray-900'
                           }`}
                         >
                           <div className="text-left flex items-center gap-3 overflow-hidden">
-                            <div className={isSelected ? 'text-blue-100' : 'text-blue-600'}>
+                            <div className={isSelected ? 'text-orange-100' : 'text-orange-600'}>
                               {getCategoryIcon(song.category, "w-4 h-4")}
                             </div>
                             <div className="min-w-0">
                               <p className="font-bold truncate">{song.title}</p>
-                              <p className={`text-xs uppercase tracking-wider ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                              <p className={`text-xs uppercase tracking-wider ${isSelected ? 'text-orange-100' : 'text-gray-400'}`}>
                                 {song.category}
                               </p>
                             </div>
@@ -1033,9 +1050,10 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-200"
+                    disabled={saving}
+                    className="flex-1 bg-orange-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-orange-200 disabled:opacity-50"
                   >
-                    Salvar Playlist
+                    {saving ? 'Salvando...' : 'Salvar Playlist'}
                   </button>
                 </div>
               </form>
@@ -1092,7 +1110,7 @@ export default function App() {
             setEditingSong({});
             setViewMode('edit-song');
           }}
-          className="fixed right-6 bottom-24 w-14 h-14 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-blue-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-24 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
@@ -1104,43 +1122,43 @@ export default function App() {
             setEditingPlaylist({ songIds: [] });
             setViewMode('edit-playlist');
           }}
-          className="fixed right-6 bottom-24 w-14 h-14 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-blue-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-24 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
       )}
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around p-2 pb-6 z-40">
+      <nav className="fixed bottom-6 left-6 right-6 bg-orange-600 rounded-[32px] flex justify-around p-2 z-40 shadow-2xl shadow-orange-600/30">
         <button 
           onClick={() => {
             setActiveTab('songs');
             setViewMode('categories');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'songs' ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'songs' ? 'text-white' : 'text-orange-200'}`}
         >
           <Music className="w-6 h-6" />
-          <span className="text-xs font-bold uppercase tracking-widest">Cifras</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Cifras</span>
         </button>
         <button 
           onClick={() => {
             setActiveTab('playlists');
             setViewMode('playlist-list');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'playlists' ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'playlists' ? 'text-white' : 'text-orange-200'}`}
         >
           <ListMusic className="w-6 h-6" />
-          <span className="text-xs font-bold uppercase tracking-widest">Playlists</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Playlists</span>
         </button>
         <button 
           onClick={() => {
             setActiveTab('suggestions');
             setViewMode('suggestions');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'suggestions' ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'suggestions' ? 'text-white' : 'text-orange-200'}`}
         >
           <Sparkles className="w-6 h-6" />
-          <span className="text-xs font-bold uppercase tracking-widest">Sugestões</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
         </button>
       </nav>
 

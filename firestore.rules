@@ -15,19 +15,17 @@ service cloud.firestore {
     }
 
     function isValidSong(data) {
-      return data.keys().hasAll(['title', 'content', 'category', 'ownerId']) &&
+      return data.keys().hasAll(['title', 'content', 'category']) &&
              data.title is string && data.title.size() <= 200 &&
              data.content is string && data.content.size() <= 10000 &&
-             data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Comum", "Ofertório", "Final"] &&
-             data.ownerId == request.auth.uid &&
+             data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Salmos", "Cordeiro", "Comum", "Ofertório", "Final"] &&
              (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500));
     }
 
     function isValidPlaylist(data) {
-      return data.keys().hasAll(['title', 'songIds', 'ownerId']) &&
+      return data.keys().hasAll(['title', 'songIds']) &&
              data.title is string && data.title.size() <= 200 &&
-             data.songIds is list && data.songIds.size() <= 50 &&
-             data.ownerId == request.auth.uid;
+             data.songIds is list && data.songIds.size() <= 50;
     }
 
     match /songs/{songId} {

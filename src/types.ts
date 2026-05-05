@@ -1,11 +1,13 @@
-export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Santo' | 'Aleluia' | 'Comum' | 'Ofertório' | 'Final';
+export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Final';
 
 export const CATEGORIES: Category[] = [
   'Entrada',
   'Perdão',
   'Glória',
-  'Santo',
+  'Salmos',
   'Aleluia',
+  'Santo',
+  'Cordeiro',
   'Comum',
   'Ofertório',
   'Final'

@@ -31,19 +31,17 @@ service cloud.firestore {
     }
 
     match /songs/{songId} {
-      allow list: if isSignedIn();
-      allow get: if isSignedIn();
-      allow create: if isSignedIn() && isValidSong(request.resource.data);
-      allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidSong(request.resource.data);
-      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow read: if true;
+      allow create: if isValidSong(request.resource.data);
+      allow update: if isValidSong(request.resource.data);
+      allow delete: if true;
     }
 
     match /playlists/{playlistId} {
-      allow list: if isSignedIn();
-      allow get: if isSignedIn();
-      allow create: if isSignedIn() && isValidPlaylist(request.resource.data);
-      allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidPlaylist(request.resource.data);
-      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow read: if true;
+      allow create: if isValidPlaylist(request.resource.data);
+      allow update: if isValidPlaylist(request.resource.data);
+      allow delete: if true;
     }
   }
 }

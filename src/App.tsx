@@ -47,15 +47,18 @@ import { auth, db } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist } from './types';
 
 // Components
-const PasswordView = ({ onUnlock }: { onUnlock: () => void }) => {
+const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => void }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  const correctPassword = import.meta.env.VITE_APP_PASSWORD || '123456';
+  const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || '4526';
+  const userPassword = import.meta.env.VITE_USER_PASSWORD || '7946';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === correctPassword) {
-      onUnlock();
+    if (password === adminPassword) {
+      onUnlock('admin');
+    } else if (password === userPassword) {
+      onUnlock('viewer');
     } else {
       setError(true);
       setTimeout(() => setError(false), 2000);
@@ -376,7 +379,10 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 export default function App() {
-  const [isUnlocked, setIsUnlocked] = useState(() => localStorage.getItem('isUnlocked') === 'true');
+  const [userRole, setUserRole] = useState<'admin' | 'viewer' | null>(() => {
+    const saved = localStorage.getItem('userRole');
+    return (saved === 'admin' || saved === 'viewer') ? saved : null;
+  });
   const [loading, setLoading] = useState(true);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -515,11 +521,11 @@ export default function App() {
     </div>
   );
 
-  if (!isUnlocked) {
+  if (!userRole) {
     return (
-      <PasswordView onUnlock={() => {
-        setIsUnlocked(true);
-        localStorage.setItem('isUnlocked', 'true');
+      <PasswordView onUnlock={(role) => {
+        setUserRole(role);
+        localStorage.setItem('userRole', role);
       }} />
     );
   }
@@ -572,8 +578,8 @@ export default function App() {
         </div>
         <button 
           onClick={() => {
-            setIsUnlocked(false);
-            localStorage.removeItem('isUnlocked');
+            setUserRole(null);
+            localStorage.removeItem('userRole');
           }}
           className="p-2 text-gray-400 hover:text-red-500 transition-colors"
         >
@@ -656,51 +662,53 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={() => {
-                            setEditingSong(song);
-                            setViewMode('edit-song');
-                          }}
-                          className="p-2 text-gray-400 hover:text-blue-600"
-                        >
-                          <Edit2 className="w-5 h-5" />
-                        </button>
-                        {deletingId === song.id ? (
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeletingId(null);
-                              }}
-                              className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
-                            >
-                              Não
-                            </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteSong(song.id);
-                              }}
-                              className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
-                            >
-                              Sim
-                            </button>
-                          </div>
-                        ) : (
+                      {userRole === 'admin' && (
+                        <div className="flex items-center gap-1">
                           <button 
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setDeletingId(song.id);
+                            onClick={() => {
+                              setEditingSong(song);
+                              setViewMode('edit-song');
                             }}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                            className="p-2 text-gray-400 hover:text-blue-600"
                           >
-                            <Trash2 className="w-5 h-5" />
+                            <Edit2 className="w-5 h-5" />
                           </button>
-                        )}
-                      </div>
+                          {deletingId === song.id ? (
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeletingId(null);
+                                }}
+                                className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
+                              >
+                                Não
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteSong(song.id);
+                                }}
+                                className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
+                              >
+                                Sim
+                              </button>
+                            </div>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setDeletingId(song.id);
+                              }}
+                              className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -838,52 +846,54 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingPlaylist(playlist);
-                            setViewMode('edit-playlist');
-                          }}
-                          className="p-2 text-gray-400 hover:text-blue-600"
-                        >
-                          <Edit2 className="w-5 h-5" />
-                        </button>
-                        {deletingId === playlist.id ? (
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeletingId(null);
-                              }}
-                              className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
-                            >
-                              Não
-                            </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeletePlaylist(playlist.id);
-                              }}
-                              className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
-                            >
-                              Sim
-                            </button>
-                          </div>
-                        ) : (
+                      {userRole === 'admin' && (
+                        <div className="flex items-center gap-1">
                           <button 
-                            type="button"
                             onClick={(e) => {
-                              e.preventDefault();
                               e.stopPropagation();
-                              setDeletingId(playlist.id);
+                              setEditingPlaylist(playlist);
+                              setViewMode('edit-playlist');
                             }}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                            className="p-2 text-gray-400 hover:text-blue-600"
                           >
-                            <Trash2 className="w-5 h-5" />
+                            <Edit2 className="w-5 h-5" />
                           </button>
-                        )}
-                      </div>
+                          {deletingId === playlist.id ? (
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeletingId(null);
+                                }}
+                                className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
+                              >
+                                Não
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePlaylist(playlist.id);
+                                }}
+                                className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
+                              >
+                                Sim
+                              </button>
+                            </div>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setDeletingId(playlist.id);
+                              }}
+                              className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1076,7 +1086,7 @@ export default function App() {
       </main>
 
       {/* Floating Action Buttons */}
-      {viewMode === 'songs' && !editingSong && (
+      {viewMode === 'songs' && !editingSong && userRole === 'admin' && (
         <button 
           onClick={() => {
             setEditingSong({});
@@ -1088,7 +1098,7 @@ export default function App() {
         </button>
       )}
 
-      {activeTab === 'playlists' && viewMode === 'playlist-list' && (
+      {activeTab === 'playlists' && viewMode === 'playlist-list' && userRole === 'admin' && (
         <button 
           onClick={() => {
             setEditingPlaylist({ songIds: [] });

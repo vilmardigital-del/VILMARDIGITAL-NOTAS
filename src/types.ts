@@ -13,6 +13,25 @@ export const CATEGORIES: Category[] = [
   'Final'
 ];
 
+export type LiturgicalTime = 
+  | 'Tempo Comum' 
+  | 'Advento' 
+  | 'Natal' 
+  | 'Quaresma' 
+  | 'Páscoa' 
+  | 'Pentecostes' 
+  | 'Festas e Solenidades';
+
+export const LITURGICAL_TIMES: LiturgicalTime[] = [
+  'Tempo Comum',
+  'Advento',
+  'Natal',
+  'Quaresma',
+  'Páscoa',
+  'Pentecostes',
+  'Festas e Solenidades'
+];
+
 export interface Song {
   id: string;
   title: string;
@@ -33,4 +52,12 @@ export interface Playlist {
   ownerId: string;
   createdAt: any;
   updatedAt: any;
+}
+
+export interface AccessUser {
+  id: string;
+  name: string;
+  password: string;
+  role: 'admin' | 'viewer';
+  createdAt: any;
 }

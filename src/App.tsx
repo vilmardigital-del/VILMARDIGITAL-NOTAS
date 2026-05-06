@@ -44,7 +44,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
-import { CATEGORIES, Category, Song, Playlist } from './types';
+import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
+import { getLiturgicalSuggestions, Suggestion } from './services/suggestionsService';
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -60,7 +61,7 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
-const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => void }) => {
+const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer') => void, accessUsers: AccessUser[] }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
   const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || '4526';
@@ -68,6 +69,15 @@ const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => vo
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check dynamic users first
+    const foundUser = accessUsers.find(u => u.password === password);
+    if (foundUser) {
+      onUnlock(foundUser.role);
+      return;
+    }
+
+    // Fallback to Env passwords
     if (password === adminPassword) {
       onUnlock('admin');
     } else if (password === userPassword) {
@@ -117,7 +127,7 @@ const PasswordView = ({ onUnlock }: { onUnlock: (role: 'admin' | 'viewer') => vo
         transition={{ delay: 0.2 }}
         className="w-full max-w-xs"
       >
-        <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Vilmardigital</h1>
+        <h1 className="text-3xl font-bold text-[#dc6400] mb-2 tracking-tight">Vilmardigital</h1>
         <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -398,10 +408,16 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
+  
+  // User management state
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
   
   // Song selection/editing
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -415,9 +431,35 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
 
+  // AI Suggestions state
+  const [selectedLiturgicalTime, setSelectedLiturgicalTime] = useState<LiturgicalTime>('Tempo Comum');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [aiSuggestions, setAiSuggestions] = useState<Suggestion[]>([]);
+  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
+
+  const handleFetchAiSuggestions = async () => {
+    setIsSearchingSuggestions(true);
+    try {
+      const results = await getLiturgicalSuggestions(selectedLiturgicalTime, selectedDate);
+      setAiSuggestions(results);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsSearchingSuggestions(false);
+    }
+  };
+
   useEffect(() => {
-    setLoading(false);
+    // Initial loading handled by listeners
   }, []);
+
+  // Reset suggestions state when leaving the tab
+  useEffect(() => {
+    if (activeTab !== 'suggestions') {
+      setAiSuggestions([]);
+      setSelectedDate('');
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     // Songs Listener
@@ -446,9 +488,25 @@ export default function App() {
       console.error("Playlists listener error:", error);
     });
 
+    // Access Users Listener
+    const usersQuery = query(
+      collection(db, 'access_users'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AccessUser[];
+      setAccessUsers(docs);
+      setLoading(false); // Only stop loading after users are fetched
+    }, (error) => {
+      console.error("Users listener error:", error);
+      setLoading(false);
+    });
+
     return () => {
       unsubSongs();
       unsubPlaylists();
+      unsubUsers();
     };
   }, []);
 
@@ -497,6 +555,10 @@ export default function App() {
       };
 
       if (editingPlaylist.id) {
+        if (userRole !== 'admin') {
+          alert('Apenas administradores podem editar playlists existentes.');
+          return;
+        }
         await updateDoc(doc(db, 'playlists', editingPlaylist.id), data);
       } else {
         await addDoc(collection(db, 'playlists'), {
@@ -533,6 +595,35 @@ export default function App() {
     }
   };
 
+  const handleCreateAccessUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserName || !newUserPassword || saving) return;
+
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'access_users'), {
+        name: newUserName,
+        password: newUserPassword,
+        role: newUserRole,
+        createdAt: serverTimestamp()
+      });
+      setNewUserName('');
+      setNewUserPassword('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'access_users');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveAccessUser = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'access_users', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `access_users/${id}`);
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-600"></div>
@@ -541,10 +632,13 @@ export default function App() {
 
   if (!userRole) {
     return (
-      <PasswordView onUnlock={(role) => {
-        setUserRole(role);
-        localStorage.setItem('userRole', role);
-      }} />
+      <PasswordView 
+        accessUsers={accessUsers}
+        onUnlock={(role) => {
+          setUserRole(role);
+          localStorage.setItem('userRole', role);
+        }} 
+      />
     );
   }
 
@@ -589,7 +683,8 @@ export default function App() {
              viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
              viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
              viewMode === 'view-playlist' ? selectedPlaylist?.title : 
-             viewMode === 'suggestions' ? 'Sugestões para Missa' : ''}
+             viewMode === 'suggestions' ? 'Sugestões para Missa' : 
+             viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
           </h1>
         </div>
         <button 
@@ -863,8 +958,8 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      {userRole === 'admin' && (
-                        <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1">
+                        {userRole === 'admin' && (
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
@@ -875,42 +970,46 @@ export default function App() {
                           >
                             <Edit2 className="w-5 h-5" />
                           </button>
-                          {deletingId === playlist.id ? (
-                            <div className="flex items-center gap-1">
+                        )}
+                        {(userRole === 'admin' || userRole === 'viewer') && (
+                          <>
+                            {deletingId === playlist.id ? (
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeletingId(null);
+                                  }}
+                                  className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
+                                >
+                                  Não
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePlaylist(playlist.id);
+                                  }}
+                                  className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
+                                >
+                                  Sim
+                                </button>
+                              </div>
+                            ) : (
                               <button 
+                                type="button"
                                 onClick={(e) => {
+                                  e.preventDefault();
                                   e.stopPropagation();
-                                  setDeletingId(null);
+                                  setDeletingId(playlist.id);
                                 }}
-                                className="px-2 py-1 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg"
+                                className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
                               >
-                                Não
+                                <Trash2 className="w-5 h-5" />
                               </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeletePlaylist(playlist.id);
-                                }}
-                                className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
-                              >
-                                Sim
-                              </button>
-                            </div>
-                          ) : (
-                            <button 
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setDeletingId(playlist.id);
-                              }}
-                              className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          )}
-                        </div>
-                      )}
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1067,36 +1166,256 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="h-full flex flex-col"
+              className="h-full flex flex-col p-4"
             >
-              <div className="p-4 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="bg-orange-500 p-2 rounded-lg">
-                    <Sparkles className="text-white w-5 h-5" />
+              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-100">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-orange-500 p-2 rounded-xl">
+                    <Sparkles className="text-white w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-gray-900 text-sm">Músicas para Missa</h2>
-                    <p className="text-xs text-gray-500">Sugestões de repertório litúrgico</p>
+                    <h2 className="font-bold text-gray-900 text-lg">IA Sugestões</h2>
+                    <p className="text-sm text-gray-500">Busca inteligente de repertório na internet</p>
                   </div>
                 </div>
-                <a 
-                  href="https://musicasparamissa.com.br/" 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="bg-white border border-orange-200 px-3 py-1.5 rounded-lg text-xs font-bold text-orange-600 flex items-center gap-2"
-                >
-                  Abrir Original
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tempo Litúrgico</label>
+                      <div className="flex flex-wrap gap-2">
+                        {LITURGICAL_TIMES.map(time => (
+                          <button
+                            key={time}
+                            onClick={() => setSelectedLiturgicalTime(time)}
+                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                              selectedLiturgicalTime === time 
+                                ? 'bg-orange-600 text-white shadow-md' 
+                                : 'bg-orange-50 text-orange-600 hover:bg-orange-100'
+                            }`}
+                          >
+                            {time}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Data da Missa (Opcional)</label>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-600" />
+                        <input
+                          type="date"
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
+                          className="w-full bg-orange-50 border border-orange-100 text-orange-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleFetchAiSuggestions}
+                    disabled={isSearchingSuggestions}
+                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center text-center gap-2"
+                  >
+                    {isSearchingSuggestions ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Buscando Sugestões...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-5 h-5" />
+                        {selectedDate 
+                          ? `Gerar Sugestões para ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR')}` 
+                          : `Gerar Sugestões para ${selectedLiturgicalTime}`}
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-              
-              <div className="flex-1 min-h-[400px]">
-                <iframe 
-                  src="https://musicasparamissa.com.br/" 
-                  className="w-full h-full border-none"
-                  title="Sugestões para Missa"
-                  sandbox="allow-scripts allow-same-origin allow-popups"
-                />
+
+              {aiSuggestions.length > 0 ? (
+                <div className="space-y-8 pb-32">
+                  {/* Group suggestions by category */}
+                  {CATEGORIES.map(category => {
+                    const categorySuggestions = aiSuggestions.filter(s => 
+                      s.category.toLowerCase().includes(category.toLowerCase()) || 
+                      (category === 'Comum' && s.category.toLowerCase().includes('comunhão'))
+                    );
+                    
+                    if (categorySuggestions.length === 0) return null;
+
+                    return (
+                      <div key={category} className="space-y-3">
+                        <div className="flex items-center gap-2 px-1">
+                          <div className="text-orange-600">
+                            {getCategoryIcon(category, "w-5 h-5")}
+                          </div>
+                          <h3 className="font-bold text-gray-900 uppercase tracking-widest text-xs">{category}</h3>
+                        </div>
+                        <div className="grid gap-3">
+                          {categorySuggestions.map((suggestion, idx) => (
+                            <div 
+                              key={idx}
+                              className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm"
+                            >
+                              <div className="flex justify-between items-start mb-1">
+                                <h4 className="font-bold text-gray-900">{suggestion.title}</h4>
+                                {suggestion.artist && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                                    {suggestion.artist}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600 leading-relaxed">{suggestion.description}</p>
+                              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between">
+                                <span className="text-[10px] text-orange-600 font-bold uppercase tracking-widest bg-orange-50 px-2 py-1 rounded-md">
+                                  {suggestion.liturgicalTime}
+                                </span>
+                                <div className="flex gap-2">
+                                  {suggestion.url && (
+                                    <a 
+                                      href={suggestion.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-orange-600 hover:text-orange-700 font-bold flex items-center gap-1 transition-colors bg-orange-50 px-2 py-1 rounded-md"
+                                    >
+                                      Ver cifra na web
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  )}
+                                  <button 
+                                    onClick={() => {
+                                      setSearchTerm(suggestion.title);
+                                      setActiveTab('songs');
+                                      setViewMode('songs');
+                                      setSelectedCategory(category);
+                                    }}
+                                    className="text-[10px] text-gray-400 hover:text-orange-600 font-bold flex items-center gap-1 transition-colors"
+                                  >
+                                    Ver em minhas cifras
+                                    <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : !isSearchingSuggestions && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 py-20">
+                  <Sparkles className="w-16 h-16 mb-4" />
+                  <p className="text-lg font-medium">Selecione o tempo litúrgico<br/>e gere sugestões inteligentes</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* USER MANAGEMENT TAB (Admin only) */}
+          {activeTab === 'users' && userRole === 'admin' && (
+            <motion.div
+              key="manage-users"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 flex flex-col gap-6"
+            >
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-orange-500 p-2 rounded-xl">
+                    <Crown className="text-white w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-gray-900 text-lg">Gerenciar Acessos</h2>
+                    <p className="text-sm text-gray-500">Crie novos usuários e senhas</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateAccessUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
+                    <input 
+                      type="text"
+                      required
+                      value={newUserName}
+                      onChange={e => setNewUserName(e.target.value)}
+                      placeholder="Ex: João da Silva"
+                      className="w-full bg-orange-50 border border-orange-100 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
+                    <input 
+                      type="text"
+                      required
+                      value={newUserPassword}
+                      onChange={e => setNewUserPassword(e.target.value)}
+                      placeholder="Senha numérica ou texto"
+                      className="w-full bg-orange-50 border border-orange-100 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nível de Acesso</label>
+                    <div className="flex gap-2">
+                       <button
+                        type="button"
+                        onClick={() => setNewUserRole('viewer')}
+                        className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
+                          newUserRole === 'viewer' 
+                            ? 'bg-orange-600 text-white shadow-md' 
+                            : 'bg-orange-50 text-orange-600'
+                        }`}
+                      >
+                        Visualizador
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewUserRole('admin')}
+                        className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
+                          newUserRole === 'admin' 
+                            ? 'bg-orange-600 text-white shadow-md' 
+                            : 'bg-orange-50 text-orange-600'
+                        }`}
+                      >
+                        Administrador
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                  >
+                    {saving ? 'Criando...' : 'Cadastrar Usuário'}
+                  </button>
+                </form>
+              </div>
+
+              <div className="space-y-4 pb-32">
+                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">Usuários Cadastrados ({accessUsers.length})</h3>
+                 {accessUsers.map(user => (
+                   <div key={user.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                          {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-gray-900">{user.name}</h4>
+                          <p className="text-xs text-gray-400">Senha: <span className="font-mono">{user.password}</span></p>
+                        </div>
+                     </div>
+                     <button
+                      onClick={() => handleRemoveAccessUser(user.id)}
+                      className="p-2 text-gray-300 hover:text-red-500 transition-colors"
+                     >
+                       <X className="w-5 h-5" />
+                     </button>
+                   </div>
+                 ))}
               </div>
             </motion.div>
           )}
@@ -1116,7 +1435,7 @@ export default function App() {
         </button>
       )}
 
-      {activeTab === 'playlists' && viewMode === 'playlist-list' && userRole === 'admin' && (
+      {activeTab === 'playlists' && viewMode === 'playlist-list' && (userRole === 'admin' || userRole === 'viewer') && (
         <button 
           onClick={() => {
             setEditingPlaylist({ songIds: [] });
@@ -1160,6 +1479,18 @@ export default function App() {
           <Sparkles className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
         </button>
+        {userRole === 'admin' && (
+          <button 
+            onClick={() => {
+              setActiveTab('users');
+              setViewMode('manage-users');
+            }}
+            className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'users' ? 'text-white' : 'text-orange-200'}`}
+          >
+            <Lock className="w-6 h-6" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Acessos</span>
+          </button>
+        )}
       </nav>
 
       {/* Full Screen Song Viewer */}

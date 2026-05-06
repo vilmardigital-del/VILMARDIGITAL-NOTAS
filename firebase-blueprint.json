@@ -78,6 +78,18 @@
         }
       },
       "required": ["title", "songIds", "ownerId"]
+    },
+    "AccessUser": {
+      "title": "AccessUser",
+      "description": "A user with restricted or administrative access to the application.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "viewer"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "password", "role"]
     }
   },
   "firestore": {
@@ -88,6 +100,10 @@
     "/playlists/{playlistId}": {
       "schema": "Playlist",
       "description": "Collection of playlists for users."
+    },
+    "/access_users/{userId}": {
+      "schema": "AccessUser",
+      "description": "Collection of managed access users."
     }
   }
 }

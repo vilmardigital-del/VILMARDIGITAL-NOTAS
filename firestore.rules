@@ -25,7 +25,16 @@ service cloud.firestore {
     function isValidPlaylist(data) {
       return data.keys().hasAll(['title', 'songIds']) &&
              data.title is string && data.title.size() <= 200 &&
-             data.songIds is list && data.songIds.size() <= 50;
+             data.songIds is list && data.songIds.size() <= 60;
+    }
+
+    function isValidAccessUser(data) {
+      return data.keys().hasAll(['name', 'password', 'role', 'createdAt']) &&
+             data.keys().size() == 4 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.password is string && data.password.size() <= 100 &&
+             data.role in ['admin', 'viewer'] &&
+             data.createdAt == request.time;
     }
 
     match /songs/{songId} {
@@ -39,6 +48,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isValidPlaylist(request.resource.data);
       allow update: if isValidPlaylist(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /access_users/{userId} {
+      allow read: if true;
+      allow create: if isValidAccessUser(request.resource.data);
+      allow update: if isValidAccessUser(request.resource.data);
       allow delete: if true;
     }
   }

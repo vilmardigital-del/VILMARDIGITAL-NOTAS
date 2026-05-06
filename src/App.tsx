@@ -463,6 +463,12 @@ export default function App() {
       setLoading(false);
     }, 5000);
 
+    if (!db) {
+      console.error("Database connection failed. Please check your configuration.");
+      setLoading(false);
+      return () => clearTimeout(timeout);
+    }
+
     // Filtered songs for better performance
     const songsQuery = query(
       collection(db, 'songs'), 

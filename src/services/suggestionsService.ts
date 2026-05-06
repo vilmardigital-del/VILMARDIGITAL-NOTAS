@@ -1,6 +1,18 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let ai: GoogleGenAI | null = null;
+
+function getAi() {
+  if (!ai) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. AI suggestions will not work.");
+      return null;
+    }
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+}
 
 export interface Suggestion {
   title: string;
@@ -12,6 +24,9 @@ export interface Suggestion {
 }
 
 export async function getLiturgicalSuggestions(liturgicalTime: string, date?: string, category?: string): Promise<Suggestion[]> {
+  const gemini = getAi();
+  if (!gemini) return [];
+
   const prompt = `Envie sugestões de músicas católicas para missa. 
   ${date ? `Data Específica: ${date}` : `Tempo Litúrgico: ${liturgicalTime}`}
   ${category ? `Categoria: ${category}` : 'Todas as categorias (Entrada, Perdão, Glória, Salmos, Aleluia, Ofertório, Santo, Cordeiro, Comunhão/Comum, Final)'}
@@ -21,7 +36,7 @@ export async function getLiturgicalSuggestions(liturgicalTime: string, date?: st
   O resultado deve ser um JSON seguindo o esquema fornecido.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await gemini.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {

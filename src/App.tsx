@@ -449,10 +449,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    // Initial loading handled by listeners
-  }, []);
-
   // Reset suggestions state when leaving the tab
   useEffect(() => {
     if (activeTab !== 'suggestions') {
@@ -462,7 +458,12 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    // Songs Listener
+    // Safety timeout: stop loading after 5 seconds no matter what
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
+    // Filtered songs for better performance
     const songsQuery = query(
       collection(db, 'songs'), 
       orderBy('createdAt', 'desc')
@@ -475,7 +476,6 @@ export default function App() {
       console.error("Songs listener error:", error);
     });
 
-    // Playlists Listener
     const playlistsQuery = query(
       collection(db, 'playlists'),
       orderBy('createdAt', 'desc')
@@ -488,7 +488,6 @@ export default function App() {
       console.error("Playlists listener error:", error);
     });
 
-    // Access Users Listener
     const usersQuery = query(
       collection(db, 'access_users'),
       orderBy('createdAt', 'desc')
@@ -497,16 +496,19 @@ export default function App() {
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AccessUser[];
       setAccessUsers(docs);
-      setLoading(false); // Only stop loading after users are fetched
+      setLoading(false);
+      clearTimeout(timeout);
     }, (error) => {
       console.error("Users listener error:", error);
       setLoading(false);
+      clearTimeout(timeout);
     });
 
     return () => {
       unsubSongs();
       unsubPlaylists();
       unsubUsers();
+      clearTimeout(timeout);
     };
   }, []);
 

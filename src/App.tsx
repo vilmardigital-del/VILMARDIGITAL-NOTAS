@@ -1228,10 +1228,15 @@ export default function App() {
                     className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center text-center gap-2"
                   >
                     {isSearchingSuggestions ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Buscando Sugestões...
-                      </>
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Buscando Sugestões...</span>
+                        </div>
+                        <span className="text-[10px] font-normal opacity-80 animate-pulse">
+                          Pesquisando em sites litúrgicos (CNBB, Canção Nova, Catolicas.org...)
+                        </span>
+                      </div>
                     ) : (
                       <>
                         <Search className="w-5 h-5" />

@@ -27,12 +27,21 @@ export async function getLiturgicalSuggestions(liturgicalTime: string, date?: st
   const gemini = getAi();
   if (!gemini) return [];
 
-  const prompt = `Envie sugestões de músicas católicas para missa. 
+  const prompt = `Você é um especialista em liturgia católica. Sua tarefa é sugerir músicas apropriadas para a Missa, baseando-se no calendário litúrgico oficial da Igreja Católica no Brasil (CNBB).
+
   ${date ? `Data Específica: ${date}` : `Tempo Litúrgico: ${liturgicalTime}`}
-  ${category ? `Categoria: ${category}` : 'Todas as categorias (Entrada, Perdão, Glória, Salmos, Aleluia, Ofertório, Santo, Cordeiro, Comunhão/Comum, Final)'}
+  ${category ? `Categoria solicitada: ${category}` : 'Sugira músicas para todas as partes da missa (Entrada, Ato Penitencial, Glória, Salmo Responsorial, Aclamação ao Evangelho, Ofertório, Santo, Cordeiro, Comunhão, Pós-Comunhão e Final).'}
   
-  ${date ? `Por favor, faça uma busca na internet pela liturgia diária específica para o dia ${date}. Identifique as leituras e o tema do dia para sugerir músicas apropriadas.` : 'Por favor, faça uma busca na internet por seleções populares e liturgicamente corretas para o tempo litúrgico informado.'}
-  Para cada música sugerida, tente encontrar um link direto para a cifra ou letra (preferencialmente no ciferaclub.com.br ou musixmatch.com ou letras.mus.br).
+  INSTRUÇÕES DE BUSCA:
+  1. Utilize o Google Search para encontrar a "Liturgia Diária" para ${date ? `o dia ${date}` : `o tempo de ${liturgicalTime}`}.
+  2. Identifique as leituras (Primeira Leitura, Salmo, Segunda Leitura e Evangelho) e a temática central (Ex: Domingo de Páscoa, Pentecostes, 15º Domingo do Tempo Comum).
+  3. Busque sugestões de músicas EXCLUSIVAMENTE em sites católicos brasileiros confiáveis (Ex: musica.cancaonova.com, catolicas.org, oitavaeterna.org, portalkairos.org.br, dehonianos.org).
+  4. Para cada música sugerida, forneça:
+     - Título e Artista (se conhecido).
+     - Categoria litúrgica correta.
+     - Uma breve descrição explicando por que essa música se encaixa na liturgia do dia (relacionando com as leituras).
+     - Um link direto para a cifra ou letra (preferencialmente no Cifra Club ou Letras.mus.br).
+
   O resultado deve ser um JSON seguindo o esquema fornecido.`;
 
   try {

@@ -235,6 +235,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
+  const [fontSize, setFontSize] = useState(14); // Default font size in px
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -257,121 +258,162 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed inset-0 z-50 bg-white text-gray-900 p-6 overflow-auto"
+      className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
     >
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-8 sticky top-0 bg-white py-2 border-b border-gray-100 z-10">
-          <div className="flex items-center gap-4 flex-1 overflow-hidden">
-            {song.youtubeUrl && (
-              <button 
-                onClick={() => setShowPlayer(!showPlayer)}
-                className={`p-3 rounded-full transition-colors shrink-0 ${showPlayer ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-                title="Alternar Player de Vídeo"
-              >
-                <Youtube className="w-6 h-6" />
-              </button>
-            )}
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="text-orange-600">
-                  {getCategoryIcon(song.category, "w-4 h-4")}
-                </div>
-                <p className="text-sm text-gray-500 uppercase tracking-widest">{song.category}</p>
-              </div>
-              <h1 className="text-xl font-bold leading-tight truncate">{song.title}</h1>
+      {/* Header Fixo */}
+      <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
+        <div className="flex items-center gap-3 overflow-hidden mr-2">
+          <button 
+            onClick={onClose}
+            className="p-2 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full shrink-0"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold leading-tight truncate">{song.title}</h1>
+            <div className="flex items-center gap-1.5">
+              <span className="text-orange-500">{getCategoryIcon(song.category, "w-3 h-3")}</span>
+              <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{song.category}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-gray-100 rounded-full p-1 mr-2">
-              <button 
-                onClick={() => handleTranspose(-1)}
-                className="p-2 hover:bg-gray-200 rounded-full text-gray-600"
-                title="Diminuir Tom"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-              <span className="text-xs font-bold w-8 text-center text-orange-600">
-                {transpose > 0 ? `+${transpose}` : transpose}
-              </span>
-              <button 
-                onClick={() => handleTranspose(1)}
-                className="p-2 hover:bg-gray-200 rounded-full text-gray-600"
-                title="Aumentar Tom"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            {onPrev && (
-              <button onClick={onPrev} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200">
-                <ChevronLeft className="w-6 h-6" />
-              </button>
-            )}
-            {onNext && (
-              <button onClick={onNext} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200">
-                <ChevronRight className="w-6 h-6" />
-              </button>
-            )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {song.youtubeUrl && (
             <button 
-              onClick={onClose}
-              className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"
+              onClick={() => setShowPlayer(!showPlayer)}
+              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-red-600 text-white shadow-lg' : 'bg-red-50 text-red-600'}`}
+              title="YouTube"
             >
-              <Minimize2 className="w-6 h-6" />
+              <Youtube className="w-5 h-5" />
+            </button>
+          )}
+          
+          <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
+
+          <div className="flex items-center bg-gray-50 rounded-lg p-0.5">
+            <button 
+              onClick={() => handleTranspose(-1)}
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[11px] font-black w-7 text-center text-orange-600">
+              {transpose > 0 ? `+${transpose}` : transpose}
+            </span>
+            <button 
+              onClick={() => handleTranspose(1)}
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
-        </div>
-
-        {/* Floating Player */}
-        <AnimatePresence>
-          {showPlayer && song.youtubeUrl && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.8, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 20 }}
-              className="fixed bottom-24 left-4 right-4 md:right-auto md:left-8 md:w-80 z-40"
-            >
-              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-white aspect-video relative">
-                <button 
-                  onClick={() => setShowPlayer(false)}
-                  className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full hover:bg-black/80 z-10"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                  <iframe 
-                    src={getYoutubeEmbedUrl(song.youtubeUrl)!}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
-                    Link do YouTube inválido
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="whitespace-pre-wrap font-mono text-sm leading-tight pb-20">
-          {song.content.split('\n').map((line, i) => {
-            // Regex para detectar acordes comuns (A-G, sustenidos, bemóis, menores, sétimas, baixos alterados, etc)
-            const parts = line.split(/(\s+)/);
-            return (
-              <div key={i} className="min-h-[1.25rem]">
-                {parts.map((part, j) => {
-                  const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
-                  if (isChord) {
-                    const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
-                    return <span key={j} className="text-orange-500 font-bold">{part.replace(part.trim(), transposed)}</span>;
-                  }
-                  return <span key={j}>{part}</span>;
-                })}
-              </div>
-            );
-          })}
+          
+          <button 
+            onClick={onClose}
+            className="p-2 ml-1 text-gray-400 hover:bg-gray-100 rounded-full"
+          >
+            <Minimize2 className="w-5 h-5" />
+          </button>
         </div>
       </div>
+
+      {/* Área de Conteúdo */}
+      <div className="flex-1 overflow-auto bg-gray-50/30">
+        <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
+          <div 
+            style={{ fontSize: `${fontSize}px` }}
+            className="whitespace-pre-wrap font-mono leading-relaxed transition-all"
+          >
+            {song.content.split('\n').map((line, i) => {
+              const parts = line.split(/(\s+)/);
+              return (
+                <div key={i} className="min-h-[1.5em] relative">
+                  {parts.map((part, j) => {
+                    const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
+                    if (isChord) {
+                      const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
+                      return <span key={j} className="text-orange-600 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
+                    }
+                    return <span key={j} className="text-gray-800">{part}</span>;
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Toolbar Subordinada */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-2xl shadow-2xl z-30">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+          <button 
+            onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
+            className="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+          >
+            <span className="text-xs">A-</span>
+          </button>
+          <button 
+            onClick={() => setFontSize(prev => Math.min(30, prev + 2))}
+            className="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+          >
+            <span className="text-lg">A+</span>
+          </button>
+        </div>
+
+        {(onPrev || onNext) && (
+          <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-1">
+            <button 
+              disabled={!onPrev}
+              onClick={onPrev} 
+              className="w-10 h-10 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <div className="w-[1px] h-6 bg-orange-400"></div>
+            <button 
+              disabled={!onNext}
+              onClick={onNext} 
+              className="w-10 h-10 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Floating Player */}
+      <AnimatePresence>
+        {showPlayer && song.youtubeUrl && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 20 }}
+            className="fixed bottom-24 right-4 w-[280px] md:w-[400px] z-40 group"
+          >
+            <div className="bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white aspect-video relative">
+              <button 
+                onClick={() => setShowPlayer(false)}
+                className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
+                <iframe 
+                  src={getYoutubeEmbedUrl(song.youtubeUrl)!}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
+                  Link do YouTube inválido
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

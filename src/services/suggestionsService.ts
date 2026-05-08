@@ -4,9 +4,12 @@ let ai: GoogleGenAI | null = null;
 
 function getAi() {
   if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    // Try process.env first (defined in vite.config.ts), fallback to import.meta.env
+    const apiKey = (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined) || 
+                   import.meta.env.VITE_GEMINI_API_KEY;
+    
     if (!apiKey) {
-      console.warn("GEMINI_API_KEY is not defined. AI suggestions will not work.");
+      console.warn("GEMINI_API_KEY ou VITE_GEMINI_API_KEY não está definido. As sugestões de IA não funcionarão.");
       return null;
     }
     ai = new GoogleGenAI({ apiKey });

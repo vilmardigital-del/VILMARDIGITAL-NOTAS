@@ -225,19 +225,31 @@ const transposeChord = (chord: string, semitones: number) => {
   return trans(chord);
 };
 
-const FullScreenSong = ({ song, onClose, onPrev, onNext }: { 
+const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange }: { 
   song: Song, 
   onClose: () => void,
   onPrev?: () => void,
-  onNext?: () => void
+  onNext?: () => void,
+  initialTranspose?: number,
+  onTransposeChange?: (val: number) => void
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
-  const [transpose, setTranspose] = useState(0);
+  const [transpose, setTranspose] = useState(initialTranspose);
+
+  useEffect(() => {
+    setTranspose(initialTranspose);
+  }, [initialTranspose, song.id]);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = 'auto'; };
   }, []);
+
+  const handleTranspose = (delta: number) => {
+    const newVal = transpose + delta;
+    setTranspose(newVal);
+    onTransposeChange?.(newVal);
+  };
 
   return (
     <motion.div 
@@ -266,13 +278,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext }: {
                 </div>
                 <p className="text-sm text-gray-500 uppercase tracking-widest">{song.category}</p>
               </div>
-              <h1 className="text-2xl font-bold leading-tight truncate">{song.title}</h1>
+              <h1 className="text-xl font-bold leading-tight truncate">{song.title}</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-gray-100 rounded-full p-1 mr-2">
               <button 
-                onClick={() => setTranspose(prev => prev - 1)}
+                onClick={() => handleTranspose(-1)}
                 className="p-2 hover:bg-gray-200 rounded-full text-gray-600"
                 title="Diminuir Tom"
               >
@@ -282,7 +294,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext }: {
                 {transpose > 0 ? `+${transpose}` : transpose}
               </span>
               <button 
-                onClick={() => setTranspose(prev => prev + 1)}
+                onClick={() => handleTranspose(1)}
                 className="p-2 hover:bg-gray-200 rounded-full text-gray-600"
                 title="Aumentar Tom"
               >
@@ -426,6 +438,16 @@ export default function App() {
   
   // Playlist selection/editing
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  
+  // Sync selectedPlaylist with live data
+  useEffect(() => {
+    if (selectedPlaylist) {
+      const updated = playlists.find(p => p.id === selectedPlaylist.id);
+      if (updated) {
+        setSelectedPlaylist(updated);
+      }
+    }
+  }, [playlists]);
   const [editingPlaylist, setEditingPlaylist] = useState<Partial<Playlist> | null>(null);
   const [currentPlaylistSongIndex, setCurrentPlaylistSongIndex] = useState(0);
 
@@ -559,6 +581,7 @@ export default function App() {
         title: editingPlaylist.title || 'Nova Playlist',
         date: editingPlaylist.date || '',
         songIds: editingPlaylist.songIds || [],
+        transpositions: editingPlaylist.transpositions || {},
         updatedAt: serverTimestamp()
       };
 
@@ -629,6 +652,21 @@ export default function App() {
       await deleteDoc(doc(db, 'access_users', id));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `access_users/${id}`);
+    }
+  };
+
+  const handleTransposeChange = async (songId: string, transpose: number) => {
+    if (viewMode === 'view-playlist' && selectedPlaylist) {
+      try {
+        const transpositions = { ...(selectedPlaylist.transpositions || {}) };
+        transpositions[songId] = transpose;
+        await updateDoc(doc(db, 'playlists', selectedPlaylist.id), {
+          transpositions,
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Error saving transposition:", err);
+      }
     }
   };
 
@@ -1066,7 +1104,14 @@ export default function App() {
                       </div>
                       <div className="min-w-0">
                         <h3 className="font-bold text-gray-900 truncate">{song.title}</h3>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">{song.category}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">{song.category}</p>
+                          {selectedPlaylist.transpositions?.[song.id] !== undefined && selectedPlaylist.transpositions[song.id] !== 0 && (
+                            <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">
+                              {selectedPlaylist.transpositions[song.id] > 0 ? `+${selectedPlaylist.transpositions[song.id]}` : selectedPlaylist.transpositions[song.id]}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
@@ -1451,7 +1496,7 @@ export default function App() {
       {activeTab === 'playlists' && viewMode === 'playlist-list' && (userRole === 'admin' || userRole === 'viewer') && (
         <button 
           onClick={() => {
-            setEditingPlaylist({ songIds: [] });
+            setEditingPlaylist({ songIds: [], transpositions: {} });
             setViewMode('edit-playlist');
           }}
           className="fixed right-6 bottom-24 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
@@ -1512,6 +1557,8 @@ export default function App() {
           <FullScreenSong 
             song={viewingSong} 
             onClose={() => setViewingSong(null)} 
+            initialTranspose={viewMode === 'view-playlist' && selectedPlaylist ? (selectedPlaylist.transpositions?.[viewingSong.id] || 0) : 0}
+            onTransposeChange={(val) => handleTransposeChange(viewingSong.id, val)}
             onPrev={currentPlaylistSongIndex > 0 && viewMode === 'view-playlist' ? () => {
               const prevIndex = currentPlaylistSongIndex - 1;
               setCurrentPlaylistSongIndex(prevIndex);

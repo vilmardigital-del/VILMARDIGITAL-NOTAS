@@ -25,7 +25,8 @@ service cloud.firestore {
     function isValidPlaylist(data) {
       return data.keys().hasAll(['title', 'songIds']) &&
              data.title is string && data.title.size() <= 200 &&
-             data.songIds is list && data.songIds.size() <= 60;
+             data.songIds is list && data.songIds.size() <= 60 &&
+             (!('transpositions' in data) || data.transpositions is map);
     }
 
     function isValidAccessUser(data) {

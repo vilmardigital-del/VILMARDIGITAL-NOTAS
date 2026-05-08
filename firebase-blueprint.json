@@ -62,6 +62,11 @@
           "items": { "type": "string" },
           "description": "Ordered list of song IDs."
         },
+        "transpositions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" },
+          "description": "Map of songId to transposition level."
+        },
         "ownerId": {
           "type": "string",
           "description": "The user ID of the owner."

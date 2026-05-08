@@ -49,6 +49,7 @@ export interface Playlist {
   title: string;
   date?: string;
   songIds: string[];
+  transpositions?: Record<string, number>;
   ownerId: string;
   createdAt: any;
   updatedAt: any;

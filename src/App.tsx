@@ -40,12 +40,13 @@ import {
   Youtube,
   Minus,
   Disc,
-  Lock
+  Lock,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
-import { getLiturgicalSuggestions, Suggestion } from './services/suggestionsService';
+import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -61,11 +62,11 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
-const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer') => void, accessUsers: AccessUser[] }) => {
+const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string) => void, accessUsers: AccessUser[] }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || '4526';
-  const userPassword = import.meta.env.VITE_USER_PASSWORD || '7946';
+  const adminPassword = '4040';
+  const userPassword = '7946';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,15 +74,15 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
     // Check dynamic users first
     const foundUser = accessUsers.find(u => u.password === password);
     if (foundUser) {
-      onUnlock(foundUser.role);
+      onUnlock(foundUser.role, password);
       return;
     }
 
     // Fallback to Env passwords
     if (password === adminPassword) {
-      onUnlock('admin');
+      onUnlock('admin', password);
     } else if (password === userPassword) {
-      onUnlock('viewer');
+      onUnlock('viewer', password);
     } else {
       setError(true);
       setTimeout(() => setError(false), 2000);
@@ -458,6 +459,9 @@ export default function App() {
     const saved = localStorage.getItem('userRole');
     return (saved === 'admin' || saved === 'viewer') ? saved : null;
   });
+  const [userIdentifier, setUserIdentifier] = useState<string | null>(() => {
+    return localStorage.getItem('userIdentifier');
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [songs, setSongs] = useState<Song[]>([]);
@@ -495,31 +499,9 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
 
-  // AI Suggestions state
+  // Google Search state
   const [selectedLiturgicalTime, setSelectedLiturgicalTime] = useState<LiturgicalTime>('Tempo Comum');
   const [selectedDate, setSelectedDate] = useState('');
-  const [aiSuggestions, setAiSuggestions] = useState<Suggestion[]>([]);
-  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
-
-  const handleFetchAiSuggestions = async () => {
-    setIsSearchingSuggestions(true);
-    try {
-      const results = await getLiturgicalSuggestions(selectedLiturgicalTime, selectedDate);
-      setAiSuggestions(results);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsSearchingSuggestions(false);
-    }
-  };
-
-  // Reset suggestions state when leaving the tab
-  useEffect(() => {
-    if (activeTab !== 'suggestions') {
-      setAiSuggestions([]);
-      setSelectedDate('');
-    }
-  }, [activeTab]);
 
   useEffect(() => {
     // Safety timeout: stop loading after 5 seconds no matter what
@@ -624,12 +606,13 @@ export default function App() {
         date: editingPlaylist.date || '',
         songIds: editingPlaylist.songIds || [],
         transpositions: editingPlaylist.transpositions || {},
+        ownerId: editingPlaylist.id ? editingPlaylist.ownerId : userIdentifier,
         updatedAt: serverTimestamp()
       };
 
       if (editingPlaylist.id) {
-        if (userRole !== 'admin') {
-          alert('Apenas administradores podem editar playlists existentes.');
+        if (userRole !== 'admin' && editingPlaylist.ownerId !== userIdentifier) {
+          alert('Apenas administradores ou o dono da playlist podem editar.');
           return;
         }
         await updateDoc(doc(db, 'playlists', editingPlaylist.id), data);
@@ -718,13 +701,15 @@ export default function App() {
     </div>
   );
 
-  if (!userRole) {
+  if (!userRole || !userIdentifier) {
     return (
       <PasswordView 
         accessUsers={accessUsers}
-        onUnlock={(role) => {
+        onUnlock={(role, identifier) => {
           setUserRole(role);
+          setUserIdentifier(identifier);
           localStorage.setItem('userRole', role);
+          localStorage.setItem('userIdentifier', identifier);
         }} 
       />
     );
@@ -734,7 +719,9 @@ export default function App() {
     .filter(s => !selectedCategory || s.category === selectedCategory)
     .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const filteredPlaylists = playlists.filter(p => p.title.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredPlaylists = playlists
+    .filter(p => p.ownerId === userIdentifier || (!p.ownerId && userIdentifier === '4040'))
+    .filter(p => p.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
   // Active songs for currently viewed playlist
   const playlistSongs = selectedPlaylist 
@@ -778,7 +765,9 @@ export default function App() {
         <button 
           onClick={() => {
             setUserRole(null);
+            setUserIdentifier(null);
             localStorage.removeItem('userRole');
+            localStorage.removeItem('userIdentifier');
           }}
           className="p-2 text-gray-400 hover:text-red-500 transition-colors"
         >
@@ -1266,18 +1255,18 @@ export default function App() {
               <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-100">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="bg-orange-500 p-2 rounded-xl">
-                    <Sparkles className="text-white w-6 h-6" />
+                    <Search className="text-white w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-gray-900 text-lg">IA Sugestões</h2>
-                    <p className="text-sm text-gray-500">Busca inteligente de repertório na internet</p>
+                    <h2 className="font-bold text-gray-900 text-lg">Busca Litúrgica</h2>
+                    <p className="text-sm text-gray-500">Consulte a liturgia diária e sugestões no Google</p>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tempo Litúrgico</label>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Tempo Litúrgico</label>
                       <div className="flex flex-wrap gap-2">
                         {LITURGICAL_TIMES.map(time => (
                           <button
@@ -1296,7 +1285,7 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Data da Missa (Opcional)</label>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Data da Missa (Opcional)</label>
                       <div className="relative">
                         <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-600" />
                         <input
@@ -1309,110 +1298,58 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleFetchAiSuggestions}
-                    disabled={isSearchingSuggestions}
-                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center text-center gap-2"
-                  >
-                    {isSearchingSuggestions ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>Buscando Sugestões...</span>
-                        </div>
-                        <span className="text-[10px] font-normal opacity-80 animate-pulse">
-                          Pesquisando em sites litúrgicos (CNBB, Canção Nova, Catolicas.org...)
-                        </span>
-                      </div>
-                    ) : (
-                      <>
-                        <Search className="w-5 h-5" />
-                        {selectedDate 
-                          ? `Gerar Sugestões para ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR')}` 
-                          : `Gerar Sugestões para ${selectedLiturgicalTime}`}
-                      </>
-                    )}
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <a
+                      href={getGoogleSearchUrl(selectedLiturgicalTime, selectedDate)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center gap-3 bg-white border-2 border-orange-100 text-orange-600 py-4 rounded-2xl font-bold hover:bg-orange-50 transition-all text-sm shadow-sm"
+                    >
+                      <Search className="w-5 h-5" />
+                      Pesquisar Liturgia no Google
+                    </a>
+                    <a
+                      href={getMusicSuggestionsSearchUrl(selectedLiturgicalTime, selectedDate)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center gap-3 bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 hover:bg-orange-700 active:scale-95 transition-all text-sm"
+                    >
+                      <Music className="w-5 h-5" />
+                      Buscar Músicas de Sugestão
+                    </a>
+                  </div>
                 </div>
               </div>
 
-              {aiSuggestions.length > 0 ? (
-                <div className="space-y-8 pb-32">
-                  {/* Group suggestions by category */}
-                  {CATEGORIES.map(category => {
-                    const categorySuggestions = aiSuggestions.filter(s => 
-                      s.category.toLowerCase().includes(category.toLowerCase()) || 
-                      (category === 'Comum' && s.category.toLowerCase().includes('comunhão'))
-                    );
-                    
-                    if (categorySuggestions.length === 0) return null;
-
-                    return (
-                      <div key={category} className="space-y-3">
-                        <div className="flex items-center gap-2 px-1">
-                          <div className="text-orange-600">
-                            {getCategoryIcon(category, "w-5 h-5")}
-                          </div>
-                          <h3 className="font-bold text-gray-900 uppercase tracking-widest text-xs">{category}</h3>
-                        </div>
-                        <div className="grid gap-3">
-                          {categorySuggestions.map((suggestion, idx) => (
-                            <div 
-                              key={idx}
-                              className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm"
-                            >
-                              <div className="flex justify-between items-start mb-1">
-                                <h4 className="font-bold text-gray-900">{suggestion.title}</h4>
-                                {suggestion.artist && (
-                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
-                                    {suggestion.artist}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-sm text-gray-600 leading-relaxed">{suggestion.description}</p>
-                              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between">
-                                <span className="text-[10px] text-orange-600 font-bold uppercase tracking-widest bg-orange-50 px-2 py-1 rounded-md">
-                                  {suggestion.liturgicalTime}
-                                </span>
-                                <div className="flex gap-2">
-                                  {suggestion.url && (
-                                    <a 
-                                      href={suggestion.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-[10px] text-orange-600 hover:text-orange-700 font-bold flex items-center gap-1 transition-colors bg-orange-50 px-2 py-1 rounded-md"
-                                    >
-                                      Ver cifra na web
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                  )}
-                                  <button 
-                                    onClick={() => {
-                                      setSearchTerm(suggestion.title);
-                                      setActiveTab('songs');
-                                      setViewMode('songs');
-                                      setSelectedCategory(category);
-                                    }}
-                                    className="text-[10px] text-gray-400 hover:text-orange-600 font-bold flex items-center gap-1 transition-colors"
-                                  >
-                                    Ver em minhas cifras
-                                    <ChevronRight className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+              <div className="space-y-4">
+                <h3 className="font-bold text-gray-900 uppercase tracking-widest text-xs px-2">Links Rápidos e Fontes</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {LITURGY_SOURCES.map(source => (
+                    <a
+                      key={source.name}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center gap-2 text-center hover:shadow-md transition-all group"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-orange-50 transition-colors">
+                        <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-orange-600" />
                       </div>
-                    );
-                  })}
+                      <span className="text-xs font-bold text-gray-700">{source.name}</span>
+                    </a>
+                  ))}
                 </div>
-              ) : !isSearchingSuggestions && (
-                <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 py-20">
-                  <Sparkles className="w-16 h-16 mb-4" />
-                  <p className="text-lg font-medium">Selecione o tempo litúrgico<br/>e gere sugestões inteligentes</p>
+                
+                <div className="bg-orange-50/50 rounded-2xl p-6 mt-4 border border-orange-100/50">
+                  <h4 className="font-bold text-orange-800 text-sm mb-2 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Dica de Uso
+                  </h4>
+                  <p className="text-xs text-orange-700 leading-relaxed">
+                    Utilize os botões acima para encontrar a Liturgia Diária oficial e repertórios sugeridos por comunidades católicas. Você pode copiar o título da música encontrada e buscar diretamente na aba de <strong>Músicas</strong> do aplicativo para ver se já possui a cifra salva.
+                  </p>
                 </div>
-              )}
+              </div>
             </motion.div>
           )}
 

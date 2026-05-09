@@ -63,26 +63,28 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
 );
 
 const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string) => void, accessUsers: AccessUser[] }) => {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  const adminPassword = '4040';
-  const userPassword = '7946';
+  const adminUsername = 'Vilmardigital';
+  const adminPassword = '4526';
+  const userPasswordDefault = '7946';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     // Check dynamic users first
-    const foundUser = accessUsers.find(u => u.password === password);
+    const foundUser = accessUsers.find(u => u.name === username && u.password === password);
     if (foundUser) {
-      onUnlock(foundUser.role, password);
+      onUnlock(foundUser.role, foundUser.name);
       return;
     }
 
-    // Fallback to Env passwords
-    if (password === adminPassword) {
-      onUnlock('admin', password);
-    } else if (password === userPassword) {
-      onUnlock('viewer', password);
+    // Fallback to fixed credentials
+    if (username === adminUsername && password === adminPassword) {
+      onUnlock('admin', adminUsername);
+    } else if (username.toLowerCase() === 'usuario' && password === userPasswordDefault) {
+      onUnlock('viewer', 'Usuário Padrão');
     } else {
       setError(true);
       setTimeout(() => setError(false), 2000);
@@ -131,23 +133,44 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
         <h1 className="text-3xl font-bold text-[#dc6400] mb-2 tracking-tight">Vilmardigital</h1>
         <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="relative group">
-            <input 
-              type="password"
-              placeholder="Digite a senha de acesso"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={`w-full bg-zinc-900 border ${error ? 'border-red-500 bg-red-500/10' : 'border-zinc-800 focus:border-orange-500'} text-white px-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium text-center tracking-widest`}
-              autoFocus
-            />
+        <form onSubmit={handleSubmit} className="space-y-4 text-left">
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1">Login</label>
+            <div className="relative">
+              <LogIn className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
+              <input 
+                type="text"
+                placeholder="Seu nome de usuário"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={`w-full bg-zinc-900 border ${error ? 'border-red-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1">Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
+              <input 
+                type="password"
+                placeholder="Sua senha de acesso"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`w-full bg-zinc-900 border ${error ? 'border-red-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
+              />
+            </div>
+          </div>
+
+          <div className="h-6 relative">
             {error && (
               <motion.div 
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="absolute -bottom-6 left-0 right-0 text-red-500 text-xs font-medium"
+                className="absolute inset-0 text-red-500 text-xs font-medium text-center"
               >
-                Senha incorreta. Tente novamente.
+                Credenciais incorretas. Tente novamente.
               </motion.div>
             )}
           </div>
@@ -156,7 +179,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-orange-600/30 mt-2"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-orange-600/30"
           >
             Acessar
           </motion.button>

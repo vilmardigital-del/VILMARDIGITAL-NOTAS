@@ -1,6 +1,7 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfigJSON from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
@@ -21,3 +22,4 @@ const app = !getApps().length && firebaseConfig.apiKey
 
 export const db = app ? getFirestore(app, databaseId) : null as any;
 export const auth = app ? getAuth(app) : null as any;
+export const storage = app ? getStorage(app) : null as any;

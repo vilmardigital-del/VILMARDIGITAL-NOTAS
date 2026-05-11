@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  signInAnonymously,
+  onAuthStateChanged
+} from 'firebase/auth';
+import { 
   collection, 
   query, 
   onSnapshot, 
@@ -8,8 +12,15 @@ import {
   deleteDoc, 
   doc, 
   serverTimestamp,
-  orderBy
+  orderBy,
+  where
 } from 'firebase/firestore';
+import { 
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} from 'firebase/storage';
 import { 
   Heart,
   Sun,
@@ -39,26 +50,49 @@ import {
   X,
   Youtube,
   Minus,
-  Disc,
+  FileText,
   Lock,
-  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, db } from './lib/firebase';
+import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
 import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
+
+const getYoutubeId = (url: string) => {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   <div className={`relative flex items-center justify-center ${className}`}>
+    {/* Rosário Beads SVG */}
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible">
+      {/* Circunferência do Rosário - Contas */}
+      {[...Array(12)].map((_, i) => {
+        const radiusX = 48;
+        const radiusY = 48;
+        const angle = (i * 360 / 12) - 90;
+        const rad = (angle * Math.PI) / 180;
+        const x = 50 + radiusX * Math.cos(rad);
+        const y = 48 + radiusY * Math.sin(rad);
+        return <circle key={i} cx={x} cy={y} r="2.5" fill="#f97316" className="opacity-60" />;
+      })}
+      {/* Medalha e Cruz na parte de baixo */}
+      <circle cx="50" cy="94" r="3" fill="#f97316" />
+      <path d="M50 96 L50 103" stroke="#f97316" strokeWidth="2" strokeLinecap="round" />
+      <path d="M47 99 L53 99" stroke="#f97316" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+    
     {/* Guitar Pick Shape SVG */}
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full drop-shadow-sm">
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-[80%] h-[80%] left-[10%] top-[8%] drop-shadow-sm">
       <path 
         d="M 10 32 C 10 15 25 2 50 2 C 75 2 90 15 90 32 C 90 55 65 92 50 98 C 35 92 10 55 10 32 Z" 
-        fill="#ea580c" 
+        fill="#f97316" 
       />
     </svg>
-    <Music className="relative z-10 w-[45%] h-[45%] text-white -translate-y-1" />
+    <Music className="relative z-10 w-[35%] h-[35%] text-white -translate-y-1" />
   </div>
 );
 
@@ -73,17 +107,23 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    const normalizedUsername = username.trim();
+    const normalizedPassword = password.trim();
+
     // Check dynamic users first
-    const foundUser = accessUsers.find(u => u.name === username && u.password === password);
+    const foundUser = accessUsers.find(u => 
+      u.name.toLowerCase() === normalizedUsername.toLowerCase() && 
+      u.password === normalizedPassword
+    );
     if (foundUser) {
       onUnlock(foundUser.role, foundUser.name);
       return;
     }
 
     // Fallback to fixed credentials
-    if (username === adminUsername && password === adminPassword) {
+    if (normalizedUsername.toLowerCase() === adminUsername.toLowerCase() && normalizedPassword === adminPassword) {
       onUnlock('admin', adminUsername);
-    } else if (username.toLowerCase() === 'usuario' && password === userPasswordDefault) {
+    } else if (normalizedUsername.toLowerCase() === 'usuario' && normalizedPassword === userPasswordDefault) {
       onUnlock('viewer', 'Usuário Padrão');
     } else {
       setError(true);
@@ -92,7 +132,11 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 px-6 text-center select-none overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-orange-50 px-6 text-center select-none overflow-hidden relative">
+      {/* Background decoration */}
+      <div className="absolute -top-20 -right-20 w-64 h-64 bg-orange-100/50 blur-[100px] rounded-full" />
+      <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-orange-100/50 blur-[100px] rounded-full" />
+      
       <motion.div 
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -118,9 +162,9 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
           className="absolute inset-0 bg-orange-500 rounded-full blur-3xl"
         />
         
-        <div className="relative w-32 h-32 bg-white rounded-[32px] flex items-center justify-center p-5 shadow-2xl shadow-orange-500/20 group hover:shadow-orange-500/30 transition-all duration-500">
-          <Logo className="w-20 h-20" />
-          <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 to-transparent rounded-[32px] pointer-events-none" />
+        <div className="relative w-48 h-48 bg-white rounded-[48px] flex items-center justify-center p-8 shadow-2xl shadow-orange-500/10 group hover:shadow-orange-500/20 transition-all duration-500">
+          <Logo className="w-32 h-32" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 to-transparent rounded-[48px] pointer-events-none" />
         </div>
       </motion.div>
 
@@ -130,11 +174,11 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
         transition={{ delay: 0.2 }}
         className="w-full max-w-xs"
       >
-        <h1 className="text-3xl font-bold text-[#dc6400] mb-2 tracking-tight">Vilmardigital</h1>
+        <h1 className="text-3xl font-bold text-orange-600 mb-2 tracking-tight font-display">Vilmardigital</h1>
         <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-left">
-          <div className="space-y-1.5">
+        <form onSubmit={handleSubmit} className="space-y-1 text-left">
+          <div className="space-y-0.5">
             <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1">Login</label>
             <div className="relative">
               <LogIn className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
@@ -143,14 +187,14 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Seu nome de usuário"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-red-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
                 autoFocus
               />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1">Senha</label>
+          <div className="space-y-0.5">
+            <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1 font-sans">Senha</label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
               <input 
@@ -158,17 +202,17 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Sua senha de acesso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-red-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-4 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
               />
             </div>
           </div>
 
-          <div className="h-6 relative">
+          <div className="h-3 relative">
             {error && (
               <motion.div 
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="absolute inset-0 text-red-500 text-xs font-medium text-center"
+                className="absolute inset-0 text-orange-600 text-[10px] font-bold text-center"
               >
                 Credenciais incorretas. Tente novamente.
               </motion.div>
@@ -179,7 +223,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-orange-600/30"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-orange-600/20 font-display uppercase tracking-wider text-sm"
           >
             Acessar
           </motion.button>
@@ -203,7 +247,9 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Salmos': return <Music className={className} />;
     case 'Cordeiro': return <Heart className={className} />;
     case 'Ofertório': return <Gift className={className} />;
+    case 'Comunhão': return <Layers className={className} />;
     case 'Final': return <Flag className={className} />;
+    case 'Comum': return <Music className={className} />;
     default: return <Music className={className} />;
   }
 };
@@ -296,7 +342,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           <div className="min-w-0">
             <h1 className="text-lg font-bold leading-tight truncate">{song.title}</h1>
             <div className="flex items-center gap-1.5">
-              <span className="text-orange-500">{getCategoryIcon(song.category, "w-3 h-3")}</span>
+            <span className="text-orange-600">{getCategoryIcon(song.category, "w-3 h-3")}</span>
               <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{song.category}</span>
             </div>
           </div>
@@ -306,7 +352,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           {song.youtubeUrl && (
             <button 
               onClick={() => setShowPlayer(!showPlayer)}
-              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-red-600 text-white shadow-lg' : 'bg-red-50 text-red-600'}`}
+              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600'}`}
               title="YouTube"
             >
               <Youtube className="w-5 h-5" />
@@ -322,7 +368,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[11px] font-black w-7 text-center text-orange-600">
+            <span className="text-[11px] font-black w-7 text-center text-orange-700">
               {transpose > 0 ? `+${transpose}` : transpose}
             </span>
             <button 
@@ -357,7 +403,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                     const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
                     if (isChord) {
                       const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
-                      return <span key={j} className="text-orange-600 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
+                      return <span key={j} className="text-orange-700 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
                     }
                     return <span key={j} className="text-gray-800">{part}</span>;
                   })}
@@ -492,8 +538,12 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'youtube' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'youtube' | 'manage-users'>('categories');
+  
+  // YouTube State
+  const [youtubeSearchTerm, setYoutubeSearchTerm] = useState('');
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   
   // User management state
   const [newUserName, setNewUserName] = useState('');
@@ -522,7 +572,7 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Google Search state
+  // Song selection/editing
   const [selectedLiturgicalTime, setSelectedLiturgicalTime] = useState<LiturgicalTime>('Tempo Comum');
   const [selectedDate, setSelectedDate] = useState('');
 
@@ -719,7 +769,7 @@ export default function App() {
   };
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center bg-orange-50">
       <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-600"></div>
     </div>
   );
@@ -733,6 +783,10 @@ export default function App() {
           setUserIdentifier(identifier);
           localStorage.setItem('userRole', role);
           localStorage.setItem('userIdentifier', identifier);
+          setActiveTab('songs');
+          setViewMode('categories');
+          setSelectedCategory(null);
+          setSearchTerm('');
         }} 
       />
     );
@@ -752,7 +806,12 @@ export default function App() {
     : [];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50/50 to-white flex flex-col font-sans selection:bg-orange-100 selection:text-orange-900">
+      {/* Background decoration elements */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-30 -z-10">
+        <div className="absolute -top-[10%] -right-[10%] w-[50%] h-[50%] bg-orange-100/50 blur-[120px] rounded-full" />
+        <div className="absolute bottom-[20%] -left-[10%] w-[40%] h-[40%] bg-orange-50/50 blur-[100px] rounded-full" />
+      </div>
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
@@ -792,7 +851,7 @@ export default function App() {
             localStorage.removeItem('userRole');
             localStorage.removeItem('userIdentifier');
           }}
-          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+          className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
         >
           <Lock className="w-5 h-5" />
         </button>
@@ -863,7 +922,7 @@ export default function App() {
                         onClick={() => setViewingSong(song)}
                         className="flex-1 cursor-pointer overflow-hidden flex items-center gap-3"
                       >
-                        <div className="shrink-0 text-orange-600 bg-orange-50 p-2 rounded-lg">
+                        <div className="shrink-0 text-orange-700 bg-orange-50 p-2 rounded-lg">
                           {getCategoryIcon(song.category, "w-4 h-4")}
                         </div>
                         <div className="min-w-0">
@@ -900,7 +959,7 @@ export default function App() {
                                   e.stopPropagation();
                                   handleDeleteSong(song.id);
                                 }}
-                                className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
+                                className="px-2 py-1 text-xs font-bold text-white bg-orange-600 rounded-lg shadow-sm"
                               >
                                 Sim
                               </button>
@@ -913,7 +972,7 @@ export default function App() {
                                 e.stopPropagation();
                                 setDeletingId(song.id);
                               }}
-                              className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                              className="p-2 text-gray-400 hover:text-orange-600 transition-colors z-10 cursor-pointer"
                             >
                               <Trash2 className="w-5 h-5" />
                             </button>
@@ -1089,7 +1148,7 @@ export default function App() {
                                     e.stopPropagation();
                                     handleDeletePlaylist(playlist.id);
                                   }}
-                                  className="px-2 py-1 text-xs font-bold text-white bg-red-600 rounded-lg shadow-sm"
+                                  className="px-2 py-1 text-xs font-bold text-white bg-orange-600 rounded-lg shadow-sm"
                                 >
                                   Sim
                                 </button>
@@ -1102,7 +1161,7 @@ export default function App() {
                                   e.stopPropagation();
                                   setDeletingId(playlist.id);
                                 }}
-                                className="p-2 text-gray-400 hover:text-red-500 transition-colors z-10 cursor-pointer"
+                                className="p-2 text-gray-400 hover:text-orange-600 transition-colors z-10 cursor-pointer"
                               >
                                 <Trash2 className="w-5 h-5" />
                               </button>
@@ -1147,7 +1206,7 @@ export default function App() {
                       setCurrentPlaylistSongIndex(index);
                       setViewingSong(song);
                     }}
-                    className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left"
+                    className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all"
                   >
                     <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm">
                       {index + 1}
@@ -1275,9 +1334,9 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="h-full flex flex-col p-4"
             >
-              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-100">
+              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-200">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-orange-500 p-2 rounded-xl">
+                  <div className="bg-orange-600 p-2 rounded-xl">
                     <Search className="text-white w-6 h-6" />
                   </div>
                   <div>
@@ -1297,8 +1356,8 @@ export default function App() {
                             onClick={() => setSelectedLiturgicalTime(time)}
                             className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
                               selectedLiturgicalTime === time 
-                                ? 'bg-orange-600 text-white shadow-md' 
-                                : 'bg-orange-50 text-orange-600 hover:bg-orange-100'
+                              ? 'bg-orange-600 text-white shadow-md' 
+                              : 'bg-orange-50 text-orange-600 hover:bg-orange-100'
                             }`}
                           >
                             {time}
@@ -1310,12 +1369,12 @@ export default function App() {
                     <div>
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Data da Missa (Opcional)</label>
                       <div className="relative">
-                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-600" />
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-600" />
                         <input
                           type="date"
                           value={selectedDate}
                           onChange={(e) => setSelectedDate(e.target.value)}
-                          className="w-full bg-orange-50 border border-orange-100 text-orange-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                          className="w-full bg-orange-50 border border-orange-200 text-orange-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                         />
                       </div>
                     </div>
@@ -1326,7 +1385,7 @@ export default function App() {
                       href={getGoogleSearchUrl(selectedLiturgicalTime, selectedDate)}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-center gap-3 bg-white border-2 border-orange-100 text-orange-600 py-4 rounded-2xl font-bold hover:bg-orange-50 transition-all text-sm shadow-sm"
+                      className="flex items-center justify-center gap-3 bg-white border-2 border-orange-200 text-orange-600 py-4 rounded-2xl font-bold hover:bg-orange-50 transition-all text-sm shadow-sm"
                     >
                       <Search className="w-5 h-5" />
                       Pesquisar Liturgia no Google
@@ -1363,7 +1422,7 @@ export default function App() {
                   ))}
                 </div>
                 
-                <div className="bg-orange-50/50 rounded-2xl p-6 mt-4 border border-orange-100/50">
+                <div className="bg-orange-50/50 rounded-2xl p-6 mt-4 border border-orange-200/50">
                   <h4 className="font-bold text-orange-800 text-sm mb-2 flex items-center gap-2">
                     <FileText className="w-4 h-4" />
                     Dica de Uso
@@ -1376,6 +1435,99 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* YOUTUBE TAB */}
+          {activeTab === 'youtube' && (
+            <motion.div
+              key="youtube"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 flex flex-col gap-6 pb-32"
+            >
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-200">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-orange-600 p-2 rounded-xl">
+                    <Youtube className="text-white w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-gray-900 text-lg">YouTube Music</h2>
+                    <p className="text-sm text-gray-500">Busque e assista apresentações</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Pesquise música ou cole link do YouTube..."
+                      value={youtubeSearchTerm}
+                      onChange={(e) => {
+                        setYoutubeSearchTerm(e.target.value);
+                        const id = getYoutubeId(e.target.value);
+                        if (id) setSelectedVideoId(id);
+                      }}
+                      className="w-full bg-zinc-50 border border-zinc-200 text-gray-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (!youtubeSearchTerm) return;
+                        const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeSearchTerm)}`;
+                        window.open(url, '_blank');
+                      }}
+                      className="flex-1 bg-zinc-100 text-zinc-600 py-3 rounded-xl font-bold text-xs hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Buscar no YouTube
+                    </button>
+                    {youtubeSearchTerm && !selectedVideoId && (
+                      <button
+                        onClick={() => {
+                          // If it's not a link, try searching via embed API or just helpful message
+                          alert("Para exibir o vídeo aqui, cole o link completo do YouTube ou o código do vídeo.");
+                        }}
+                        className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold text-xs shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all"
+                      >
+                        Visualizar Vídeo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {selectedVideoId ? (
+                <div className="bg-black rounded-3xl overflow-hidden shadow-2xl aspect-video border-4 border-white">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    src={`https://www.youtube.com/embed/${selectedVideoId}?autoplay=1`}
+                    title="YouTube video player"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              ) : (
+                <div className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-3xl py-16 flex flex-col items-center justify-center text-zinc-400">
+                  <Youtube className="w-16 h-16 mb-4 opacity-20" />
+                  <p className="text-sm font-medium">Nenhum vídeo selecionado</p>
+                  <p className="text-[10px] mt-1">Cole um link para assistir aqui</p>
+                </div>
+              )}
+
+              {selectedVideoId && (
+                <button
+                  onClick={() => setSelectedVideoId(null)}
+                  className="bg-white border border-zinc-200 text-zinc-500 py-3 rounded-2xl font-bold text-xs hover:bg-zinc-50 transition-all"
+                >
+                  Fechar Player
+                </button>
+              )}
+            </motion.div>
+          )}
+
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
             <motion.div
@@ -1384,9 +1536,9 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="p-4 flex flex-col gap-6"
             >
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100">
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-200">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-orange-500 p-2 rounded-xl">
+                  <div className="bg-orange-600 p-2 rounded-xl">
                     <Crown className="text-white w-6 h-6" />
                   </div>
                   <div>
@@ -1404,7 +1556,7 @@ export default function App() {
                       value={newUserName}
                       onChange={e => setNewUserName(e.target.value)}
                       placeholder="Ex: João da Silva"
-                      className="w-full bg-orange-50 border border-orange-100 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                     />
                   </div>
                   <div>
@@ -1415,7 +1567,7 @@ export default function App() {
                       value={newUserPassword}
                       onChange={e => setNewUserPassword(e.target.value)}
                       placeholder="Senha numérica ou texto"
-                      className="w-full bg-orange-50 border border-orange-100 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                     />
                   </div>
                   <div>
@@ -1470,7 +1622,7 @@ export default function App() {
                      </div>
                      <button
                       onClick={() => handleRemoveAccessUser(user.id)}
-                      className="p-2 text-gray-300 hover:text-red-500 transition-colors"
+                      className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
                      >
                        <X className="w-5 h-5" />
                      </button>
@@ -1538,6 +1690,16 @@ export default function App() {
         >
           <Sparkles className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
+        </button>
+        <button 
+          onClick={() => {
+            setActiveTab('youtube');
+            setViewMode('youtube');
+          }}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'youtube' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Youtube className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">YouTube</span>
         </button>
         {userRole === 'admin' && (
           <button 

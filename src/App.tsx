@@ -96,7 +96,7 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
-const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string) => void, accessUsers: AccessUser[] }) => {
+const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string, id?: string) => void, accessUsers: AccessUser[] }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
@@ -116,7 +116,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
       u.password === normalizedPassword
     );
     if (foundUser) {
-      onUnlock(foundUser.role, foundUser.name);
+      onUnlock(foundUser.role, foundUser.name, foundUser.id);
       return;
     }
 
@@ -531,6 +531,54 @@ export default function App() {
   const [userIdentifier, setUserIdentifier] = useState<string | null>(() => {
     return localStorage.getItem('userIdentifier');
   });
+  const [userProfilePic, setUserProfilePic] = useState<string | null>(() => {
+    const id = localStorage.getItem('userIdentifier');
+    return id ? localStorage.getItem(`profilePic_${id}`) : null;
+  });
+
+  // Sync profile pic when user changes
+  useEffect(() => {
+    if (userIdentifier) {
+      setUserProfilePic(localStorage.getItem(`profilePic_${userIdentifier}`));
+    } else {
+      setUserProfilePic(null);
+    }
+  }, [userIdentifier]);
+
+  const [userId, setUserId] = useState<string | null>(() => {
+    return localStorage.getItem('userId');
+  });
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    return localStorage.getItem('sessionId');
+  });
+
+  const handleLogout = () => {
+    setUserRole(null);
+    setUserIdentifier(null);
+    setUserId(null);
+    setSessionId(null);
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userIdentifier');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('sessionId');
+  };
+
+  // Session monitor
+  useEffect(() => {
+    if (userId && sessionId) {
+      const unsub = onSnapshot(doc(db, 'access_users', userId), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as AccessUser;
+          if (data.currentSessionId && data.currentSessionId !== sessionId) {
+            handleLogout();
+            alert("Aviso: Sua conta foi conectada em outro dispositivo. Você foi desconectado para garantir a segurança.");
+          }
+        }
+      });
+      return () => unsub();
+    }
+  }, [userId, sessionId]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [songs, setSongs] = useState<Song[]>([]);
@@ -571,6 +619,19 @@ export default function App() {
   const [currentPlaylistSongIndex, setCurrentPlaylistSongIndex] = useState(0);
 
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userIdentifier) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setUserProfilePic(base64);
+      localStorage.setItem(`profilePic_${userIdentifier}`, base64);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Song selection/editing
   const [selectedLiturgicalTime, setSelectedLiturgicalTime] = useState<LiturgicalTime>('Tempo Comum');
@@ -778,11 +839,27 @@ export default function App() {
     return (
       <PasswordView 
         accessUsers={accessUsers}
-        onUnlock={(role, identifier) => {
+        onUnlock={async (role, identifier, id) => {
+          const newSession = Math.random().toString(36).substring(2) + Date.now().toString(36);
+          
+          if (id) {
+            try {
+              await updateDoc(doc(db, 'access_users', id), {
+                currentSessionId: newSession
+              });
+            } catch (err) {
+              console.error("Error securing session:", err);
+            }
+          }
+
           setUserRole(role);
           setUserIdentifier(identifier);
+          setUserId(id || null);
+          setSessionId(newSession);
           localStorage.setItem('userRole', role);
           localStorage.setItem('userIdentifier', identifier);
+          if (id) localStorage.setItem('userId', id);
+          localStorage.setItem('sessionId', newSession);
           setActiveTab('songs');
           setViewMode('categories');
           setSelectedCategory(null);
@@ -813,8 +890,9 @@ export default function App() {
         <div className="absolute bottom-[20%] -left-[10%] w-[40%] h-[40%] bg-orange-50/50 blur-[100px] rounded-full" />
       </div>
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
+        {/* Left Section: Back or Logo */}
+        <div className="flex-1 flex items-center">
           {viewMode !== 'categories' && viewMode !== 'playlist-list' ? (
             <button 
               onClick={() => {
@@ -823,7 +901,7 @@ export default function App() {
                 else if (viewMode === 'edit-playlist') setViewMode('playlist-list');
                 else if (viewMode === 'view-playlist') setViewMode('playlist-list');
               }}
-              className="p-1 -ml-1 text-gray-500"
+              className="p-2 -ml-2 text-gray-500 hover:bg-gray-50 rounded-full transition-colors"
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
@@ -831,30 +909,58 @@ export default function App() {
             <div className="shrink-0 bg-white rounded-lg p-0.5 shadow-sm border border-gray-100">
               <Logo className="w-8 h-8" />
             </div>
-          )
-        }
-          <h1 className="font-bold text-lg text-gray-900 flex items-center gap-2">
-            <span className={viewMode === 'categories' ? "inline" : "hidden sm:inline"}>Vilmardigital</span>
-            {viewMode === 'playlist-list' ? 'Playlists' :
-             viewMode === 'songs' ? selectedCategory : 
-             viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
-             viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
-             viewMode === 'view-playlist' ? selectedPlaylist?.title : 
-             viewMode === 'suggestions' ? 'Sugestões para Missa' : 
-             viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
-          </h1>
+          )}
         </div>
-        <button 
-          onClick={() => {
-            setUserRole(null);
-            setUserIdentifier(null);
-            localStorage.removeItem('userRole');
-            localStorage.removeItem('userIdentifier');
-          }}
-          className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
-        >
-          <Lock className="w-5 h-5" />
-        </button>
+
+        {/* Center Section: User Info (Centered) */}
+        <div className="flex flex-col items-center justify-center gap-1 min-w-0 px-2 max-w-[60%]">
+          <label className="relative cursor-pointer group" title="Mudar foto de perfil">
+            <input 
+              type="file" 
+              className="hidden" 
+              accept="image/*"
+              onChange={handleProfilePicUpload}
+            />
+            <div className="w-10 h-10 rounded-full bg-orange-100 border-2 border-white shadow-sm flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+              {userProfilePic ? (
+                <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-sm">
+                  {userIdentifier?.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <Plus className="w-3 h-3 text-white" />
+              </div>
+            </div>
+          </label>
+          <div className="flex flex-col items-center min-w-0 w-full">
+            <h1 className="font-black text-xs text-zinc-900 uppercase tracking-widest truncate w-full text-center">
+              {userIdentifier || 'Vilmardigital'}
+            </h1>
+            <p className="text-[9px] font-bold text-orange-600 uppercase truncate w-full text-center tracking-tighter">
+              {viewMode === 'categories' ? 'Menu Principal' :
+               viewMode === 'playlist-list' ? 'Playlists' :
+               viewMode === 'songs' ? selectedCategory : 
+               viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
+               viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
+               viewMode === 'view-playlist' ? selectedPlaylist?.title : 
+               viewMode === 'suggestions' ? 'Sugestões' : 
+               viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Right Section: Logout */}
+        <div className="flex-1 flex items-center justify-end">
+          <button 
+            onClick={handleLogout}
+            className="p-2 -mr-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
+            title="Sair"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 overflow-auto pb-32">
@@ -1479,7 +1585,7 @@ export default function App() {
                       }}
                       className="flex-1 bg-zinc-100 text-zinc-600 py-3 rounded-xl font-bold text-xs hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <Search className="w-4 h-4" />
                       Buscar no YouTube
                     </button>
                     {youtubeSearchTerm && !selectedVideoId && (

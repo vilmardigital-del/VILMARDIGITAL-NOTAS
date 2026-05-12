@@ -92,6 +92,7 @@
         "name": { "type": "string" },
         "password": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "viewer"] },
+        "currentSessionId": { "type": "string", "description": "ID of the current active session." },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "password", "role"]

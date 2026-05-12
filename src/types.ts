@@ -61,5 +61,6 @@ export interface AccessUser {
   name: string;
   password: string;
   role: 'admin' | 'viewer';
+  currentSessionId?: string;
   createdAt: any;
 }

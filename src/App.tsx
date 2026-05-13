@@ -162,8 +162,8 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
           className="absolute inset-0 bg-orange-500 rounded-full blur-3xl"
         />
         
-        <div className="relative w-48 h-48 bg-white rounded-[48px] flex items-center justify-center p-8 shadow-2xl shadow-orange-500/10 group hover:shadow-orange-500/20 transition-all duration-500">
-          <Logo className="w-32 h-32" />
+        <div className="relative w-64 h-64 bg-white rounded-[56px] flex items-center justify-center p-10 shadow-2xl shadow-orange-500/10 group hover:shadow-orange-500/20 transition-all duration-500">
+          <Logo className="w-48 h-48" />
           <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 to-transparent rounded-[48px] pointer-events-none" />
         </div>
       </motion.div>
@@ -906,14 +906,14 @@ export default function App() {
               <ChevronLeft className="w-6 h-6" />
             </button>
           ) : (
-            <div className="shrink-0 bg-white rounded-lg p-0.5 shadow-sm border border-gray-100">
-              <Logo className="w-8 h-8" />
+            <div className="shrink-0 bg-white rounded-xl p-1 shadow-sm border border-gray-100">
+              <Logo className="w-12 h-12" />
             </div>
           )}
         </div>
 
         {/* Center Section: User Info (Centered) */}
-        <div className="flex flex-col items-center justify-center gap-1 min-w-0 px-2 max-w-[60%]">
+        <div className="flex flex-col items-center justify-center gap-1.5 min-w-0 px-2 max-w-[60%]">
           <label className="relative cursor-pointer group" title="Mudar foto de perfil">
             <input 
               type="file" 
@@ -921,16 +921,16 @@ export default function App() {
               accept="image/*"
               onChange={handleProfilePicUpload}
             />
-            <div className="w-10 h-10 rounded-full bg-orange-100 border-2 border-white shadow-sm flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+            <div className="w-14 h-14 rounded-full bg-orange-100 border-2 border-white shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
               {userProfilePic ? (
                 <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-sm">
+                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-lg">
                   {userIdentifier?.charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <Plus className="w-3 h-3 text-white" />
+                <Plus className="w-4 h-4 text-white" />
               </div>
             </div>
           </label>
@@ -981,14 +981,14 @@ export default function App() {
                     setSelectedCategory(category);
                     setViewMode('songs');
                   }}
-                  className="bg-white p-4 rounded-2xl border border-gray-200 flex flex-col items-start gap-3 hover:border-orange-300 hover:shadow-md transition-all group active:scale-95"
+                  className="bg-white p-3.5 rounded-xl border border-gray-200 flex flex-col items-start gap-2.5 hover:border-orange-300 hover:shadow-sm transition-all group active:scale-95"
                 >
-                  <div className="bg-orange-50 text-orange-600 p-2 rounded-xl group-hover:bg-orange-600 group-hover:text-white transition-colors">
-                    {getCategoryIcon(category)}
+                  <div className="bg-orange-50 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                    {getCategoryIcon(category, "w-4 h-4")}
                   </div>
                   <div className="text-left">
-                    <span className="block font-bold text-gray-900">{category}</span>
-                    <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">
+                    <span className="block font-bold text-gray-900 text-sm leading-tight">{category}</span>
+                    <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
                       {songs.filter(s => s.category === category).length} CIFRAS
                     </span>
                   </div>

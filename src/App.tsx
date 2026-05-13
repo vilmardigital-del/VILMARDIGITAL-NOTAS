@@ -48,6 +48,7 @@ import {
   ChevronRight,
   Check,
   X,
+  Youtube,
   Minus,
   FileText,
   Lock,
@@ -56,6 +57,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
 import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
+
+const getYoutubeId = (url: string) => {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -247,6 +254,14 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   }
 };
 
+const getYoutubeEmbedUrl = (url: string) => {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) 
+    ? `https://www.youtube.com/embed/${match[2]}?autoplay=1` 
+    : null;
+};
+
 const transposeChord = (chord: string, semitones: number) => {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const flats = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -288,6 +303,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   initialTranspose?: number,
   onTransposeChange?: (val: number) => void
 }) => {
+  const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(14); // Default font size in px
 
@@ -333,6 +349,16 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {song.youtubeUrl && (
+            <button 
+              onClick={() => setShowPlayer(!showPlayer)}
+              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600'}`}
+              title="YouTube"
+            >
+              <Youtube className="w-5 h-5" />
+            </button>
+          )}
+          
           <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
 
           <div className="flex items-center bg-gray-50 rounded-lg p-0.5">
@@ -426,6 +452,38 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         )}
       </div>
 
+      {/* Floating Player */}
+      <AnimatePresence>
+        {showPlayer && song.youtubeUrl && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 20 }}
+            className="fixed bottom-24 right-4 w-[280px] md:w-[400px] z-40 group"
+          >
+            <div className="bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white aspect-video relative">
+              <button 
+                onClick={() => setShowPlayer(false)}
+                className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
+                <iframe 
+                  src={getYoutubeEmbedUrl(song.youtubeUrl)!}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
+                  Link do YouTube inválido
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
@@ -648,6 +706,7 @@ export default function App() {
         title: editingSong.title || '',
         content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
+        youtubeUrl: editingSong.youtubeUrl || '',
         updatedAt: serverTimestamp()
       };
 
@@ -1068,6 +1127,20 @@ export default function App() {
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Link do YouTube (Opcional)</label>
+                  <div className="relative">
+                    <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input 
+                      type="url" 
+                      value={editingSong?.youtubeUrl || ''}
+                      onChange={e => setEditingSong({...editingSong, youtubeUrl: e.target.value})}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>

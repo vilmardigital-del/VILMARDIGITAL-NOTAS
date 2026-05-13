@@ -40,6 +40,7 @@ export interface Song {
   content: string;
   category: Category;
   ownerId: string;
+  youtubeUrl?: string;
   createdAt: any;
   updatedAt: any;
 }

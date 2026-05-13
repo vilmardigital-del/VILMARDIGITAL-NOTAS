@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   signInAnonymously,
   onAuthStateChanged
@@ -48,7 +48,6 @@ import {
   ChevronRight,
   Check,
   X,
-  Youtube,
   Minus,
   FileText,
   Lock,
@@ -57,12 +56,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
 import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
-
-const getYoutubeId = (url: string) => {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
-};
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -254,14 +247,6 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   }
 };
 
-const getYoutubeEmbedUrl = (url: string) => {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) 
-    ? `https://www.youtube.com/embed/${match[2]}?autoplay=1` 
-    : null;
-};
-
 const transposeChord = (chord: string, semitones: number) => {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const flats = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -303,7 +288,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   initialTranspose?: number,
   onTransposeChange?: (val: number) => void
 }) => {
-  const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(14); // Default font size in px
 
@@ -349,16 +333,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {song.youtubeUrl && (
-            <button 
-              onClick={() => setShowPlayer(!showPlayer)}
-              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600'}`}
-              title="YouTube"
-            >
-              <Youtube className="w-5 h-5" />
-            </button>
-          )}
-          
           <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
 
           <div className="flex items-center bg-gray-50 rounded-lg p-0.5">
@@ -452,38 +426,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         )}
       </div>
 
-      {/* Floating Player */}
-      <AnimatePresence>
-        {showPlayer && song.youtubeUrl && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.8, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 20 }}
-            className="fixed bottom-24 right-4 w-[280px] md:w-[400px] z-40 group"
-          >
-            <div className="bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white aspect-video relative">
-              <button 
-                onClick={() => setShowPlayer(false)}
-                className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                <iframe 
-                  src={getYoutubeEmbedUrl(song.youtubeUrl)!}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
-                  Link do YouTube inválido
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 };
@@ -586,12 +528,8 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'youtube' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'youtube' | 'manage-users'>('categories');
-  
-  // YouTube State
-  const [youtubeSearchTerm, setYoutubeSearchTerm] = useState('');
-  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
   
   // User management state
   const [newUserName, setNewUserName] = useState('');
@@ -617,8 +555,10 @@ export default function App() {
   }, [playlists]);
   const [editingPlaylist, setEditingPlaylist] = useState<Partial<Playlist> | null>(null);
   const [currentPlaylistSongIndex, setCurrentPlaylistSongIndex] = useState(0);
+  const playlistSearchRef = useRef<HTMLInputElement>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [playlistSongSearchTerm, setPlaylistSongSearchTerm] = useState('');
 
   const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -708,7 +648,6 @@ export default function App() {
         title: editingSong.title || '',
         content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
-        youtubeUrl: editingSong.youtubeUrl || '',
         updatedAt: serverTimestamp()
       };
 
@@ -757,6 +696,7 @@ export default function App() {
         });
       }
       setEditingPlaylist(null);
+      setPlaylistSongSearchTerm('');
       setViewMode('playlist-list');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'playlists');
@@ -963,7 +903,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-auto pb-32">
+      <main className="flex-1 overflow-auto pb-28">
         <AnimatePresence mode="wait">
           {/* CATEGORIES TAB: Categories View */}
           {activeTab === 'songs' && viewMode === 'categories' && (
@@ -1131,20 +1071,6 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Link do YouTube (Opcional)</label>
-                  <div className="relative">
-                    <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input 
-                      type="url" 
-                      value={editingSong?.youtubeUrl || ''}
-                      onChange={e => setEditingSong({...editingSong, youtubeUrl: e.target.value})}
-                      placeholder="https://www.youtube.com/watch?v=..."
-                      className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
                   <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Conteúdo (Cifras e Letras)</label>
                   <textarea 
                     required
@@ -1229,6 +1155,7 @@ export default function App() {
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingPlaylist(playlist);
+                              setPlaylistSongSearchTerm('');
                               setViewMode('edit-playlist');
                             }}
                             className="p-2 text-gray-400 hover:text-orange-600"
@@ -1346,34 +1273,52 @@ export default function App() {
               key="edit-playlist"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-4 flex flex-col gap-6"
+              className="p-4 flex flex-col gap-3"
             >
-              <form onSubmit={handleCreateOrUpdatePlaylist} className="flex flex-col gap-4">
+              <form onSubmit={handleCreateOrUpdatePlaylist} className="flex flex-col gap-3">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título da Playlist</label>
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-1">Título da Playlist</label>
                   <input 
                     type="text" 
                     required
                     value={editingPlaylist?.title || ''}
                     onChange={e => setEditingPlaylist({...editingPlaylist, title: e.target.value})}
                     placeholder="Missa de Domingo, etc."
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                    className="w-full h-11 bg-white border-2 border-orange-200 rounded-xl px-4 py-2 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Data</label>
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-1">Data</label>
                   <input 
                     type="date"
                     value={editingPlaylist?.date || ''}
                     onChange={e => setEditingPlaylist({...editingPlaylist, date: e.target.value})}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                    className="w-48 h-11 bg-white border-2 border-orange-200 rounded-xl px-4 py-2 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-sm"
                   />
                 </div>
                 
-                <div className="mt-2">
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Músicas Selecionadas ({editingPlaylist?.songIds?.length || 0})</label>
-                  <div className="flex flex-col gap-3 max-h-96 overflow-auto bg-gray-100 p-3 rounded-2xl">
-                    {songs.map(song => {
+                <div className="mt-1">
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Músicas Selecionadas ({editingPlaylist?.songIds?.length || 0})</label>
+                  
+                  <div className="relative mb-2">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-400 w-4 h-4" />
+                    <input 
+                      ref={playlistSearchRef}
+                      type="text" 
+                      placeholder="Localizar música..."
+                      value={playlistSongSearchTerm}
+                      onChange={(e) => setPlaylistSongSearchTerm(e.target.value)}
+                      className="w-full h-10 bg-white border-2 border-orange-200 rounded-xl py-2 pl-10 pr-4 text-sm focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2 max-h-[400px] overflow-auto bg-gray-100 p-2 rounded-2xl">
+                    {songs
+                      .filter(song => 
+                        song.title.toLowerCase().includes(playlistSongSearchTerm.toLowerCase()) ||
+                        song.category.toLowerCase().includes(playlistSongSearchTerm.toLowerCase())
+                      )
+                      .map(song => {
                       const isSelected = editingPlaylist?.songIds?.includes(song.id);
                       return (
                         <button
@@ -1385,44 +1330,49 @@ export default function App() {
                               setEditingPlaylist({...editingPlaylist, songIds: currentIds.filter(id => id !== song.id)});
                             } else {
                               setEditingPlaylist({...editingPlaylist, songIds: [...currentIds, song.id]});
+                              setPlaylistSongSearchTerm('');
+                              playlistSearchRef.current?.focus();
                             }
                           }}
-                          className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                          className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
                             isSelected 
-                              ? 'bg-orange-600 border-orange-600 text-white shadow-md' 
+                              ? 'bg-yellow-400 border-yellow-400 text-yellow-950 shadow-md' 
                               : 'bg-white border-gray-200 text-gray-900'
                           }`}
                         >
                           <div className="text-left flex items-center gap-3 overflow-hidden">
-                            <div className={isSelected ? 'text-orange-100' : 'text-orange-600'}>
+                            <div className={isSelected ? 'text-yellow-700' : 'text-orange-600'}>
                               {getCategoryIcon(song.category, "w-4 h-4")}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-bold truncate">{song.title}</p>
-                              <p className={`text-xs uppercase tracking-wider ${isSelected ? 'text-orange-100' : 'text-gray-400'}`}>
+                              <p className="font-bold text-sm truncate">{song.title}</p>
+                              <p className={`text-[10px] uppercase tracking-wider ${isSelected ? 'text-yellow-800' : 'text-gray-400'}`}>
                                 {song.category}
                               </p>
                             </div>
                           </div>
-                          {isSelected && <Check className="w-5 h-5 shrink-0" />}
+                          {isSelected && <Check className="w-4 h-4 shrink-0" />}
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-4 pb-10">
+                <div className="flex gap-2 pt-2 pb-6">
                   <button 
                     type="button"
-                    onClick={() => setViewMode('playlist-list')}
-                    className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-bold"
+                    onClick={() => {
+                      setViewMode('playlist-list');
+                      setPlaylistSongSearchTerm('');
+                    }}
+                    className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm"
                   >
                     Cancelar
                   </button>
                   <button 
                     type="submit"
                     disabled={saving}
-                    className="flex-1 bg-orange-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-orange-200 disabled:opacity-50"
+                    className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-orange-200 disabled:opacity-50"
                   >
                     {saving ? 'Salvando...' : 'Salvar Playlist'}
                   </button>
@@ -1541,99 +1491,6 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* YOUTUBE TAB */}
-          {activeTab === 'youtube' && (
-            <motion.div
-              key="youtube"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-4 flex flex-col gap-6 pb-32"
-            >
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-200">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-orange-600 p-2 rounded-xl">
-                    <Youtube className="text-white w-6 h-6" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-gray-900 text-lg">YouTube Music</h2>
-                    <p className="text-sm text-gray-500">Busque e assista apresentações</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Pesquise música ou cole link do YouTube..."
-                      value={youtubeSearchTerm}
-                      onChange={(e) => {
-                        setYoutubeSearchTerm(e.target.value);
-                        const id = getYoutubeId(e.target.value);
-                        if (id) setSelectedVideoId(id);
-                      }}
-                      className="w-full bg-zinc-50 border border-zinc-200 text-gray-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        if (!youtubeSearchTerm) return;
-                        const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeSearchTerm)}`;
-                        window.open(url, '_blank');
-                      }}
-                      className="flex-1 bg-zinc-100 text-zinc-600 py-3 rounded-xl font-bold text-xs hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"
-                    >
-                      <Search className="w-4 h-4" />
-                      Buscar no YouTube
-                    </button>
-                    {youtubeSearchTerm && !selectedVideoId && (
-                      <button
-                        onClick={() => {
-                          // If it's not a link, try searching via embed API or just helpful message
-                          alert("Para exibir o vídeo aqui, cole o link completo do YouTube ou o código do vídeo.");
-                        }}
-                        className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold text-xs shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all"
-                      >
-                        Visualizar Vídeo
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {selectedVideoId ? (
-                <div className="bg-black rounded-3xl overflow-hidden shadow-2xl aspect-video border-4 border-white">
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    src={`https://www.youtube.com/embed/${selectedVideoId}?autoplay=1`}
-                    title="YouTube video player"
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              ) : (
-                <div className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-3xl py-16 flex flex-col items-center justify-center text-zinc-400">
-                  <Youtube className="w-16 h-16 mb-4 opacity-20" />
-                  <p className="text-sm font-medium">Nenhum vídeo selecionado</p>
-                  <p className="text-[10px] mt-1">Cole um link para assistir aqui</p>
-                </div>
-              )}
-
-              {selectedVideoId && (
-                <button
-                  onClick={() => setSelectedVideoId(null)}
-                  className="bg-white border border-zinc-200 text-zinc-500 py-3 rounded-2xl font-bold text-xs hover:bg-zinc-50 transition-all"
-                >
-                  Fechar Player
-                </button>
-              )}
-            </motion.div>
-          )}
-
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
             <motion.div
@@ -1713,7 +1570,7 @@ export default function App() {
                 </form>
               </div>
 
-              <div className="space-y-4 pb-32">
+              <div className="space-y-4 pb-28">
                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">Usuários Cadastrados ({accessUsers.length})</h3>
                  {accessUsers.map(user => (
                    <div key={user.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
@@ -1747,7 +1604,7 @@ export default function App() {
             setEditingSong({});
             setViewMode('edit-song');
           }}
-          className="fixed right-6 bottom-24 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-20 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
@@ -1757,16 +1614,17 @@ export default function App() {
         <button 
           onClick={() => {
             setEditingPlaylist({ songIds: [], transpositions: {} });
+            setPlaylistSongSearchTerm('');
             setViewMode('edit-playlist');
           }}
-          className="fixed right-6 bottom-24 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-20 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
       )}
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-6 left-6 right-6 bg-orange-600 rounded-[32px] flex justify-around p-2 z-40 shadow-2xl shadow-orange-600/30">
+      <nav className="fixed bottom-2 left-4 right-4 bg-orange-600 rounded-[28px] flex justify-around p-2 z-40 shadow-2xl shadow-orange-600/30">
         <button 
           onClick={() => {
             setActiveTab('songs');
@@ -1796,16 +1654,6 @@ export default function App() {
         >
           <Sparkles className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
-        </button>
-        <button 
-          onClick={() => {
-            setActiveTab('youtube');
-            setViewMode('youtube');
-          }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'youtube' ? 'text-white' : 'text-orange-200'}`}
-        >
-          <Youtube className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">YouTube</span>
         </button>
         {userRole === 'admin' && (
           <button 

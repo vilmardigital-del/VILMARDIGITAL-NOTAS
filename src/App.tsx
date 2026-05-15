@@ -58,6 +58,7 @@ import {
   Type,
   Copy,
   Clipboard,
+  CaseLower,
   ArrowLeftRight,
   ArrowUpDown,
   Play,
@@ -789,6 +790,46 @@ export default function App() {
     } finally {
       setSaving(false);
     }
+  };
+  
+  const handleLowercaseLyrics = () => {
+    if (!editorRef.current) return;
+    const html = editorRef.current.innerHTML;
+    
+    // 1. Protect Tags
+    const tags: string[] = [];
+    let protectedHtml = html.replace(/<[^>]+>/g, (match) => {
+      tags.push(match);
+      return `___TAG_${tags.length - 1}___`;
+    });
+    
+    // 2. Protect Chords
+    // We use the same chord regex as the transposer
+    const chordRegex = /(^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
+    
+    const chords: string[] = [];
+    protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
+      chords.push(p2);
+      return `${p1}___CHORD_${chords.length - 1}___`;
+    });
+    
+    // 3. Lowercase everything else
+    protectedHtml = protectedHtml.toLowerCase();
+    
+    // 4. Restore Chords
+    protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
+      return chords[parseInt(p1)];
+    });
+    
+    // 5. Restore Tags
+    protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
+      return tags[parseInt(p1)];
+    });
+    
+    // Update content preserving undo stack if possible
+    editorRef.current.focus();
+    document.execCommand('selectAll', false);
+    document.execCommand('insertHTML', false, protectedHtml);
   };
 
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
@@ -1711,6 +1752,7 @@ export default function App() {
               <div className="flex flex-wrap gap-2 p-3 bg-white rounded-3xl border border-orange-100 shadow-sm">
                 <div className="flex gap-1 border-r border-gray-100 pr-2">
                   <button onClick={() => document.execCommand('bold')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Negrito"><Bold className="w-4 h-4"/></button>
+                  <button onClick={handleLowercaseLyrics} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Letras em Minúsculo"><CaseLower className="w-4 h-4"/></button>
                 </div>
                 
                 <div className="flex gap-1 border-r border-gray-100 pr-2">

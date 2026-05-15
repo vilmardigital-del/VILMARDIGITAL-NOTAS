@@ -17,3 +17,9 @@
   --color-primary-900: #7c2d12;
   --color-primary-950: #431407;
 }
+
+@layer utilities {
+  .rich-text-song div {
+    min-height: 1.2em;
+  }
+}

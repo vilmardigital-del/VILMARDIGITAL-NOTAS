@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  signInAnonymously,
   onAuthStateChanged
 } from 'firebase/auth';
 import { 
@@ -52,6 +51,17 @@ import {
   Minus,
   FileText,
   Lock,
+  Bold,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Type,
+  Copy,
+  Clipboard,
+  ArrowLeftRight,
+  ArrowUpDown,
+  Play,
+  Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -322,6 +332,19 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     onTransposeChange?.(newVal);
   };
 
+  const transposeHtml = (html: string, semitones: number) => {
+    if (semitones === 0) return html;
+    
+    // Regex que identifica acordes, garantindo que não estejam dentro de tags HTML (<...>)
+    const chordRegex = /(?<=^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
+    
+    return html.replace(chordRegex, (match) => {
+      return transposeChord(match, semitones);
+    });
+  };
+
+  const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: '100%' }}
@@ -365,6 +388,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <button 
               onClick={() => handleTranspose(-1)}
               className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+              title="Diminuir tom"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
@@ -374,6 +398,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <button 
               onClick={() => handleTranspose(1)}
               className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
+              title="Aumentar tom"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -391,26 +416,38 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       {/* Área de Conteúdo */}
       <div className="flex-1 overflow-auto bg-gray-50/30">
         <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
-          <div 
-            style={{ fontSize: `${fontSize}px` }}
-            className="whitespace-pre-wrap font-mono leading-relaxed transition-all"
-          >
-            {song.content.split('\n').map((line, i) => {
-              const parts = line.split(/(\s+)/);
-              return (
-                <div key={i} className="min-h-[1.5em] relative">
-                  {parts.map((part, j) => {
-                    const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
-                    if (isChord) {
-                      const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
-                      return <span key={j} className="text-orange-700 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
-                    }
-                    return <span key={j} className="text-gray-800">{part}</span>;
-                  })}
-                </div>
-              );
-            })}
-          </div>
+          {isHtml ? (
+            <div 
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: song.lineHeight || 1.5,
+                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal'
+              }}
+              className="font-mono transition-all rich-text-song"
+              dangerouslySetInnerHTML={{ __html: transposeHtml(song.content, transpose) }}
+            />
+          ) : (
+            <div 
+              style={{ fontSize: `${fontSize}px` }}
+              className="whitespace-pre-wrap font-mono leading-relaxed transition-all"
+            >
+              {song.content.split('\n').map((line, i) => {
+                const parts = line.split(/(\s+)/);
+                return (
+                  <div key={i} className="min-h-[1.5em] relative">
+                    {parts.map((part, j) => {
+                      const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
+                      if (isChord) {
+                        const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
+                        return <span key={j} className="text-orange-700 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
+                      }
+                      return <span key={j} className="text-gray-800">{part}</span>;
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -455,33 +492,43 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       {/* Floating Player */}
       <AnimatePresence>
         {showPlayer && song.youtubeUrl && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.8, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 20 }}
-            className="fixed bottom-24 right-4 w-[280px] md:w-[400px] z-40 group"
-          >
-            <div className="bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white aspect-video relative">
-              <button 
-                onClick={() => setShowPlayer(false)}
-                className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                <iframe 
-                  src={getYoutubeEmbedUrl(song.youtubeUrl)!}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
-                  Link do YouTube inválido
-                </div>
-              )}
-            </div>
-          </motion.div>
+          <>
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPlayer(false)}
+              className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8, x: '-50%', y: '-40%' }}
+              animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+              exit={{ opacity: 0, scale: 0.8, x: '-50%', y: '-40%' }}
+              className="fixed top-1/2 left-1/2 w-[90%] md:w-[640px] z-50 group transition-all"
+            >
+              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-white aspect-video relative">
+                <button 
+                  onClick={() => setShowPlayer(false)}
+                  className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full hover:bg-black/80 z-10 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                {getYoutubeEmbedUrl(song.youtubeUrl) ? (
+                  <iframe 
+                    src={getYoutubeEmbedUrl(song.youtubeUrl)!}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
+                    Link do YouTube inválido
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </motion.div>
@@ -586,10 +633,17 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users' | 'editor'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users' | 'editor'>('categories');
   
-  // User management state
+  // Editor State
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [showEditorCategoryModal, setShowEditorCategoryModal] = useState(false);
+  const [showEditorTitleModal, setShowEditorTitleModal] = useState(false);
+  const [editorSongTitle, setEditorSongTitle] = useState('');
+  const [editorLineHeight, setEditorLineHeight] = useState(1.5);
+  const [editorLetterSpacing, setEditorLetterSpacing] = useState(0);
+  const [editingSongId, setEditingSongId] = useState<string | null>(null);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
@@ -696,6 +750,47 @@ export default function App() {
     };
   }, []);
 
+  const handleSaveFromEditor = async (category: Category) => {
+    const content = editorRef.current?.innerHTML || '';
+    if (!editorSongTitle || !content || saving) {
+      if (!editorSongTitle) alert("Por favor, informe o título.");
+      if (!content) alert("O conteúdo da cifra está vazio.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const data = {
+        title: editorSongTitle,
+        content: content,
+        category: category,
+        ownerId: userIdentifier,
+        youtubeUrl: '',
+        lineHeight: editorLineHeight,
+        letterSpacing: editorLetterSpacing,
+        updatedAt: serverTimestamp()
+      };
+
+      if (editingSongId) {
+        await updateDoc(doc(db, 'songs', editingSongId), data);
+      } else {
+        await addDoc(collection(db, 'songs'), {
+          ...data,
+          createdAt: serverTimestamp()
+        });
+      }
+      setShowEditorCategoryModal(false);
+      setEditorSongTitle('');
+      setEditingSongId(null);
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      setActiveTab('songs');
+      setViewMode('categories');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'songs');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSong || saving) return;
@@ -707,6 +802,8 @@ export default function App() {
         content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
         youtubeUrl: editingSong.youtubeUrl || '',
+        lineHeight: editingSong.lineHeight || 1.5,
+        letterSpacing: editingSong.letterSpacing || 0,
         updatedAt: serverTimestamp()
       };
 
@@ -980,7 +1077,7 @@ export default function App() {
                     setSelectedCategory(category);
                     setViewMode('songs');
                   }}
-                  className="bg-white p-3.5 rounded-xl border border-gray-200 flex flex-col items-start gap-2.5 hover:border-orange-300 hover:shadow-sm transition-all group active:scale-95"
+                  className="bg-white p-3.5 rounded-xl border border-orange-500 flex flex-col items-start gap-2.5 hover:border-orange-500 hover:shadow-sm transition-all group active:scale-95"
                 >
                   <div className="bg-orange-50 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-600 group-hover:text-white transition-colors">
                     {getCategoryIcon(category, "w-4 h-4")}
@@ -1145,14 +1242,50 @@ export default function App() {
 
                 <div>
                   <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Conteúdo (Cifras e Letras)</label>
-                  <textarea 
-                    required
-                    rows={12}
-                    value={editingSong?.content || ''}
-                    onChange={e => setEditingSong({...editingSong, content: e.target.value})}
-                    placeholder="Cole aqui a cifra..."
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
-                  />
+                  {(/<[a-z][\s\S]*>/i.test(editingSong?.content || '') || editingSong?.lineHeight || editingSong?.letterSpacing) ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap gap-2 p-2 bg-gray-50 rounded-xl border border-gray-100">
+                        <button type="button" onClick={() => document.execCommand('bold')} className="p-2 hover:bg-orange-100 rounded transition-colors"><Bold className="w-4 h-4 text-orange-600"/></button>
+                        <button type="button" onClick={() => document.execCommand('justifyLeft')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignLeft className="w-4 h-4 text-orange-600"/></button>
+                        <button type="button" onClick={() => document.execCommand('justifyCenter')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignCenter className="w-4 h-4 text-orange-600"/></button>
+                        <button type="button" onClick={() => document.execCommand('justifyRight')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignRight className="w-4 h-4 text-orange-600"/></button>
+                        <div className="flex items-center gap-2 border-l border-gray-200 pl-2 ml-1">
+                          <button type="button" onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(1, (editingSong.lineHeight || 1.5) - 0.1)})} className="p-1 px-2 text-[10px] font-bold bg-white rounded border">LH-</button>
+                          <button type="button" onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(3, (editingSong.lineHeight || 1.5) + 0.1)})} className="p-1 px-2 text-[10px] font-bold bg-white rounded border">LH+</button>
+                        </div>
+                      </div>
+                      <div 
+                        contentEditable={true}
+                        suppressContentEditableWarning={true}
+                        onInput={(e) => setEditingSong({...editingSong, content: e.currentTarget.innerHTML})}
+                        className="w-full min-h-[300px] bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm overflow-y-auto"
+                        style={{ 
+                          lineHeight: editingSong?.lineHeight || 1.5, 
+                          letterSpacing: editingSong?.letterSpacing !== undefined ? `${editingSong.letterSpacing}px` : 'normal'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: editingSong?.content || '' }}
+                      />
+                      <p className="text-[10px] text-orange-600 font-bold uppercase italic">Modo Editor Rico Ativado</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <textarea 
+                        required
+                        rows={12}
+                        value={editingSong?.content || ''}
+                        onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                        placeholder="Cole aqui a cifra..."
+                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setEditingSong({...editingSong, content: `<div>${(editingSong?.content || '').replace(/\n/g, '<br>')}</div>`, lineHeight: 1.5, letterSpacing: 0})}
+                        className="text-xs font-bold text-orange-600 hover:underline uppercase tracking-widest"
+                      >
+                        + Ativar Formatação Rica (Gritos, Alinhamento, Cores)
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-3 pt-2 pb-10">
@@ -1564,6 +1697,155 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* EDITOR TAB */}
+          {activeTab === 'editor' && (
+            <motion.div
+              key="editor"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 flex flex-col gap-4"
+            >
+              <h2 className="text-xl font-bold text-gray-900">Editor de Cifras</h2>
+              
+              {/* Toolbar */}
+              <div className="flex flex-wrap gap-2 p-3 bg-white rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex gap-1 border-r border-gray-100 pr-2">
+                  <button onClick={() => document.execCommand('bold')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Negrito"><Bold className="w-4 h-4"/></button>
+                </div>
+                
+                <div className="flex gap-1 border-r border-gray-100 pr-2">
+                  <button onClick={() => document.execCommand('justifyLeft')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Alinhar Esquerda"><AlignLeft className="w-4 h-4"/></button>
+                  <button onClick={() => document.execCommand('justifyCenter')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Centralizar"><AlignCenter className="w-4 h-4"/></button>
+                  <button onClick={() => document.execCommand('justifyRight')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Alinhar Direita"><AlignRight className="w-4 h-4"/></button>
+                </div>
+
+                <div className="flex items-center gap-2 border-r border-gray-100 pr-2">
+                  <div className="relative w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
+                    <Type className="w-4 h-4 text-orange-600" />
+                    <input 
+                      type="color" 
+                      onChange={(e) => document.execCommand('foreColor', false, e.target.value)} 
+                      className="absolute inset-0 opacity-0 cursor-pointer" 
+                      title="Cor do Texto"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 border-r border-gray-100 pr-2">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1 mb-1">
+                      <ArrowUpDown className="w-3 h-3 text-gray-400" />
+                      <span className="text-[9px] font-bold text-gray-400">{editorLineHeight.toFixed(1)}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => setEditorLineHeight(prev => Math.max(0.8, prev - 0.1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">-</button>
+                      <button onClick={() => setEditorLineHeight(prev => Math.min(4, prev + 0.1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 border-r border-gray-100 pr-2">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1 mb-1">
+                      <ArrowLeftRight className="w-3 h-3 text-gray-400" />
+                      <span className="text-[9px] font-bold text-gray-400">{editorLetterSpacing}px</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => setEditorLetterSpacing(prev => Math.max(-5, prev - 1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">-</button>
+                      <button onClick={() => setEditorLetterSpacing(prev => Math.min(20, prev + 1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => { 
+                      // Try to use the standard paste behavior or alert user to use Ctrl+V/Cmd+V for better formatting support
+                      const selection = window.getSelection();
+                      if (selection && selection.rangeCount > 0) {
+                        navigator.clipboard.read().then(items => {
+                          for (const item of items) {
+                            if (item.types.includes('text/html')) {
+                              item.getType('text/html').then(blob => {
+                                blob.text().then(html => {
+                                  const range = selection.getRangeAt(0);
+                                  range.deleteContents();
+                                  const div = document.createElement('div');
+                                  div.innerHTML = html;
+                                  range.insertNode(div);
+                                });
+                              });
+                              return;
+                            }
+                          }
+                          // Fallback to text
+                          navigator.clipboard.readText().then(text => {
+                            const range = selection.getRangeAt(0);
+                            range.deleteContents();
+                            range.insertNode(document.createTextNode(text));
+                          });
+                        }).catch(() => {
+                          alert("Pressione Ctrl+V (ou Cmd+V) para colar com formatação.");
+                        });
+                      }
+                    }} 
+                    className="flex items-center gap-2 px-3 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors"
+                  >
+                    <Clipboard className="w-3.5 h-3.5"/>
+                    Colar
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const selection = window.getSelection()?.toString();
+                      if (selection) {
+                        navigator.clipboard.writeText(selection);
+                        alert("Copiado!");
+                      }
+                    }} 
+                    className="flex items-center gap-2 px-3 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5"/>
+                    Copiar
+                  </button>
+                </div>
+              </div>
+              
+              <div 
+                ref={editorRef}
+                contentEditable={true}
+                suppressContentEditableWarning={true}
+                className="w-full h-96 bg-white border border-gray-200 rounded-3xl p-6 font-mono text-sm overflow-y-auto focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none shadow-inner"
+                style={{ lineHeight: editorLineHeight, letterSpacing: `${editorLetterSpacing}px` }}
+              />
+              
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    const content = editorRef.current?.innerHTML || '';
+                    if (!content.trim() || content === '<br>') {
+                      alert("Escreva ou cole a cifra primeiro.");
+                      return;
+                    }
+                    // Transfer variables to the standard Add Song screen
+                    setEditingSong({
+                      title: editorSongTitle,
+                      content: content,
+                      category: 'Comum',
+                      youtubeUrl: '',
+                      lineHeight: editorLineHeight,
+                      letterSpacing: editorLetterSpacing
+                    });
+                    setActiveTab('songs');
+                    setViewMode('edit-song');
+                  }}
+                  className="flex-1 bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                >
+                  Adicionar às Categorias
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
             <motion.div
@@ -1731,6 +2013,18 @@ export default function App() {
         {userRole === 'admin' && (
           <button 
             onClick={() => {
+              setActiveTab('editor');
+              setViewMode('editor');
+            }}
+            className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'editor' ? 'text-white' : 'text-orange-200'}`}
+          >
+            <Edit2 className="w-6 h-6" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Editor</span>
+          </button>
+        )}
+        {userRole === 'admin' && (
+          <button 
+            onClick={() => {
               setActiveTab('users');
               setViewMode('manage-users');
             }}
@@ -1741,6 +2035,109 @@ export default function App() {
           </button>
         )}
       </nav>
+
+      {/* Title Input Modal for Editor */}
+      <AnimatePresence>
+        {showEditorTitleModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 text-left">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowEditorTitleModal(false)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl flex flex-col"
+            >
+              <h3 className="text-2xl font-bold text-gray-900 mb-2 font-display uppercase tracking-tight">Título da Música</h3>
+              <p className="text-sm text-gray-500 mb-6 font-medium">Como se chama esta cifra?</p>
+              
+              <input 
+                type="text"
+                autoFocus
+                value={editorSongTitle}
+                onChange={(e) => setEditorSongTitle(e.target.value)}
+                className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl px-6 py-4 outline-none focus:border-orange-500 transition-all font-bold text-gray-700 mb-6"
+                placeholder="Digite o título..."
+              />
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowEditorTitleModal(false)}
+                  className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (!editorSongTitle.trim()) {
+                      alert("Por favor, digite um título.");
+                      return;
+                    }
+                    setShowEditorTitleModal(false);
+                    setShowEditorCategoryModal(true);
+                  }}
+                  className="flex-1 py-4 rounded-2xl font-bold text-white bg-orange-600 shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                >
+                  Próximo
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Category Selection Modal for Editor */}
+      <AnimatePresence>
+        {showEditorCategoryModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-left">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => !saving && setShowEditorCategoryModal(false)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl flex flex-col"
+            >
+              <h3 className="text-2xl font-bold text-gray-900 mb-2 font-display uppercase tracking-tight">Escolha a Categoria</h3>
+              <p className="text-sm text-gray-500 mb-6 font-medium">Em qual categoria deseja salvar "{editorSongTitle}"?</p>
+              
+              <div className="grid grid-cols-2 gap-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar p-1">
+                {CATEGORIES.map(category => (
+                  <button 
+                    key={category}
+                    onClick={() => handleSaveFromEditor(category)}
+                    disabled={saving}
+                    className="flex flex-col items-center gap-3 p-4 rounded-3xl border border-orange-100 hover:border-orange-500 hover:bg-orange-50 hover:shadow-md transition-all active:scale-95 group"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                      {getCategoryIcon(category, "w-6 h-6")}
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.1em] text-gray-700">{category}</span>
+                  </button>
+                ))}
+              </div>
+
+              <button 
+                onClick={() => setShowEditorCategoryModal(false)}
+                className="w-full mt-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors"
+                disabled={saving}
+              >
+                Cancelar
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Full Screen Song Viewer */}
       <AnimatePresence>

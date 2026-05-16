@@ -1489,8 +1489,8 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="p-4"
             >
-              <div className="bg-orange-600 rounded-3xl p-6 mb-8 text-white shadow-xl shadow-orange-100">
-                <h2 className="text-2xl font-bold mb-2">{selectedPlaylist.title}</h2>
+              <div className="bg-orange-600 rounded-3xl p-6 mb-8 text-white shadow-xl shadow-orange-100 text-[13px] leading-[3px] h-[60px]">
+                <h2 className="text-[16px] font-bold mb-2">{selectedPlaylist.title}</h2>
                 <p className="opacity-80 flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
                   {selectedPlaylist.date ? new Date(selectedPlaylist.date).toLocaleDateString('pt-BR') : 'Sem data'}
@@ -1505,7 +1505,7 @@ export default function App() {
                       setCurrentPlaylistSongIndex(index);
                       setViewingSong(song);
                     }}
-                    className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all"
+                    className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all h-[50px]"
                   >
                     <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm">
                       {index + 1}
@@ -1515,7 +1515,7 @@ export default function App() {
                         {getCategoryIcon(song.category, "w-4 h-4")}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-bold text-gray-900 truncate">{song.title}</h3>
+                        <h3 className="font-bold text-gray-900 truncate text-[14px]">{song.title}</h3>
                         <div className="flex items-center gap-2">
                           <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">{song.category}</p>
                           {selectedPlaylist.transpositions?.[song.id] !== undefined && selectedPlaylist.transpositions[song.id] !== 0 && (

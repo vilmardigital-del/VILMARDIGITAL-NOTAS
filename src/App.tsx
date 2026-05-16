@@ -323,8 +323,27 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   }, [initialTranspose, song.id]);
 
   useEffect(() => {
+    let wakeLock: any = null;
+    
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+        } catch (err) {
+          console.error('Wake Lock failed:', err);
+        }
+      }
+    };
+
+    requestWakeLock();
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = 'auto'; };
+
+    return () => {
+      if (wakeLock) {
+        wakeLock.release().catch((err: any) => console.error('Wake Lock release failed:', err));
+      }
+      document.body.style.overflow = 'auto';
+    };
   }, []);
 
   const handleTranspose = (delta: number) => {

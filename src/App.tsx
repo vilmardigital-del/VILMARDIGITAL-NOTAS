@@ -21,6 +21,7 @@ import {
   deleteObject
 } from 'firebase/storage';
 import { 
+  HandHeart,
   Heart,
   Sun,
   Crown,
@@ -29,6 +30,7 @@ import {
   DoorOpen,
   Flag,
   Music, 
+  Church,
   Plus, 
   Search, 
   ChevronLeft, 
@@ -107,7 +109,7 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
-const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string, id?: string) => void, accessUsers: AccessUser[] }) => {
+const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'viewer', identifier: string, id?: string, isMaster?: boolean) => void, accessUsers: AccessUser[] }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
@@ -127,15 +129,15 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
       u.password === normalizedPassword
     );
     if (foundUser) {
-      onUnlock(foundUser.role, foundUser.name, foundUser.id);
+      onUnlock(foundUser.role, foundUser.name, foundUser.id, false);
       return;
     }
 
     // Fallback to fixed credentials
     if (normalizedUsername.toLowerCase() === adminUsername.toLowerCase() && normalizedPassword === adminPassword) {
-      onUnlock('admin', adminUsername);
+      onUnlock('admin', adminUsername, undefined, true);
     } else if (normalizedUsername.toLowerCase() === 'usuario' && normalizedPassword === userPasswordDefault) {
-      onUnlock('viewer', 'Usuário Padrão');
+      onUnlock('viewer', 'Usuário Padrão', undefined, false);
     } else {
       setError(true);
       setTimeout(() => setError(false), 2000);
@@ -250,8 +252,8 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
 
 const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
   switch (category) {
-    case 'Entrada': return <DoorOpen className={className} />;
-    case 'Perdão': return <Heart className={className} />;
+    case 'Entrada': return <Church className={className} />;
+    case 'Perdão': return <HandHeart className={className} />;
     case 'Glória': return <Sun className={className} />;
     case 'Santo': return <Crown className={className} />;
     case 'Aleluia': return <Mic2 className={className} />;
@@ -263,6 +265,10 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Comum': return <Music className={className} />;
     default: return <Music className={className} />;
   }
+};
+
+const getCategoryGradient = (category: Category) => {
+  return 'from-orange-300 to-orange-500';
 };
 
 const getYoutubeEmbedUrl = (url: string) => {
@@ -359,7 +365,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     const chordRegex = /(?<=^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
     
     return html.replace(chordRegex, (match) => {
-      return transposeChord(match, semitones);
+      return `<span class="text-orange-600 font-bold">${transposeChord(match, semitones)}</span>`;
     });
   };
 
@@ -595,6 +601,9 @@ export default function App() {
     const saved = localStorage.getItem('userRole');
     return (saved === 'admin' || saved === 'viewer') ? saved : null;
   });
+  const [isMasterAdmin, setIsMasterAdmin] = useState<boolean>(() => {
+    return localStorage.getItem('isMasterAdmin') === 'true';
+  });
   const [userIdentifier, setUserIdentifier] = useState<string | null>(() => {
     return localStorage.getItem('userIdentifier');
   });
@@ -624,10 +633,12 @@ export default function App() {
     setUserIdentifier(null);
     setUserId(null);
     setSessionId(null);
+    setIsMasterAdmin(false);
     localStorage.removeItem('userRole');
     localStorage.removeItem('userIdentifier');
     localStorage.removeItem('userId');
     localStorage.removeItem('sessionId');
+    localStorage.removeItem('isMasterAdmin');
   };
 
   // Session monitor
@@ -811,39 +822,67 @@ export default function App() {
     }
   };
   
+  const processLowerLyrics = (content: string, isHtml: boolean): string => {
+    if (!content) return '';
+
+    if (isHtml) {
+      // 1. Protect Tags
+      const tags: string[] = [];
+      let protectedHtml = content.replace(/<[^>]+>/g, (match) => {
+        tags.push(match);
+        return `___TAG_${tags.length - 1}___`;
+      });
+      
+      // 2. Protect Chords
+      const chordRegex = /(^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
+      
+      const chords: string[] = [];
+      protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
+        chords.push(p2);
+        return `${p1}___CHORD_${chords.length - 1}___`;
+      });
+      
+      // 3. Lowercase everything else (but not our placeholders)
+      protectedHtml = protectedHtml.toLowerCase();
+      
+      // 4. Restore Chords
+      protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
+        return chords[parseInt(p1)];
+      });
+      
+      // 5. Restore Tags
+      protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
+        return tags[parseInt(p1)];
+      });
+      return protectedHtml;
+    } else {
+      // Plain text version
+      const lines = content.split('\n');
+      const processedLines = lines.map(line => {
+        const chordRegex = /(^|[\s])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s]|$)/g;
+        
+        let result = '';
+        let lastIndex = 0;
+        let match;
+        
+        while ((match = chordRegex.exec(line)) !== null) {
+          const prefix = line.substring(lastIndex, match.index);
+          result += prefix.toLowerCase();
+          result += match[0]; 
+          lastIndex = chordRegex.lastIndex;
+        }
+        
+        result += line.substring(lastIndex).toLowerCase();
+        return result;
+      });
+      return processedLines.join('\n');
+    }
+  };
+
   const handleLowercaseLyrics = () => {
     if (!editorRef.current) return;
     const html = editorRef.current.innerHTML;
-    
-    // 1. Protect Tags
-    const tags: string[] = [];
-    let protectedHtml = html.replace(/<[^>]+>/g, (match) => {
-      tags.push(match);
-      return `___TAG_${tags.length - 1}___`;
-    });
-    
-    // 2. Protect Chords
-    // We use the same chord regex as the transposer
-    const chordRegex = /(^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
-    
-    const chords: string[] = [];
-    protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
-      chords.push(p2);
-      return `${p1}___CHORD_${chords.length - 1}___`;
-    });
-    
-    // 3. Lowercase everything else
-    protectedHtml = protectedHtml.toLowerCase();
-    
-    // 4. Restore Chords
-    protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
-      return chords[parseInt(p1)];
-    });
-    
-    // 5. Restore Tags
-    protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
-      return tags[parseInt(p1)];
-    });
+    const protectedHtml = processLowerLyrics(html, true);
     
     // Update content preserving undo stack if possible
     editorRef.current.focus();
@@ -943,6 +982,10 @@ export default function App() {
 
   const handleCreateAccessUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isMasterAdmin) {
+      alert("Apenas o administrador mestre pode cadastrar novos usuários.");
+      return;
+    }
     if (!newUserName || !newUserPassword || saving) return;
 
     setSaving(true);
@@ -963,6 +1006,10 @@ export default function App() {
   };
 
   const handleRemoveAccessUser = async (id: string) => {
+    if (!isMasterAdmin) {
+      alert("Apenas o administrador mestre pode remover usuários.");
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'access_users', id));
     } catch (err) {
@@ -995,7 +1042,7 @@ export default function App() {
     return (
       <PasswordView 
         accessUsers={accessUsers}
-        onUnlock={async (role, identifier, id) => {
+        onUnlock={async (role, identifier, id, isMaster = false) => {
           const newSession = Math.random().toString(36).substring(2) + Date.now().toString(36);
           
           if (id) {
@@ -1012,10 +1059,12 @@ export default function App() {
           setUserIdentifier(identifier);
           setUserId(id || null);
           setSessionId(newSession);
+          setIsMasterAdmin(isMaster);
           localStorage.setItem('userRole', role);
           localStorage.setItem('userIdentifier', identifier);
           if (id) localStorage.setItem('userId', id);
           localStorage.setItem('sessionId', newSession);
+          localStorage.setItem('isMasterAdmin', String(isMaster));
           setActiveTab('songs');
           setViewMode('categories');
           setSelectedCategory(null);
@@ -1137,14 +1186,17 @@ export default function App() {
                     setSelectedCategory(category);
                     setViewMode('songs');
                   }}
-                  className="bg-white p-3.5 rounded-xl border border-orange-500 flex flex-col items-start gap-2.5 hover:border-orange-500 hover:shadow-sm transition-all group active:scale-95"
+                  className={`bg-gradient-to-br ${getCategoryGradient(category)} p-3.5 rounded-xl border-none flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 shadow-md relative overflow-hidden`}
                 >
-                  <div className="bg-orange-50 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                  <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none transform translate-x-2 -translate-y-2">
+                    {getCategoryIcon(category, "w-12 h-12")}
+                  </div>
+                  <div className="bg-white/20 text-white p-1.5 rounded-lg group-hover:bg-white/30 transition-colors backdrop-blur-sm border border-white/20">
                     {getCategoryIcon(category, "w-4 h-4")}
                   </div>
                   <div className="text-left">
-                    <span className="block font-bold text-gray-900 text-sm leading-tight">{category}</span>
-                    <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
+                    <span className="block font-bold text-white text-sm leading-tight drop-shadow-sm">{category}</span>
+                    <span className="text-[9px] text-white/80 font-bold uppercase tracking-wider">
                       {songs.filter(s => s.category === category).length} CIFRAS
                     </span>
                   </div>
@@ -1300,9 +1352,24 @@ export default function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Conteúdo (Cifras e Letras)</label>
-                  {(/<[a-z][\s\S]*>/i.test(editingSong?.content || '') || editingSong?.lineHeight || editingSong?.letterSpacing) ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const currentContent = editingSong?.content || '';
+                          const isHtml = /<[a-z][\s\S]*>/i.test(currentContent);
+                          const processed = processLowerLyrics(currentContent, isHtml);
+                          setEditingSong({...editingSong, content: processed});
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-orange-100 transition-colors border border-orange-200 shadow-sm"
+                      >
+                        <CaseLower className="w-3.5 h-3.5" />
+                        Letras em Minúsculo
+                      </button>
+                    </div>
+                    {(/<[a-z][\s\S]*>/i.test(editingSong?.content || '') || editingSong?.lineHeight || editingSong?.letterSpacing) ? (
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap gap-2 p-2 bg-gray-50 rounded-xl border border-gray-100">
                         <button type="button" onClick={() => document.execCommand('bold')} className="p-2 hover:bg-orange-100 rounded transition-colors"><Bold className="w-4 h-4 text-orange-600"/></button>
@@ -1921,69 +1988,81 @@ export default function App() {
                     <Crown className="text-white w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-gray-900 text-lg">Gerenciar Acessos</h2>
-                    <p className="text-sm text-gray-500">Crie novos usuários e senhas</p>
+                    <h2 className="font-bold text-gray-900 text-lg tracking-tight">Gerenciar Acessos</h2>
+                    <p className="text-xs text-gray-500">
+                      {isMasterAdmin ? 'Crie novos usuários e senhas' : 'Veja a lista de usuários cadastrados'}
+                    </p>
                   </div>
                 </div>
 
-                <form onSubmit={handleCreateAccessUser} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
-                    <input 
-                      type="text"
-                      required
-                      value={newUserName}
-                      onChange={e => setNewUserName(e.target.value)}
-                      placeholder="Ex: João da Silva"
-                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
-                    <input 
-                      type="text"
-                      required
-                      value={newUserPassword}
-                      onChange={e => setNewUserPassword(e.target.value)}
-                      placeholder="Senha numérica ou texto"
-                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nível de Acesso</label>
-                    <div className="flex gap-2">
-                       <button
-                        type="button"
-                        onClick={() => setNewUserRole('viewer')}
-                        className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
-                          newUserRole === 'viewer' 
-                            ? 'bg-orange-600 text-white shadow-md' 
-                            : 'bg-orange-50 text-orange-600'
-                        }`}
-                      >
-                        Visualizador
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewUserRole('admin')}
-                        className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
-                          newUserRole === 'admin' 
-                            ? 'bg-orange-600 text-white shadow-md' 
-                            : 'bg-orange-50 text-orange-600'
-                        }`}
-                      >
-                        Administrador
-                      </button>
+                {isMasterAdmin ? (
+                  <form onSubmit={handleCreateAccessUser} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
+                      <input 
+                        type="text"
+                        required
+                        value={newUserName}
+                        onChange={e => setNewUserName(e.target.value)}
+                        placeholder="Ex: João da Silva"
+                        className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                      />
                     </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
+                      <input 
+                        type="text"
+                        required
+                        value={newUserPassword}
+                        onChange={e => setNewUserPassword(e.target.value)}
+                        placeholder="Senha numérica ou texto"
+                        className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nível de Acesso</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewUserRole('viewer')}
+                          className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
+                            newUserRole === 'viewer' 
+                              ? 'bg-orange-600 text-white shadow-md' 
+                              : 'bg-orange-50 text-orange-600'
+                          }`}
+                        >
+                          Visualizador
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewUserRole('admin')}
+                          className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
+                            newUserRole === 'admin' 
+                              ? 'bg-orange-600 text-white shadow-md' 
+                              : 'bg-orange-50 text-orange-600'
+                          }`}
+                        >
+                          Administrador
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                    >
+                      {saving ? 'Criando...' : 'Cadastrar Usuário'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="bg-orange-50/50 p-6 rounded-2xl border border-dashed border-orange-200 text-center">
+                    <Lock className="w-8 h-8 text-orange-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-orange-800 mb-1">Acesso Restrito</p>
+                    <p className="text-xs text-orange-600 leading-relaxed font-medium">
+                      Somente o administrador mestre (Vilmardigital) pode cadastrar ou remover usuários.
+                    </p>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
-                  >
-                    {saving ? 'Criando...' : 'Cadastrar Usuário'}
-                  </button>
-                </form>
+                )}
               </div>
 
               <div className="space-y-4 pb-28">
@@ -1996,15 +2075,26 @@ export default function App() {
                         </div>
                         <div>
                           <h4 className="font-bold text-gray-900">{user.name}</h4>
-                          <p className="text-xs text-gray-400">Senha: <span className="font-mono">{user.password}</span></p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
+                              {user.role}
+                            </span>
+                            {isMasterAdmin && (
+                              <p className="text-[11px] text-gray-400 font-medium">
+                                Senha: <span className="font-mono text-gray-600">{user.password}</span>
+                              </p>
+                            )}
+                          </div>
                         </div>
                      </div>
-                     <button
-                      onClick={() => handleRemoveAccessUser(user.id)}
-                      className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
-                     >
-                       <X className="w-5 h-5" />
-                     </button>
+                     {isMasterAdmin && (
+                       <button
+                        onClick={() => handleRemoveAccessUser(user.id)}
+                        className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
+                       >
+                         <X className="w-5 h-5" />
+                       </button>
+                     )}
                    </div>
                  ))}
               </div>
@@ -2178,12 +2268,15 @@ export default function App() {
                     key={category}
                     onClick={() => handleSaveFromEditor(category)}
                     disabled={saving}
-                    className="flex flex-col items-center gap-3 p-4 rounded-3xl border border-orange-100 hover:border-orange-500 hover:bg-orange-50 hover:shadow-md transition-all active:scale-95 group"
+                    className={`flex flex-col items-center gap-3 p-4 rounded-3xl border-none bg-gradient-to-br ${getCategoryGradient(category)} hover:shadow-lg transition-all active:scale-95 group shadow-sm relative overflow-hidden`}
                   >
-                    <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                    <div className="absolute top-0 right-0 p-1 opacity-10 pointer-events-none transform translate-x-1 -translate-y-1">
+                      {getCategoryIcon(category, "w-10 h-10")}
+                    </div>
+                    <div className="w-12 h-12 rounded-2xl bg-white/20 text-white flex items-center justify-center group-hover:bg-white/30 transition-colors backdrop-blur-sm border border-white/20 z-10">
                       {getCategoryIcon(category, "w-6 h-6")}
                     </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em] text-gray-700">{category}</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.1em] text-white drop-shadow-sm z-10">{category}</span>
                   </button>
                 ))}
               </div>

@@ -281,21 +281,37 @@ const getYoutubeEmbedUrl = (url: string) => {
 
 const transposeChord = (chord: string, semitones: number) => {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const flats = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   
+  const latinToStandard: { [key: string]: string } = {
+    'Dó': 'C', 'Do': 'C',
+    'Ré': 'D', 'Re': 'D',
+    'Mi': 'E',
+    'Fá': 'F', 'Fa': 'F',
+    'Sol': 'G',
+    'Lá': 'A', 'La': 'A',
+    'Si': 'B'
+  };
+
   const trans = (c: string) => {
+    // Normalize Latin to Standard notation first
+    let normalizedChord = c;
+    for (const [latin, standard] of Object.entries(latinToStandard)) {
+      if (normalizedChord.startsWith(latin)) {
+        normalizedChord = normalizedChord.replace(latin, standard);
+        break;
+      }
+    }
+    
     // Separate the note from the rest of the chord (m7, etc.)
-    const match = c.match(/^([A-G][b#]?)(.*)/);
+    const match = normalizedChord.match(/^([A-G][b#]?)(.*)/);
     if (!match) return c;
     
     let note = match[1];
     const suffix = match[2];
     
-    // Normalize to sharps
     let index = notes.indexOf(note);
-    if (index === -1) {
-      index = flats.indexOf(note);
-    }
+    // If not found in notes (standard), try to normalize/handle flats if necessary, 
+    // but with normalization above it should be standard.
     
     if (index === -1) return c;
     
@@ -310,6 +326,64 @@ const transposeChord = (chord: string, semitones: number) => {
   }
   
   return trans(chord);
+};
+
+const processLowerLyrics = (content: string, isHtml: boolean): string => {
+  if (!content) return '';
+
+  if (isHtml) {
+    // 1. Protect Tags
+    const tags: string[] = [];
+    let protectedHtml = content.replace(/<[^>]+>/g, (match) => {
+      tags.push(match);
+      return `___TAG_${tags.length - 1}___`;
+    });
+    
+    // 2. Protect Chords
+    const chordRegex = /(?<=^|[\s>(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s<)]|$)/g;
+    
+    const chords: string[] = [];
+    protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
+      chords.push(p2);
+      return `${p1}___CHORD_${chords.length - 1}___`;
+    });
+    
+    // 3. Lowercase everything else (but not our placeholders)
+    protectedHtml = protectedHtml.toLowerCase();
+    
+    // 4. Restore Chords
+    protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
+      return chords[parseInt(p1)];
+    });
+    
+    // 5. Restore Tags
+    protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
+      return tags[parseInt(p1)];
+    });
+    return protectedHtml;
+  } else {
+    // Plain text version
+    const lines = content.split('\n');
+    const processedLines = lines.map(line => {
+      // Regex robusta para proteger acordes
+      const chordRegex = /(^|[\s(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s)]|$)/g;
+      
+      let result = '';
+      let lastIndex = 0;
+      let match;
+      
+      while ((match = chordRegex.exec(line)) !== null) {
+        const prefix = line.substring(lastIndex, match.index);
+        result += prefix.toLowerCase();
+        result += match[0]; 
+        lastIndex = chordRegex.lastIndex;
+      }
+      
+      result += line.substring(lastIndex).toLowerCase();
+      return result;
+    });
+    return processedLines.join('\n');
+  }
 };
 
 const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange }: { 
@@ -359,17 +433,18 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   };
 
   const transposeHtml = (html: string, semitones: number) => {
-    if (semitones === 0) return html;
-    
-    // Regex que identifica acordes, garantindo que não estejam dentro de tags HTML (<...>)
-    const chordRegex = /(?<=^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
+    // Identifica acordes e aplica cor laranja, transpondo se necessário
+    // Regex refinada para capturar acordes complexos, incluindo notação latina (ex: G7M, C9, A7(b5), Sol7)
+    const chordRegex = /(?<=^|[\s>(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s<)]|$)/g;
     
     return html.replace(chordRegex, (match) => {
-      return `<span class="text-orange-600 font-bold">${transposeChord(match, semitones)}</span>`;
+      const transposed = semitones !== 0 ? transposeChord(match, semitones) : match;
+      return `<span class="text-orange-600 font-bold">${transposed}</span>`;
     });
   };
 
   const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
+  const processedContent = processLowerLyrics(song.content, isHtml);
 
   return (
     <motion.div 
@@ -440,7 +515,11 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       </div>
 
       {/* Área de Conteúdo */}
-      <div className="flex-1 overflow-auto bg-gray-50/30">
+      <div 
+        className="flex-1 overflow-auto bg-gray-50/30 
+        [&_.text-orange-600]:text-orange-600 [&_.text-orange-600]:font-bold
+        [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold"
+      >
         <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
           {isHtml ? (
             <div 
@@ -450,24 +529,27 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal'
               }}
               className="font-mono transition-all rich-text-song"
-              dangerouslySetInnerHTML={{ __html: transposeHtml(song.content, transpose) }}
+              dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
             <div 
               style={{ fontSize: `${fontSize}px` }}
-              className="whitespace-pre-wrap font-mono leading-relaxed transition-all"
+              className="whitespace-pre-wrap font-mono leading-relaxed transition-all text-black font-bold"
             >
-              {song.content.split('\n').map((line, i) => {
+              {processedContent.split('\n').map((line, i) => {
                 const parts = line.split(/(\s+)/);
                 return (
-                  <div key={i} className="min-h-[1.5em] relative">
+                  <div key={i} className="min-h-[1.5em] relative text-black font-bold">
                     {parts.map((part, j) => {
-                      const isChord = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?$/.test(part.trim());
-                      if (isChord) {
-                        const transposed = transpose !== 0 ? transposeChord(part.trim(), transpose) : part.trim();
-                        return <span key={j} className="text-orange-700 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(part.trim(), transposed)}</span>;
+                      const trimmed = part.trim();
+                      // Regex robusta para identificação de acordes em texto puro
+                      const chordRegex = /^(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*$/;
+                      const isChord = chordRegex.test(trimmed);
+                      if (isChord && trimmed.length > 0) {
+                        const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
+                        return <span key={j} className="text-orange-600 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(trimmed, transposed)}</span>;
                       }
-                      return <span key={j} className="text-gray-800">{part}</span>;
+                      return <span key={j} className="text-black font-bold">{part}</span>;
                     })}
                   </div>
                 );
@@ -822,63 +904,6 @@ export default function App() {
     }
   };
   
-  const processLowerLyrics = (content: string, isHtml: boolean): string => {
-    if (!content) return '';
-
-    if (isHtml) {
-      // 1. Protect Tags
-      const tags: string[] = [];
-      let protectedHtml = content.replace(/<[^>]+>/g, (match) => {
-        tags.push(match);
-        return `___TAG_${tags.length - 1}___`;
-      });
-      
-      // 2. Protect Chords
-      const chordRegex = /(^|[\s>])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s<]|$)/g;
-      
-      const chords: string[] = [];
-      protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
-        chords.push(p2);
-        return `${p1}___CHORD_${chords.length - 1}___`;
-      });
-      
-      // 3. Lowercase everything else (but not our placeholders)
-      protectedHtml = protectedHtml.toLowerCase();
-      
-      // 4. Restore Chords
-      protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
-        return chords[parseInt(p1)];
-      });
-      
-      // 5. Restore Tags
-      protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
-        return tags[parseInt(p1)];
-      });
-      return protectedHtml;
-    } else {
-      // Plain text version
-      const lines = content.split('\n');
-      const processedLines = lines.map(line => {
-        const chordRegex = /(^|[\s])([A-G][b#]?(?:m|maj|min|dim|aug|sus|add|M)?\d?(?:[b#]\d)?(?:\/[A-G][b#]?)?)(?=[\s]|$)/g;
-        
-        let result = '';
-        let lastIndex = 0;
-        let match;
-        
-        while ((match = chordRegex.exec(line)) !== null) {
-          const prefix = line.substring(lastIndex, match.index);
-          result += prefix.toLowerCase();
-          result += match[0]; 
-          lastIndex = chordRegex.lastIndex;
-        }
-        
-        result += line.substring(lastIndex).toLowerCase();
-        return result;
-      });
-      return processedLines.join('\n');
-    }
-  };
-
   const handleLowercaseLyrics = () => {
     if (!editorRef.current) return;
     const html = editorRef.current.innerHTML;
@@ -1186,17 +1211,17 @@ export default function App() {
                     setSelectedCategory(category);
                     setViewMode('songs');
                   }}
-                  className={`bg-gradient-to-br ${getCategoryGradient(category)} p-3.5 rounded-xl border-none flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 shadow-md relative overflow-hidden`}
+                  className="bg-white p-3.5 rounded-xl border-2 border-orange-500 flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none transform translate-x-2 -translate-y-2">
-                    {getCategoryIcon(category, "w-12 h-12")}
+                    {getCategoryIcon(category, "w-12 h-12 text-orange-600")}
                   </div>
-                  <div className="bg-white/20 text-white p-1.5 rounded-lg group-hover:bg-white/30 transition-colors backdrop-blur-sm border border-white/20">
+                  <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-200 transition-colors backdrop-blur-sm border border-orange-200">
                     {getCategoryIcon(category, "w-4 h-4")}
                   </div>
                   <div className="text-left">
-                    <span className="block font-bold text-white text-sm leading-tight drop-shadow-sm">{category}</span>
-                    <span className="text-[9px] text-white/80 font-bold uppercase tracking-wider">
+                    <span className="block font-bold text-orange-950 text-sm leading-tight drop-shadow-sm">{category}</span>
+                    <span className="text-[9px] text-orange-600 font-bold uppercase tracking-wider">
                       {songs.filter(s => s.category === category).length} CIFRAS
                     </span>
                   </div>

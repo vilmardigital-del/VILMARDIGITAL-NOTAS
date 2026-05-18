@@ -54,15 +54,9 @@ import {
   FileText,
   Lock,
   Bold,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
   Type,
-  Copy,
-  Clipboard,
-  CaseLower,
-  ArrowLeftRight,
   ArrowUpDown,
+  ArrowLeftRight,
   Play,
   Pause
 } from 'lucide-react';
@@ -70,6 +64,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
 import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
+
+const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\\+|\\-|\\(|\\))*";
+const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
+const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`);
 
 const getYoutubeId = (url: string) => {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -328,62 +326,16 @@ const transposeChord = (chord: string, semitones: number) => {
   return trans(chord);
 };
 
-const processLowerLyrics = (content: string, isHtml: boolean): string => {
-  if (!content) return '';
-
-  if (isHtml) {
-    // 1. Protect Tags
-    const tags: string[] = [];
-    let protectedHtml = content.replace(/<[^>]+>/g, (match) => {
-      tags.push(match);
-      return `___TAG_${tags.length - 1}___`;
-    });
-    
-    // 2. Protect Chords
-    const chordRegex = /(?<=^|[\s>(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s<)]|$)/g;
-    
-    const chords: string[] = [];
-    protectedHtml = protectedHtml.replace(chordRegex, (match, p1, p2) => {
-      chords.push(p2);
-      return `${p1}___CHORD_${chords.length - 1}___`;
-    });
-    
-    // 3. Lowercase everything else (but not our placeholders)
-    protectedHtml = protectedHtml.toLowerCase();
-    
-    // 4. Restore Chords
-    protectedHtml = protectedHtml.replace(/___chord_(\d+)___/g, (match, p1) => {
-      return chords[parseInt(p1)];
-    });
-    
-    // 5. Restore Tags
-    protectedHtml = protectedHtml.replace(/___tag_(\d+)___/g, (match, p1) => {
-      return tags[parseInt(p1)];
-    });
-    return protectedHtml;
-  } else {
-    // Plain text version
-    const lines = content.split('\n');
-    const processedLines = lines.map(line => {
-      // Regex robusta para proteger acordes
-      const chordRegex = /(^|[\s(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s)]|$)/g;
-      
-      let result = '';
-      let lastIndex = 0;
-      let match;
-      
-      while ((match = chordRegex.exec(line)) !== null) {
-        const prefix = line.substring(lastIndex, match.index);
-        result += prefix.toLowerCase();
-        result += match[0]; 
-        lastIndex = chordRegex.lastIndex;
-      }
-      
-      result += line.substring(lastIndex).toLowerCase();
-      return result;
-    });
-    return processedLines.join('\n');
-  }
+const highlightChords = (html: string) => {
+  if (!html) return '';
+  
+  // Clean existing spans to avoid duplicates
+  const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                          .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1');
+                          
+  return cleanedHtml.replace(CHORD_REGEX, (match) => {
+    return `<span class="text-orange-600 font-bold">${match}</span>`;
+  });
 };
 
 const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange }: { 
@@ -433,18 +385,29 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   };
 
   const transposeHtml = (html: string, semitones: number) => {
-    // Identifica acordes e aplica cor laranja, transpondo se necessário
-    // Regex refinada para capturar acordes complexos, incluindo notação latina (ex: G7M, C9, A7(b5), Sol7)
-    const chordRegex = /(?<=^|[\s>(])((?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*)(?=[\s<)]|$)/g;
-    
-    return html.replace(chordRegex, (match) => {
+    // Clean existing spans to avoid doubling up
+    const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                            .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1');
+
+    return cleanedHtml.replace(CHORD_REGEX, (match) => {
       const transposed = semitones !== 0 ? transposeChord(match, semitones) : match;
       return `<span class="text-orange-600 font-bold">${transposed}</span>`;
     });
   };
 
+  const isChordLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+    const wordsCount = words.length;
+    if (wordsCount === 0) return false;
+    
+    const chordsCount = words.filter(w => CHORD_REGEX_EXACT.test(w)).length;
+    return chordsCount / wordsCount >= 0.5;
+  };
+
   const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
-  const processedContent = processLowerLyrics(song.content, isHtml);
+  const processedContent = song.content;
 
   return (
     <motion.div 
@@ -534,22 +497,31 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           ) : (
             <div 
               style={{ fontSize: `${fontSize}px` }}
-              className="whitespace-pre-wrap font-mono leading-relaxed transition-all text-black font-bold"
+              className="whitespace-pre-wrap font-mono leading-relaxed transition-all text-black"
             >
               {processedContent.split('\n').map((line, i) => {
+                const isChords = isChordLine(line);
                 const parts = line.split(/(\s+)/);
                 return (
-                  <div key={i} className="min-h-[1.5em] relative text-black font-bold">
+                  <div 
+                    key={i} 
+                    className={`min-h-[1.2em] relative font-bold ${isChords ? 'text-orange-600 pb-1 mt-2' : 'text-black mb-2'}`}
+                  >
                     {parts.map((part, j) => {
                       const trimmed = part.trim();
-                      // Regex robusta para identificação de acordes em texto puro
-                      const chordRegex = /^(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\+|\-|\(|\))*$/;
-                      const isChord = chordRegex.test(trimmed);
+                      const isChord = CHORD_REGEX_EXACT.test(trimmed);
                       if (isChord && trimmed.length > 0) {
                         const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
-                        return <span key={j} className="text-orange-600 font-bold bg-orange-50/50 px-0.5 rounded scale-105 inline-block">{part.replace(trimmed, transposed)}</span>;
+                        return (
+                          <span 
+                            key={j} 
+                            className={`font-bold ${isChords ? '' : 'text-orange-600 bg-orange-50/50 px-0.5 rounded'}`}
+                          >
+                            {part.replace(trimmed, transposed)}
+                          </span>
+                        );
                       }
-                      return <span key={j} className="text-black font-bold">{part}</span>;
+                      return <span key={j}>{part}</span>;
                     })}
                   </div>
                 );
@@ -746,17 +718,12 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users' | 'editor'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users' | 'editor'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
   
-  // Editor State
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [showEditorCategoryModal, setShowEditorCategoryModal] = useState(false);
-  const [showEditorTitleModal, setShowEditorTitleModal] = useState(false);
-  const [editorSongTitle, setEditorSongTitle] = useState('');
-  const [editorLineHeight, setEditorLineHeight] = useState(1.5);
-  const [editorLetterSpacing, setEditorLetterSpacing] = useState(0);
-  const [editingSongId, setEditingSongId] = useState<string | null>(null);
+  const songEditorRef = useRef<HTMLDivElement>(null);
+  
+  // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
@@ -863,61 +830,14 @@ export default function App() {
     };
   }, []);
 
-  const handleSaveFromEditor = async (category: Category) => {
-    const content = editorRef.current?.innerHTML || '';
-    if (!editorSongTitle || !content || saving) {
-      if (!editorSongTitle) alert("Por favor, informe o título.");
-      if (!content) alert("O conteúdo da cifra está vazio.");
-      return;
-    }
-    setSaving(true);
-    try {
-      const data = {
-        title: editorSongTitle,
-        content: content,
-        category: category,
-        ownerId: userIdentifier,
-        youtubeUrl: '',
-        lineHeight: editorLineHeight,
-        letterSpacing: editorLetterSpacing,
-        updatedAt: serverTimestamp()
-      };
-
-      if (editingSongId) {
-        await updateDoc(doc(db, 'songs', editingSongId), data);
-      } else {
-        await addDoc(collection(db, 'songs'), {
-          ...data,
-          createdAt: serverTimestamp()
-        });
-      }
-      setShowEditorCategoryModal(false);
-      setEditorSongTitle('');
-      setEditingSongId(null);
-      if (editorRef.current) editorRef.current.innerHTML = '';
-      setActiveTab('songs');
-      setViewMode('categories');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'songs');
-    } finally {
-      setSaving(false);
-    }
-  };
-  
-  const handleLowercaseLyrics = () => {
-    if (!editorRef.current) return;
-    const html = editorRef.current.innerHTML;
-    const protectedHtml = processLowerLyrics(html, true);
-    
-    // Update content preserving undo stack if possible
-    editorRef.current.focus();
-    document.execCommand('selectAll', false);
-    document.execCommand('insertHTML', false, protectedHtml);
-  };
-
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSong || saving) return;
+
+    if (!editingSong.content || editingSong.content.trim() === "" || editingSong.content === "<br>") {
+      alert("Por favor, preencha o conteúdo da cifra.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -1377,68 +1297,131 @@ export default function App() {
                   </div>
                 </div>
 
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const currentContent = editingSong?.content || '';
-                          const isHtml = /<[a-z][\s\S]*>/i.test(currentContent);
-                          const processed = processLowerLyrics(currentContent, isHtml);
-                          setEditingSong({...editingSong, content: processed});
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-orange-100 transition-colors border border-orange-200 shadow-sm"
-                      >
-                        <CaseLower className="w-3.5 h-3.5" />
-                        Letras em Minúsculo
-                      </button>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                       <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
+                       <div className="flex gap-2">
+                         <button 
+                           type="button"
+                           onClick={() => {
+                             if (songEditorRef.current) {
+                               const highlighted = highlightChords(songEditorRef.current.innerHTML);
+                               songEditorRef.current.innerHTML = highlighted;
+                               setEditingSong({...editingSong, content: highlighted});
+                             }
+                           }}
+                           className="text-[10px] font-black uppercase tracking-widest text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors shadow-sm"
+                         >
+                           Identificar Acordes
+                         </button>
+                       </div>
                     </div>
-                    {(/<[a-z][\s\S]*>/i.test(editingSong?.content || '') || editingSong?.lineHeight || editingSong?.letterSpacing) ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-wrap gap-2 p-2 bg-gray-50 rounded-xl border border-gray-100">
-                        <button type="button" onClick={() => document.execCommand('bold')} className="p-2 hover:bg-orange-100 rounded transition-colors"><Bold className="w-4 h-4 text-orange-600"/></button>
-                        <button type="button" onClick={() => document.execCommand('justifyLeft')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignLeft className="w-4 h-4 text-orange-600"/></button>
-                        <button type="button" onClick={() => document.execCommand('justifyCenter')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignCenter className="w-4 h-4 text-orange-600"/></button>
-                        <button type="button" onClick={() => document.execCommand('justifyRight')} className="p-2 hover:bg-orange-100 rounded transition-colors"><AlignRight className="w-4 h-4 text-orange-600"/></button>
-                        <div className="flex items-center gap-2 border-l border-gray-200 pl-2 ml-1">
-                          <button type="button" onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(1, (editingSong.lineHeight || 1.5) - 0.1)})} className="p-1 px-2 text-[10px] font-bold bg-white rounded border">LH-</button>
-                          <button type="button" onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(3, (editingSong.lineHeight || 1.5) + 0.1)})} className="p-1 px-2 text-[10px] font-bold bg-white rounded border">LH+</button>
+
+                    {/* Toolbar de Formatação */}
+                    <div className="flex flex-wrap gap-2 p-2 bg-gray-50 rounded-xl border border-gray-200 mb-2 shadow-sm">
+                      <div className="flex gap-1 border-r border-gray-200 pr-2">
+                        <button 
+                          type="button"
+                          onClick={() => document.execCommand('bold')} 
+                          className="p-2 bg-white rounded-lg border border-gray-100 hover:bg-orange-50 hover:text-orange-600 transition-all shadow-sm" 
+                          title="Negrito"
+                        >
+                          <Bold className="w-4 h-4"/>
+                        </button>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 border-r border-gray-200 pr-2">
+                        <div className="relative w-8 h-8 bg-white rounded-lg border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm hover:bg-orange-50 transition-all">
+                          <Type className="w-4 h-4 text-orange-600" />
+                          <input 
+                            type="color" 
+                            onChange={(e) => document.execCommand('foreColor', false, e.target.value)} 
+                            className="absolute inset-0 opacity-0 cursor-pointer" 
+                            title="Cor do Texto"
+                          />
                         </div>
                       </div>
+
+                      <div className="flex items-center gap-1 border-r border-gray-200 pr-2">
+                        <div className="flex flex-col items-center">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <ArrowUpDown className="w-2.5 h-2.5 text-gray-400" />
+                            <span className="text-[8px] font-black text-gray-500">{(editingSong?.lineHeight || 1.5).toFixed(1)}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <button 
+                              type="button"
+                              onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.8, (editingSong?.lineHeight || 1.5) - 0.1)})} 
+                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                            >
+                              -
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(4, (editingSong?.lineHeight || 1.5) + 0.1)})} 
+                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <div className="flex flex-col items-center">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <ArrowLeftRight className="w-2.5 h-2.5 text-gray-400" />
+                            <span className="text-[8px] font-black text-gray-500">{editingSong?.letterSpacing || 0}px</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <button 
+                              type="button"
+                              onClick={() => setEditingSong({...editingSong, letterSpacing: Math.max(-2, (editingSong?.letterSpacing || 0) - 1)})} 
+                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                            >
+                              -
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => setEditingSong({...editingSong, letterSpacing: Math.min(10, (editingSong?.letterSpacing || 0) + 1)})} 
+                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
                       <div 
+                        ref={songEditorRef}
                         contentEditable={true}
                         suppressContentEditableWarning={true}
                         onInput={(e) => setEditingSong({...editingSong, content: e.currentTarget.innerHTML})}
-                        className="w-full min-h-[300px] bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm overflow-y-auto"
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const text = e.clipboardData.getData('text/plain');
+                          const html = e.clipboardData.getData('text/html');
+                          
+                          // Use the helper to convert newlines to <br> if plain text
+                          let contentToInsert = html || text.replace(/\n/g, '<br>');
+                          
+                          // Auto-highlight on paste
+                          contentToInsert = highlightChords(contentToInsert);
+                          
+                          document.execCommand('insertHTML', false, contentToInsert);
+                        }}
+                        className="w-full min-h-[400px] bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm shadow-inner overflow-y-auto"
                         style={{ 
                           lineHeight: editingSong?.lineHeight || 1.5, 
-                          letterSpacing: editingSong?.letterSpacing !== undefined ? `${editingSong.letterSpacing}px` : 'normal'
+                          letterSpacing: `${editingSong?.letterSpacing || 0}px`,
+                          color: 'black'
                         }}
                         dangerouslySetInnerHTML={{ __html: editingSong?.content || '' }}
                       />
-                      <p className="text-[10px] text-orange-600 font-bold uppercase italic">Modo Editor Rico Ativado</p>
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <textarea 
-                        required
-                        rows={12}
-                        value={editingSong?.content || ''}
-                        onChange={e => setEditingSong({...editingSong, content: e.target.value})}
-                        placeholder="Cole aqui a cifra..."
-                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setEditingSong({...editingSong, content: `<div>${(editingSong?.content || '').replace(/\n/g, '<br>')}</div>`, lineHeight: 1.5, letterSpacing: 0})}
-                        className="text-xs font-bold text-orange-600 hover:underline uppercase tracking-widest"
-                      >
-                        + Ativar Formatação Rica (Gritos, Alinhamento, Cores)
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  </div>
 
                 <div className="flex gap-3 pt-2 pb-10">
                   <button 
@@ -1849,155 +1832,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* EDITOR TAB */}
-          {activeTab === 'editor' && (
-            <motion.div
-              key="editor"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-4 flex flex-col gap-4"
-            >
-              <h2 className="text-xl font-bold text-gray-900">Editor de Cifras</h2>
-              
-              {/* Toolbar */}
-              <div className="flex flex-wrap gap-2 p-3 bg-white rounded-3xl border border-orange-100 shadow-sm">
-                <div className="flex gap-1 border-r border-gray-100 pr-2">
-                  <button onClick={() => document.execCommand('bold')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Negrito"><Bold className="w-4 h-4"/></button>
-                  <button onClick={handleLowercaseLyrics} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Letras em Minúsculo"><CaseLower className="w-4 h-4"/></button>
-                </div>
-                
-                <div className="flex gap-1 border-r border-gray-100 pr-2">
-                  <button onClick={() => document.execCommand('justifyLeft')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Alinhar Esquerda"><AlignLeft className="w-4 h-4"/></button>
-                  <button onClick={() => document.execCommand('justifyCenter')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Centralizar"><AlignCenter className="w-4 h-4"/></button>
-                  <button onClick={() => document.execCommand('justifyRight')} className="p-2.5 bg-gray-50 rounded-xl hover:bg-orange-50 hover:text-orange-600 transition-colors" title="Alinhar Direita"><AlignRight className="w-4 h-4"/></button>
-                </div>
-
-                <div className="flex items-center gap-2 border-r border-gray-100 pr-2">
-                  <div className="relative w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
-                    <Type className="w-4 h-4 text-orange-600" />
-                    <input 
-                      type="color" 
-                      onChange={(e) => document.execCommand('foreColor', false, e.target.value)} 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                      title="Cor do Texto"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 border-r border-gray-100 pr-2">
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1 mb-1">
-                      <ArrowUpDown className="w-3 h-3 text-gray-400" />
-                      <span className="text-[9px] font-bold text-gray-400">{editorLineHeight.toFixed(1)}</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditorLineHeight(prev => Math.max(0.8, prev - 0.1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">-</button>
-                      <button onClick={() => setEditorLineHeight(prev => Math.min(4, prev + 0.1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">+</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 border-r border-gray-100 pr-2">
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1 mb-1">
-                      <ArrowLeftRight className="w-3 h-3 text-gray-400" />
-                      <span className="text-[9px] font-bold text-gray-400">{editorLetterSpacing}px</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditorLetterSpacing(prev => Math.max(-5, prev - 1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">-</button>
-                      <button onClick={() => setEditorLetterSpacing(prev => Math.min(20, prev + 1))} className="w-8 h-8 bg-gray-50 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition-colors flex items-center justify-center text-[10px] font-bold">+</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-1">
-                  <button 
-                    onClick={() => { 
-                      // Try to use the standard paste behavior or alert user to use Ctrl+V/Cmd+V for better formatting support
-                      const selection = window.getSelection();
-                      if (selection && selection.rangeCount > 0) {
-                        navigator.clipboard.read().then(items => {
-                          for (const item of items) {
-                            if (item.types.includes('text/html')) {
-                              item.getType('text/html').then(blob => {
-                                blob.text().then(html => {
-                                  const range = selection.getRangeAt(0);
-                                  range.deleteContents();
-                                  const div = document.createElement('div');
-                                  div.innerHTML = html;
-                                  range.insertNode(div);
-                                });
-                              });
-                              return;
-                            }
-                          }
-                          // Fallback to text
-                          navigator.clipboard.readText().then(text => {
-                            const range = selection.getRangeAt(0);
-                            range.deleteContents();
-                            range.insertNode(document.createTextNode(text));
-                          });
-                        }).catch(() => {
-                          alert("Pressione Ctrl+V (ou Cmd+V) para colar com formatação.");
-                        });
-                      }
-                    }} 
-                    className="flex items-center gap-2 px-3 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors"
-                  >
-                    <Clipboard className="w-3.5 h-3.5"/>
-                    Colar
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const selection = window.getSelection()?.toString();
-                      if (selection) {
-                        navigator.clipboard.writeText(selection);
-                        alert("Copiado!");
-                      }
-                    }} 
-                    className="flex items-center gap-2 px-3 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5"/>
-                    Copiar
-                  </button>
-                </div>
-              </div>
-              
-              <div 
-                ref={editorRef}
-                contentEditable={true}
-                suppressContentEditableWarning={true}
-                className="w-full h-96 bg-white border border-gray-200 rounded-3xl p-6 font-mono text-sm overflow-y-auto focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none shadow-inner"
-                style={{ lineHeight: editorLineHeight, letterSpacing: `${editorLetterSpacing}px` }}
-              />
-              
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                    const content = editorRef.current?.innerHTML || '';
-                    if (!content.trim() || content === '<br>') {
-                      alert("Escreva ou cole a cifra primeiro.");
-                      return;
-                    }
-                    // Transfer variables to the standard Add Song screen
-                    setEditingSong({
-                      title: editorSongTitle,
-                      content: content,
-                      category: 'Comum',
-                      youtubeUrl: '',
-                      lineHeight: editorLineHeight,
-                      letterSpacing: editorLetterSpacing
-                    });
-                    setActiveTab('songs');
-                    setViewMode('edit-song');
-                  }}
-                  className="flex-1 bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
-                >
-                  Adicionar às Categorias
-                </button>
-              </div>
-            </motion.div>
-          )}
+          {/* EDITOR TAB REMOVED */}
 
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
@@ -2186,18 +2021,7 @@ export default function App() {
           <Sparkles className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
         </button>
-        {userRole === 'admin' && (
-          <button 
-            onClick={() => {
-              setActiveTab('editor');
-              setViewMode('editor');
-            }}
-            className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'editor' ? 'text-white' : 'text-orange-200'}`}
-          >
-            <Edit2 className="w-6 h-6" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Editor</span>
-          </button>
-        )}
+        {/* Suggestions Tab */}
         {userRole === 'admin' && (
           <button 
             onClick={() => {
@@ -2212,111 +2036,7 @@ export default function App() {
         )}
       </nav>
 
-      {/* Title Input Modal for Editor */}
-      <AnimatePresence>
-        {showEditorTitleModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 text-left">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setShowEditorTitleModal(false)}
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl flex flex-col"
-            >
-              <h3 className="text-2xl font-bold text-gray-900 mb-2 font-display uppercase tracking-tight">Título da Música</h3>
-              <p className="text-sm text-gray-500 mb-6 font-medium">Como se chama esta cifra?</p>
-              
-              <input 
-                type="text"
-                autoFocus
-                value={editorSongTitle}
-                onChange={(e) => setEditorSongTitle(e.target.value)}
-                className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl px-6 py-4 outline-none focus:border-orange-500 transition-all font-bold text-gray-700 mb-6"
-                placeholder="Digite o título..."
-              />
-
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setShowEditorTitleModal(false)}
-                  className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={() => {
-                    if (!editorSongTitle.trim()) {
-                      alert("Por favor, digite um título.");
-                      return;
-                    }
-                    setShowEditorTitleModal(false);
-                    setShowEditorCategoryModal(true);
-                  }}
-                  className="flex-1 py-4 rounded-2xl font-bold text-white bg-orange-600 shadow-lg shadow-orange-200 active:scale-95 transition-all"
-                >
-                  Próximo
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Category Selection Modal for Editor */}
-      <AnimatePresence>
-        {showEditorCategoryModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-left">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => !saving && setShowEditorCategoryModal(false)}
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl flex flex-col"
-            >
-              <h3 className="text-2xl font-bold text-gray-900 mb-2 font-display uppercase tracking-tight">Escolha a Categoria</h3>
-              <p className="text-sm text-gray-500 mb-6 font-medium">Em qual categoria deseja salvar "{editorSongTitle}"?</p>
-              
-              <div className="grid grid-cols-2 gap-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar p-1">
-                {CATEGORIES.map(category => (
-                  <button 
-                    key={category}
-                    onClick={() => handleSaveFromEditor(category)}
-                    disabled={saving}
-                    className={`flex flex-col items-center gap-3 p-4 rounded-3xl border-none bg-gradient-to-br ${getCategoryGradient(category)} hover:shadow-lg transition-all active:scale-95 group shadow-sm relative overflow-hidden`}
-                  >
-                    <div className="absolute top-0 right-0 p-1 opacity-10 pointer-events-none transform translate-x-1 -translate-y-1">
-                      {getCategoryIcon(category, "w-10 h-10")}
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-white/20 text-white flex items-center justify-center group-hover:bg-white/30 transition-colors backdrop-blur-sm border border-white/20 z-10">
-                      {getCategoryIcon(category, "w-6 h-6")}
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em] text-white drop-shadow-sm z-10">{category}</span>
-                  </button>
-                ))}
-              </div>
-
-              <button 
-                onClick={() => setShowEditorCategoryModal(false)}
-                className="w-full mt-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors"
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Modals Cleaned Up */}
 
       {/* Full Screen Song Viewer */}
       <AnimatePresence>

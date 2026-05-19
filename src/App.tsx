@@ -198,7 +198,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Seu nome de usuário"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
                 autoFocus
               />
             </div>
@@ -213,7 +213,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Sua senha de acesso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-zinc-800 focus:border-orange-500'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
               />
             </div>
           </div>
@@ -425,7 +425,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
     >
       {/* Header Fixo */}
-      <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
+      <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
         <div className="flex items-center gap-3 overflow-hidden mr-2">
           <button 
             onClick={onClose}
@@ -537,7 +537,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       </div>
 
       {/* Floating Toolbar Subordinada */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-2xl shadow-2xl z-30">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30">
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
           <button 
             onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
@@ -592,7 +592,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               exit={{ opacity: 0, scale: 0.8, x: '-50%', y: '-40%' }}
               className="fixed top-1/2 left-1/2 w-[90%] md:w-[640px] z-50 group transition-all"
             >
-              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-white aspect-video relative">
+              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-orange-500 aspect-video relative">
                 <button 
                   onClick={() => setShowPlayer(false)}
                   className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full hover:bg-black/80 z-10 transition-colors"
@@ -1042,7 +1042,7 @@ export default function App() {
         <div className="absolute bottom-[20%] -left-[10%] w-[40%] h-[40%] bg-orange-50/50 blur-[100px] rounded-full" />
       </div>
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
+      <header className="bg-white border-b border-orange-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
         {/* Left Section: Back or Logo */}
         <div className="flex-1 flex items-center">
           {viewMode !== 'categories' && viewMode !== 'playlist-list' ? (
@@ -1058,7 +1058,7 @@ export default function App() {
               <ChevronLeft className="w-6 h-6" />
             </button>
           ) : (
-            <div className="shrink-0 bg-white rounded-xl p-1 shadow-sm border border-gray-100">
+            <div className="shrink-0 bg-white rounded-xl p-1 shadow-sm border border-orange-200">
               <Logo className="w-12 h-12" />
             </div>
           )}
@@ -1073,7 +1073,7 @@ export default function App() {
               accept="image/*"
               onChange={handleProfilePicUpload}
             />
-            <div className="w-14 h-14 rounded-full bg-orange-100 border-2 border-white shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+            <div className="w-14 h-14 rounded-full bg-orange-100 border-2 border-orange-200 shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
               {userProfilePic ? (
                 <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
               ) : (
@@ -1168,7 +1168,7 @@ export default function App() {
                   placeholder="Buscar cifra..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-shadow"
+                  className="w-full bg-white border border-orange-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-shadow"
                 />
               </div>
 
@@ -1177,7 +1177,7 @@ export default function App() {
                   {filteredSongs.map(song => (
                     <div 
                       key={song.id}
-                      className="bg-white p-4 rounded-xl border border-gray-200 flex items-center justify-between group active:bg-gray-50"
+                      className="bg-white p-4 rounded-xl border border-orange-200 flex items-center justify-between group active:bg-gray-50"
                     >
                       <div 
                         onClick={() => setViewingSong(song)}
@@ -1271,7 +1271,7 @@ export default function App() {
                       value={editingSong?.title || ''}
                       onChange={e => setEditingSong({...editingSong, title: e.target.value})}
                       placeholder="Título da música"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                     />
                   </div>
 
@@ -1282,7 +1282,7 @@ export default function App() {
                       value={editingSong?.artist || ''}
                       onChange={e => setEditingSong({...editingSong, artist: e.target.value})}
                       placeholder="Nome do artista ou banda"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                     />
                   </div>
                 </div>
@@ -1300,7 +1300,7 @@ export default function App() {
                           alert('Por favor, digite o título da música para pesquisar.');
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-orange-100 transition-colors border border-orange-200 shadow-sm"
                     >
                       <Search className="w-3.5 h-3.5" />
                       Procurar Cifra na Internet
@@ -1309,7 +1309,7 @@ export default function App() {
                   <select 
                     value={editingSong?.category || selectedCategory || 'Comum'}
                     onChange={e => setEditingSong({...editingSong, category: e.target.value as Category})}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none appearance-none"
+                    className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none appearance-none"
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -1324,7 +1324,7 @@ export default function App() {
                       value={editingSong?.youtubeUrl || ''}
                       onChange={e => setEditingSong({...editingSong, youtubeUrl: e.target.value})}
                       placeholder="https://www.youtube.com/watch?v=..."
-                      className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                      className="w-full bg-white border border-orange-200 rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
                     />
                   </div>
                 </div>
@@ -1340,7 +1340,7 @@ export default function App() {
                       value={editingSong?.content || ''}
                       onChange={e => setEditingSong({...editingSong, content: e.target.value})}
                       placeholder="Cole aqui a cifra..."
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
+                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
                     />
                   </div>
                 </div>
@@ -1381,7 +1381,7 @@ export default function App() {
                   placeholder="Buscar playlist..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 outline-none"
+                  className="w-full bg-white border border-orange-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 outline-none"
                 />
               </div>
 
@@ -1390,7 +1390,7 @@ export default function App() {
                   {filteredPlaylists.map(playlist => (
                     <div 
                       key={playlist.id}
-                      className="bg-white p-5 rounded-2xl border border-gray-200 flex items-center justify-between active:bg-gray-50"
+                      className="bg-white p-5 rounded-2xl border border-orange-200 flex items-center justify-between active:bg-gray-50"
                     >
                       <div 
                         onClick={() => {
@@ -1502,7 +1502,7 @@ export default function App() {
                       setCurrentPlaylistSongIndex(index);
                       setViewingSong(song);
                     }}
-                    className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all h-[50px]"
+                    className="bg-white p-4 rounded-xl border border-orange-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all h-[50px]"
                   >
                     <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm">
                       {index + 1}
@@ -1600,7 +1600,7 @@ export default function App() {
                           className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
                             isSelected 
                               ? 'bg-yellow-400 border-yellow-400 text-yellow-950 shadow-md' 
-                              : 'bg-white border-gray-200 text-gray-900'
+                              : 'bg-white border-orange-200 text-gray-900'
                           }`}
                         >
                           <div className="text-left flex items-center gap-3 overflow-hidden">
@@ -1731,7 +1731,7 @@ export default function App() {
                       href={source.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center gap-2 text-center hover:shadow-md transition-all group"
+                      className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex flex-col items-center justify-center gap-2 text-center hover:shadow-md transition-all group"
                     >
                       <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-orange-50 transition-colors">
                         <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-orange-600" />
@@ -1850,7 +1850,7 @@ export default function App() {
               <div className="space-y-4 pb-28">
                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">Usuários Cadastrados ({accessUsers.length})</h3>
                  {accessUsers.map(user => (
-                   <div key={user.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+                   <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex items-center justify-between">
                      <div className="flex items-center gap-3">
                         <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
                           {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}

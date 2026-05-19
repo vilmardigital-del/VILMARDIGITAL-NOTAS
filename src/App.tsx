@@ -53,10 +53,6 @@ import {
   Minus,
   FileText,
   Lock,
-  Bold,
-  Type,
-  ArrowUpDown,
-  ArrowLeftRight,
   Play,
   Pause
 } from 'lucide-react';
@@ -68,6 +64,10 @@ import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } fro
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\\+|\\-|\\(|\\))*";
 const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
 const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`);
+
+// Palavras comuns que podem ser confundidas com acordes (ex: "e", "Do")
+// Se a linha for predominantemente letras, evitamos destacar essas palavras curtas como acordes
+const EXCLUDED_WORDS = ['e', 'E', 'A', 'a', 'O', 'o', 'Do', 'do', 'Da', 'da', 'Si', 'si', 'De', 'de'];
 
 const getYoutubeId = (url: string) => {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -398,12 +398,19 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const isChordLine = (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return false;
-    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+    // Remove tags HTML para análise de texto puro
+    const plainText = trimmed.replace(/<[^>]*>/g, '');
+    const words = plainText.split(/\s+/).filter(w => w.length > 0);
     const wordsCount = words.length;
     if (wordsCount === 0) return false;
     
-    const chordsCount = words.filter(w => CHORD_REGEX_EXACT.test(w)).length;
-    return chordsCount / wordsCount >= 0.5;
+    const chordsCount = words.filter(w => {
+      // Se for uma palavra excluída e estiver sozinha, só é acorde se o contexto for de acordes
+      if (EXCLUDED_WORDS.includes(w) && wordsCount > 3) return false;
+      return CHORD_REGEX_EXACT.test(w);
+    }).length;
+    
+    return chordsCount / wordsCount >= 0.4; // Ajustado de 0.5 para 0.4 para ser mais sensível
   };
 
   const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
@@ -488,8 +495,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <div 
               style={{ 
                 fontSize: `${fontSize}px`,
-                lineHeight: song.lineHeight || 1.5,
-                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal'
               }}
               className="font-mono transition-all rich-text-song"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
@@ -721,8 +726,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
   const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
   
-  const songEditorRef = useRef<HTMLDivElement>(null);
-  
   // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
@@ -834,7 +837,7 @@ export default function App() {
     e.preventDefault();
     if (!editingSong || saving) return;
 
-    if (!editingSong.content || editingSong.content.trim() === "" || editingSong.content === "<br>") {
+    if (!editingSong.content || editingSong.content.trim() === "") {
       alert("Por favor, preencha o conteúdo da cifra.");
       return;
     }
@@ -843,11 +846,10 @@ export default function App() {
     try {
       const data = {
         title: editingSong.title || '',
+        artist: editingSong.artist || '',
         content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
         youtubeUrl: editingSong.youtubeUrl || '',
-        lineHeight: editingSong.lineHeight || 1.5,
-        letterSpacing: editingSong.letterSpacing || 0,
         updatedAt: serverTimestamp()
       };
 
@@ -1260,20 +1262,50 @@ export default function App() {
               className="p-4"
             >
               <form onSubmit={handleCreateOrUpdateSong} className="flex flex-col gap-5">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={editingSong?.title || ''}
-                    onChange={e => setEditingSong({...editingSong, title: e.target.value})}
-                    placeholder="Título da música"
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={editingSong?.title || ''}
+                      onChange={e => setEditingSong({...editingSong, title: e.target.value})}
+                      placeholder="Título da música"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Artista (Opcional)</label>
+                    <input 
+                      type="text" 
+                      value={editingSong?.artist || ''}
+                      onChange={e => setEditingSong({...editingSong, artist: e.target.value})}
+                      placeholder="Nome do artista ou banda"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Categoria</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Categoria</label>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const query = `${editingSong?.title || ''} ${editingSong?.artist || ''} cifra`.trim();
+                        if (query.length > 5) {
+                          window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank');
+                        } else {
+                          alert('Por favor, digite o título da música para pesquisar.');
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      Procurar Cifra na Internet
+                    </button>
+                  </div>
                   <select 
                     value={editingSong?.category || selectedCategory || 'Comum'}
                     onChange={e => setEditingSong({...editingSong, category: e.target.value as Category})}
@@ -1299,129 +1331,19 @@ export default function App() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                       <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
-                       <div className="flex gap-2">
-                         <button 
-                           type="button"
-                           onClick={() => {
-                             if (songEditorRef.current) {
-                               const highlighted = highlightChords(songEditorRef.current.innerHTML);
-                               songEditorRef.current.innerHTML = highlighted;
-                               setEditingSong({...editingSong, content: highlighted});
-                             }
-                           }}
-                           className="text-[10px] font-black uppercase tracking-widest text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors shadow-sm"
-                         >
-                           Identificar Acordes
-                         </button>
-                       </div>
-                    </div>
-
-                    {/* Toolbar de Formatação */}
-                    <div className="flex flex-wrap gap-2 p-2 bg-gray-50 rounded-xl border border-gray-200 mb-2 shadow-sm">
-                      <div className="flex gap-1 border-r border-gray-200 pr-2">
-                        <button 
-                          type="button"
-                          onClick={() => document.execCommand('bold')} 
-                          className="p-2 bg-white rounded-lg border border-gray-100 hover:bg-orange-50 hover:text-orange-600 transition-all shadow-sm" 
-                          title="Negrito"
-                        >
-                          <Bold className="w-4 h-4"/>
-                        </button>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 border-r border-gray-200 pr-2">
-                        <div className="relative w-8 h-8 bg-white rounded-lg border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm hover:bg-orange-50 transition-all">
-                          <Type className="w-4 h-4 text-orange-600" />
-                          <input 
-                            type="color" 
-                            onChange={(e) => document.execCommand('foreColor', false, e.target.value)} 
-                            className="absolute inset-0 opacity-0 cursor-pointer" 
-                            title="Cor do Texto"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 border-r border-gray-200 pr-2">
-                        <div className="flex flex-col items-center">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <ArrowUpDown className="w-2.5 h-2.5 text-gray-400" />
-                            <span className="text-[8px] font-black text-gray-500">{(editingSong?.lineHeight || 1.5).toFixed(1)}</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <button 
-                              type="button"
-                              onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.8, (editingSong?.lineHeight || 1.5) - 0.1)})} 
-                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
-                            >
-                              -
-                            </button>
-                            <button 
-                              type="button"
-                              onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(4, (editingSong?.lineHeight || 1.5) + 0.1)})} 
-                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <div className="flex flex-col items-center">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <ArrowLeftRight className="w-2.5 h-2.5 text-gray-400" />
-                            <span className="text-[8px] font-black text-gray-500">{editingSong?.letterSpacing || 0}px</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <button 
-                              type="button"
-                              onClick={() => setEditingSong({...editingSong, letterSpacing: Math.max(-2, (editingSong?.letterSpacing || 0) - 1)})} 
-                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
-                            >
-                              -
-                            </button>
-                            <button 
-                              type="button"
-                              onClick={() => setEditingSong({...editingSong, letterSpacing: Math.min(10, (editingSong?.letterSpacing || 0) + 1)})} 
-                              className="w-6 h-6 bg-white border border-gray-100 rounded-md hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div 
-                        ref={songEditorRef}
-                        contentEditable={true}
-                        suppressContentEditableWarning={true}
-                        onInput={(e) => setEditingSong({...editingSong, content: e.currentTarget.innerHTML})}
-                        onPaste={(e) => {
-                          e.preventDefault();
-                          const text = e.clipboardData.getData('text/plain');
-                          const html = e.clipboardData.getData('text/html');
-                          
-                          // Use the helper to convert newlines to <br> if plain text
-                          let contentToInsert = html || text.replace(/\n/g, '<br>');
-                          
-                          // Auto-highlight on paste
-                          contentToInsert = highlightChords(contentToInsert);
-                          
-                          document.execCommand('insertHTML', false, contentToInsert);
-                        }}
-                        className="w-full min-h-[400px] bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm shadow-inner overflow-y-auto"
-                        style={{ 
-                          lineHeight: editingSong?.lineHeight || 1.5, 
-                          letterSpacing: `${editingSong?.letterSpacing || 0}px`,
-                          color: 'black'
-                        }}
-                        dangerouslySetInnerHTML={{ __html: editingSong?.content || '' }}
-                      />
-                    </div>
+                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
                   </div>
+                  <div className="space-y-4">
+                    <textarea 
+                      required
+                      rows={15}
+                      value={editingSong?.content || ''}
+                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                      placeholder="Cole aqui a cifra..."
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
+                    />
+                  </div>
+                </div>
 
                 <div className="flex gap-3 pt-2 pb-10">
                   <button 

@@ -53,6 +53,11 @@ import {
   Minus,
   FileText,
   Lock,
+  ArrowUpDown,
+  ArrowLeftRight,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   Play,
   Pause
 } from 'lucide-react';
@@ -495,14 +500,22 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <div 
               style={{ 
                 fontSize: `${fontSize}px`,
+                lineHeight: song.lineHeight || 1.5,
+                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
+                textAlign: song.textAlign || 'left'
               }}
               className="font-mono transition-all rich-text-song"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
             <div 
-              style={{ fontSize: `${fontSize}px` }}
-              className="whitespace-pre-wrap font-mono leading-relaxed transition-all text-black"
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: song.lineHeight || 1.5,
+                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
+                textAlign: song.textAlign || 'left'
+              }}
+              className="whitespace-pre-wrap font-mono transition-all text-black"
             >
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
@@ -538,37 +551,37 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
       {/* Floating Toolbar Subordinada */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-0.5">
           <button 
             onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
-            className="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
           >
-            <span className="text-xs">A-</span>
+            <span className="text-[10px]">A-</span>
           </button>
           <button 
             onClick={() => setFontSize(prev => Math.min(30, prev + 2))}
-            className="w-10 h-10 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
           >
-            <span className="text-lg">A+</span>
+            <span className="text-sm">A+</span>
           </button>
         </div>
 
         {(onPrev || onNext) && (
-          <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5">
             <button 
               disabled={!onPrev}
               onClick={onPrev} 
-              className="w-10 h-10 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
+              className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
             >
-              <ChevronLeft className="w-6 h-6" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="w-[1px] h-6 bg-orange-400"></div>
+            <div className="w-[1px] h-5 bg-orange-400"></div>
             <button 
               disabled={!onNext}
               onClick={onNext} 
-              className="w-10 h-10 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
+              className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all"
             >
-              <ChevronRight className="w-6 h-6" />
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
         )}
@@ -833,6 +846,41 @@ export default function App() {
     };
   }, []);
 
+  // Load and save draft
+  useEffect(() => {
+    if (viewMode === 'edit-song' && editingSong && !editingSong.id && (editingSong.title || editingSong.content)) {
+      localStorage.setItem('songDraft', JSON.stringify(editingSong));
+    }
+  }, [editingSong, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'edit-song') {
+      const savedDraft = localStorage.getItem('songDraft');
+      if (savedDraft && !editingSong?.id && !editingSong?.title && !editingSong?.content) {
+        try {
+          const draft = JSON.parse(savedDraft);
+          setEditingSong(draft);
+        } catch (e) {
+          console.error("Erro ao carregar rascunho", e);
+        }
+      }
+    }
+  }, [viewMode]);
+
+  const handleCancelEdit = () => {
+    const hasContent = editingSong?.title || editingSong?.content || editingSong?.artist;
+    if (hasContent && !editingSong?.id) {
+      if (window.confirm('Você tem alterações não salvas. Deseja realmente descartar este rascunho?')) {
+        localStorage.removeItem('songDraft');
+        setEditingSong(null);
+        setViewMode('songs');
+      }
+    } else {
+      setEditingSong(null);
+      setViewMode('songs');
+    }
+  };
+
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSong || saving) return;
@@ -850,6 +898,9 @@ export default function App() {
         content: editingSong.content || '',
         category: editingSong.category || selectedCategory || 'Comum',
         youtubeUrl: editingSong.youtubeUrl || '',
+        lineHeight: editingSong.lineHeight || 1.5,
+        letterSpacing: editingSong.letterSpacing || 0,
+        textAlign: editingSong.textAlign || 'left',
         updatedAt: serverTimestamp()
       };
 
@@ -861,6 +912,7 @@ export default function App() {
           createdAt: serverTimestamp()
         });
       }
+      localStorage.removeItem('songDraft');
       setEditingSong(null);
       setViewMode('songs');
     } catch (err) {
@@ -1049,11 +1101,11 @@ export default function App() {
             <button 
               onClick={() => {
                 if (viewMode === 'songs') setViewMode('categories');
-                else if (viewMode === 'edit-song') setViewMode('songs');
+                else if (viewMode === 'edit-song') handleCancelEdit();
                 else if (viewMode === 'edit-playlist') setViewMode('playlist-list');
                 else if (viewMode === 'view-playlist') setViewMode('playlist-list');
               }}
-              className="p-2 -ml-2 text-gray-500 hover:bg-gray-50 rounded-full transition-colors"
+              className="p-2 -ml-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
@@ -1333,6 +1385,90 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
                   </div>
+
+                  {/* Opções de Formatação */}
+                  <div className="flex flex-wrap gap-2 p-2 bg-orange-50/50 rounded-xl border border-orange-100 shadow-sm mb-3">
+                    {/* Alinhamento */}
+                    <div className="flex gap-1 border-r border-orange-200 pr-2">
+                      <button 
+                        type="button"
+                        onClick={() => setEditingSong({...editingSong, textAlign: 'left'})}
+                        className={`p-2 rounded-lg transition-all ${editingSong?.textAlign === 'left' || !editingSong?.textAlign ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-gray-500 hover:bg-orange-100'}`}
+                        title="Alinhar à Esquerda"
+                      >
+                        <AlignLeft className="w-4 h-4" />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setEditingSong({...editingSong, textAlign: 'center'})}
+                        className={`p-2 rounded-lg transition-all ${editingSong?.textAlign === 'center' ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-gray-500 hover:bg-orange-100'}`}
+                        title="Centralizar"
+                      >
+                        <AlignCenter className="w-4 h-4" />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setEditingSong({...editingSong, textAlign: 'right'})}
+                        className={`p-2 rounded-lg transition-all ${editingSong?.textAlign === 'right' ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-gray-500 hover:bg-orange-100'}`}
+                        title="Alinhar à Direita"
+                      >
+                        <AlignRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Espaçamento Vertical */}
+                    <div className="flex items-center gap-2 border-r border-orange-200 pr-2">
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <ArrowUpDown className="w-2.5 h-2.5 text-orange-400" />
+                          <span className="text-[8px] font-black text-orange-600">{(editingSong?.lineHeight || 1.5).toFixed(1)}</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <button 
+                            type="button"
+                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.8, (editingSong?.lineHeight || 1.5) - 0.1)})} 
+                            className="w-6 h-6 bg-white border border-orange-200 rounded-md hover:bg-orange-100 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                          >
+                            -
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(4, (editingSong?.lineHeight || 1.5) + 0.1)})} 
+                            className="w-6 h-6 bg-white border border-orange-200 rounded-md hover:bg-orange-100 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Espaçamento Horizontal */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <ArrowLeftRight className="w-2.5 h-2.5 text-orange-400" />
+                          <span className="text-[8px] font-black text-orange-600">{editingSong?.letterSpacing || 0}px</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <button 
+                            type="button"
+                            onClick={() => setEditingSong({...editingSong, letterSpacing: Math.max(-2, (editingSong?.letterSpacing || 0) - 1)})} 
+                            className="w-6 h-6 bg-white border border-orange-200 rounded-md hover:bg-orange-100 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                          >
+                            -
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setEditingSong({...editingSong, letterSpacing: Math.min(10, (editingSong?.letterSpacing || 0) + 1)})} 
+                            className="w-6 h-6 bg-white border border-orange-200 rounded-md hover:bg-orange-100 hover:text-orange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-4">
                     <textarea 
                       required
@@ -1340,7 +1476,12 @@ export default function App() {
                       value={editingSong?.content || ''}
                       onChange={e => setEditingSong({...editingSong, content: e.target.value})}
                       placeholder="Cole aqui a cifra..."
-                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm leading-relaxed"
+                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm"
+                      style={{ 
+                        lineHeight: editingSong?.lineHeight || 1.5, 
+                        letterSpacing: `${editingSong?.letterSpacing || 0}px`,
+                        textAlign: editingSong?.textAlign || 'left'
+                      }}
                     />
                   </div>
                 </div>
@@ -1348,7 +1489,7 @@ export default function App() {
                 <div className="flex gap-3 pt-2 pb-10">
                   <button 
                     type="button"
-                    onClick={() => setViewMode('songs')}
+                    onClick={handleCancelEdit}
                     className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-bold active:scale-95 transition-transform"
                   >
                     Cancelar

@@ -41,6 +41,9 @@ export interface Song {
   category: Category;
   ownerId: string;
   youtubeUrl?: string;
+  lineHeight?: number;
+  letterSpacing?: number;
+  textAlign?: 'left' | 'center' | 'right';
   createdAt: any;
   updatedAt: any;
 }

@@ -59,7 +59,8 @@ import {
   AlignCenter,
   AlignRight,
   Play,
-  Pause
+  Pause,
+  Wand2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -736,7 +737,7 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'users'>('songs');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'chord' | 'users'>('songs');
   const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
   
   // Editor State Deleted
@@ -767,6 +768,105 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [playlistSongSearchTerm, setPlaylistSongSearchTerm] = useState('');
+
+  // Chord Tool States
+  const [chordYoutubeUrl, setChordYoutubeUrl] = useState('');
+  const [chordQuery, setChordQuery] = useState('');
+  const [chordGenerationLoading, setChordGenerationLoading] = useState(false);
+  const [chordGenerationError, setChordGenerationError] = useState('');
+  const [chordGenerationStep, setChordGenerationStep] = useState('Analisando solicitação...');
+  const [generatedSongResult, setGeneratedSongResult] = useState<{
+    title: string;
+    artist: string;
+    content: string;
+    category: Category;
+    youtubeUrl: string;
+  } | null>(null);
+
+  const handleGenerateChords = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (chordGenerationLoading) return;
+    if (!chordQuery.trim() && !chordYoutubeUrl.trim()) {
+      setChordGenerationError('Por favor, informe o link do YouTube ou o título da música.');
+      return;
+    }
+
+    setChordGenerationLoading(true);
+    setChordGenerationError('');
+    setGeneratedSongResult(null);
+
+    const steps = [
+      'Analisando link e termos de busca...',
+      'Buscando áudio e letra oficial na internet...',
+      'Processando cifras e arranjo instrumental...',
+      'Alinhando acordes em cima das palavras da letra...',
+      'Finalizando estruturação da cifra formatada...'
+    ];
+    let stepIndex = 0;
+    setChordGenerationStep(steps[0]);
+    const stepInterval = setInterval(() => {
+      if (stepIndex < steps.length - 1) {
+        stepIndex++;
+        setChordGenerationStep(steps[stepIndex]);
+      }
+    }, 4000);
+
+    try {
+      const response = await fetch('/api/chord-tool/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: chordYoutubeUrl.trim(),
+          query: chordQuery.trim()
+        })
+      });
+
+      const result = await response.json();
+      clearInterval(stepInterval);
+
+      if (result.success && result.data) {
+        setGeneratedSongResult(result.data);
+      } else {
+        setChordGenerationError(result.error || 'Não foi possível gerar a cifra. Verifique o link e o título informados e tente novamente.');
+      }
+    } catch (err: any) {
+      clearInterval(stepInterval);
+      setChordGenerationError(err instanceof Error ? err.message : 'Erro ao processar as cifras com IA. Tente novamente.');
+    } finally {
+      setChordGenerationLoading(false);
+    }
+  };
+
+  const handleSaveGeneratedSong = async () => {
+    if (!generatedSongResult || saving) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'songs'), {
+        title: generatedSongResult.title,
+        artist: generatedSongResult.artist,
+        content: generatedSongResult.content,
+        category: generatedSongResult.category || 'Comum',
+        youtubeUrl: generatedSongResult.youtubeUrl || '',
+        lineHeight: 1.5,
+        letterSpacing: 0,
+        textAlign: 'left',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      alert('Cifra adicionada com sucesso ao repertório!');
+      setGeneratedSongResult(null);
+      setChordYoutubeUrl('');
+      setChordQuery('');
+      setActiveTab('songs');
+      setViewMode('categories');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'songs');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1895,6 +1995,201 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* CHORD IA TAB */}
+          {activeTab === 'chord' && (
+            <motion.div
+              key="chord-io"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full flex flex-col p-4 pb-28"
+            >
+              {/* Main Prompt Tool Card */}
+              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-100">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-orange-600 p-2.5 rounded-xl flex items-center justify-center">
+                    <Wand2 className="text-white w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-gray-900 text-lg">Chord IA — Gerador de Cifras</h2>
+                    <p className="text-xs text-gray-500">Insira um link do YouTube ou título para gerar a cifra</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleGenerateChords} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Link do YouTube (Opcional)</label>
+                    <div className="relative">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                        <Youtube className="w-5 h-5 text-red-500" />
+                      </div>
+                      <input
+                        type="url"
+                        value={chordYoutubeUrl}
+                        onChange={(e) => setChordYoutubeUrl(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        className="w-full bg-orange-50 border-0 text-gray-900 px-12 py-3.5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                        disabled={chordGenerationLoading}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Título da Música e Artista</label>
+                    <div className="relative">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-600">
+                        <Music className="w-5 h-5" />
+                      </div>
+                      <input
+                        type="text"
+                        value={chordQuery}
+                        onChange={(e) => setChordQuery(e.target.value)}
+                        placeholder="Ex: Como é grande o meu amor por você, Roberto Carlos"
+                        className="w-full bg-orange-50 border-0 text-gray-900 px-12 py-3.5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                        disabled={chordGenerationLoading}
+                        required={!chordYoutubeUrl}
+                      />
+                    </div>
+                    <span className="text-[10px] text-gray-400 mt-1 block px-1">Se você não passar o link, a IA pesquisará na internet e montará a cifra com as notas ideais.</span>
+                  </div>
+
+                  {chordGenerationError && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-2xl text-xs font-medium">
+                      {chordGenerationError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={chordGenerationLoading}
+                    className="w-full flex items-center justify-center gap-3 bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-600/25 active:scale-95 disabled:opacity-50 transition-all text-sm cursor-pointer"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                    {chordGenerationLoading ? 'Buscando cifra...' : 'Gerar Letra e Notas com IA'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Loader Card with pulsing steps */}
+              {chordGenerationLoading && (
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-orange-100 flex flex-col items-center justify-center text-center py-12">
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 rounded-full bg-orange-200 animate-ping opacity-75"></div>
+                    <div className="relative w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center">
+                      <Music className="w-8 h-8 text-orange-600 animate-bounce" />
+                    </div>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-2">Processamento com IA</h3>
+                  <p className="text-sm text-gray-500 max-w-sm font-medium animate-pulse">{chordGenerationStep}</p>
+                  <span className="text-[10px] text-gray-400 mt-4">Consultando dados com Google Search Grounding.</span>
+                </div>
+              )}
+
+              {/* Display Generated Chords Result */}
+              {generatedSongResult && (
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100 space-y-6">
+                  <div className="border-b border-orange-100 pb-5">
+                    <span className="inline-block bg-orange-50 text-orange-600 text-[10px] uppercase font-bold px-3 py-1 rounded-full mb-3 tracking-widest">Cifra Gerada com Sucesso</span>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Título</label>
+                        <input
+                          type="text"
+                          value={generatedSongResult.title}
+                          onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, title: e.target.value })}
+                          className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 font-bold text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Artista / Autor</label>
+                          <input
+                            type="text"
+                            value={generatedSongResult.artist}
+                            onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, artist: e.target.value })}
+                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Categoria de Destino</label>
+                          <select
+                            value={generatedSongResult.category}
+                            onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, category: e.target.value as Category })}
+                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          >
+                            <option value="Entrada">Entrada</option>
+                            <option value="Perdão">Perdão</option>
+                            <option value="Glória">Glória</option>
+                            <option value="Salmos">Salmos</option>
+                            <option value="Aleluia">Aleluia</option>
+                            <option value="Santo">Santo</option>
+                            <option value="Cordeiro">Cordeiro</option>
+                            <option value="Comum">Comum</option>
+                            <option value="Ofertório">Ofertório</option>
+                            <option value="Comunhão">Comunhão</option>
+                            <option value="Final">Final</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2 px-1">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Letra e Notas Musicais (Edição Livre)</label>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedSongResult.content);
+                          alert('Cifra copiada para a área de transferência!');
+                        }}
+                        className="text-[10px] font-bold text-orange-600 border border-orange-200 hover:bg-orange-50 px-3 py-1 rounded-full transition-all cursor-pointer"
+                      >
+                        Copiar Cifra
+                      </button>
+                    </div>
+                    <textarea
+                      rows={14}
+                      value={generatedSongResult.content}
+                      onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, content: e.target.value })}
+                      className="w-full bg-gray-50 border-0 rounded-2xl p-4 font-mono text-xs text-gray-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-orange-500 whitespace-pre"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGeneratedSongResult(null);
+                        setChordYoutubeUrl('');
+                        setChordQuery('');
+                      }}
+                      className="flex-1 bg-gray-100 text-gray-700 py-3.5 rounded-xl font-bold active:scale-95 transition-transform text-sm cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                    {userRole === 'admin' ? (
+                      <button
+                        type="button"
+                        onClick={handleSaveGeneratedSong}
+                        className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-3.5 rounded-xl font-bold shadow-md shadow-orange-100 active:scale-95 transition-transform text-sm cursor-pointer"
+                        disabled={saving}
+                      >
+                        {saving ? 'Adicionando...' : 'Salvar no Repertório'}
+                      </button>
+                    ) : (
+                      <div className="flex-1 bg-orange-50 border border-orange-200 p-3 rounded-xl text-[11px] text-orange-700 text-center font-medium leading-relaxed">
+                        Cifra gerada! Para salvar diretamente no repertório do celular, faça login como administrador.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* EDITOR TAB REMOVED */}
 
           {/* USER MANAGEMENT TAB (Admin only) */}
@@ -2083,6 +2378,15 @@ export default function App() {
         >
           <Sparkles className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
+        </button>
+        <button 
+          onClick={() => {
+            setActiveTab('chord');
+          }}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'chord' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Wand2 className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Chord IA</span>
         </button>
         {/* Suggestions Tab */}
         {userRole === 'admin' && (

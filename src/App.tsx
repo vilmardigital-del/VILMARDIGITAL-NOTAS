@@ -1472,7 +1472,7 @@ export default function App() {
                   <div className="relative">
                     <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input 
-                      type="url" 
+                      type="text" 
                       value={editingSong?.youtubeUrl || ''}
                       onChange={e => setEditingSong({...editingSong, youtubeUrl: e.target.value})}
                       placeholder="https://www.youtube.com/watch?v=..."
@@ -2024,7 +2024,7 @@ export default function App() {
                         <Youtube className="w-5 h-5 text-red-500" />
                       </div>
                       <input
-                        type="url"
+                        type="text"
                         value={chordYoutubeUrl}
                         onChange={(e) => setChordYoutubeUrl(e.target.value)}
                         placeholder="https://www.youtube.com/watch?v=..."

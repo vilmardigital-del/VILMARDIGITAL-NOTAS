@@ -64,8 +64,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
-import { CATEGORIES, Category, Song, Playlist, LiturgicalTime, LITURGICAL_TIMES, AccessUser } from './types';
-import { getGoogleSearchUrl, getMusicSuggestionsSearchUrl, LITURGY_SOURCES } from './services/suggestionsService';
+import { CATEGORIES, Category, Song, Playlist, AccessUser } from './types';
 
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\\+|\\-|\\(|\\))*";
 const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
@@ -737,8 +736,8 @@ export default function App() {
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'suggestions' | 'chord' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'suggestions' | 'manage-users'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users'>('categories');
   
   // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
@@ -769,105 +768,6 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [playlistSongSearchTerm, setPlaylistSongSearchTerm] = useState('');
 
-  // Chord Tool States
-  const [chordYoutubeUrl, setChordYoutubeUrl] = useState('');
-  const [chordQuery, setChordQuery] = useState('');
-  const [chordGenerationLoading, setChordGenerationLoading] = useState(false);
-  const [chordGenerationError, setChordGenerationError] = useState('');
-  const [chordGenerationStep, setChordGenerationStep] = useState('Analisando solicitação...');
-  const [generatedSongResult, setGeneratedSongResult] = useState<{
-    title: string;
-    artist: string;
-    content: string;
-    category: Category;
-    youtubeUrl: string;
-  } | null>(null);
-
-  const handleGenerateChords = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (chordGenerationLoading) return;
-    if (!chordQuery.trim() && !chordYoutubeUrl.trim()) {
-      setChordGenerationError('Por favor, informe o link do YouTube ou o título da música.');
-      return;
-    }
-
-    setChordGenerationLoading(true);
-    setChordGenerationError('');
-    setGeneratedSongResult(null);
-
-    const steps = [
-      'Analisando link e termos de busca...',
-      'Buscando áudio e letra oficial na internet...',
-      'Processando cifras e arranjo instrumental...',
-      'Alinhando acordes em cima das palavras da letra...',
-      'Finalizando estruturação da cifra formatada...'
-    ];
-    let stepIndex = 0;
-    setChordGenerationStep(steps[0]);
-    const stepInterval = setInterval(() => {
-      if (stepIndex < steps.length - 1) {
-        stepIndex++;
-        setChordGenerationStep(steps[stepIndex]);
-      }
-    }, 4000);
-
-    try {
-      const response = await fetch('/api/chord-tool/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url: chordYoutubeUrl.trim(),
-          query: chordQuery.trim()
-        })
-      });
-
-      const result = await response.json();
-      clearInterval(stepInterval);
-
-      if (result.success && result.data) {
-        setGeneratedSongResult(result.data);
-      } else {
-        setChordGenerationError(result.error || 'Não foi possível gerar a cifra. Verifique o link e o título informados e tente novamente.');
-      }
-    } catch (err: any) {
-      clearInterval(stepInterval);
-      setChordGenerationError(err instanceof Error ? err.message : 'Erro ao processar as cifras com IA. Tente novamente.');
-    } finally {
-      setChordGenerationLoading(false);
-    }
-  };
-
-  const handleSaveGeneratedSong = async () => {
-    if (!generatedSongResult || saving) return;
-    setSaving(true);
-    try {
-      await addDoc(collection(db, 'songs'), {
-        title: generatedSongResult.title,
-        artist: generatedSongResult.artist,
-        content: generatedSongResult.content,
-        category: generatedSongResult.category || 'Comum',
-        youtubeUrl: generatedSongResult.youtubeUrl || '',
-        lineHeight: 1.5,
-        letterSpacing: 0,
-        textAlign: 'left',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      alert('Cifra adicionada com sucesso ao repertório!');
-      setGeneratedSongResult(null);
-      setChordYoutubeUrl('');
-      setChordQuery('');
-      setActiveTab('songs');
-      setViewMode('categories');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'songs');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userIdentifier) return;
@@ -880,10 +780,6 @@ export default function App() {
     };
     reader.readAsDataURL(file);
   };
-
-  // Song selection/editing
-  const [selectedLiturgicalTime, setSelectedLiturgicalTime] = useState<LiturgicalTime>('Tempo Comum');
-  const [selectedDate, setSelectedDate] = useState('');
 
   useEffect(() => {
     // Safety timeout: stop loading after 5 seconds no matter what
@@ -1249,7 +1145,6 @@ export default function App() {
                viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
                viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
                viewMode === 'view-playlist' ? selectedPlaylist?.title : 
-               viewMode === 'suggestions' ? 'Sugestões' : 
                viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
             </p>
           </div>
@@ -1885,310 +1780,9 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* SUGGESTIONS TAB */}
-          {activeTab === 'suggestions' && (
-            <motion.div 
-              key="suggestions"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="h-full flex flex-col p-4"
-            >
-              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-200">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-orange-600 p-2 rounded-xl">
-                    <Search className="text-white w-6 h-6" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-gray-900 text-lg">Busca Litúrgica</h2>
-                    <p className="text-sm text-gray-500">Consulte a liturgia diária e sugestões no Google</p>
-                  </div>
-                </div>
 
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Tempo Litúrgico</label>
-                      <div className="flex flex-wrap gap-2">
-                        {LITURGICAL_TIMES.map(time => (
-                          <button
-                            key={time}
-                            onClick={() => setSelectedLiturgicalTime(time)}
-                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                              selectedLiturgicalTime === time 
-                              ? 'bg-orange-600 text-white shadow-md' 
-                              : 'bg-orange-50 text-orange-600 hover:bg-orange-100'
-                            }`}
-                          >
-                            {time}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Data da Missa (Opcional)</label>
-                      <div className="relative">
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-600" />
-                        <input
-                          type="date"
-                          value={selectedDate}
-                          onChange={(e) => setSelectedDate(e.target.value)}
-                          className="w-full bg-orange-50 border border-orange-200 text-orange-900 px-10 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                        />
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                    <a
-                      href={getGoogleSearchUrl(selectedLiturgicalTime, selectedDate)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center gap-3 bg-white border-2 border-orange-200 text-orange-600 py-4 rounded-2xl font-bold hover:bg-orange-50 transition-all text-sm shadow-sm"
-                    >
-                      <Search className="w-5 h-5" />
-                      Pesquisar Liturgia no Google
-                    </a>
-                    <a
-                      href={getMusicSuggestionsSearchUrl(selectedLiturgicalTime, selectedDate)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center gap-3 bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 hover:bg-orange-700 active:scale-95 transition-all text-sm"
-                    >
-                      <Music className="w-5 h-5" />
-                      Buscar Músicas de Sugestão
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h3 className="font-bold text-gray-900 uppercase tracking-widest text-xs px-2">Links Rápidos e Fontes</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {LITURGY_SOURCES.map(source => (
-                    <a
-                      key={source.name}
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex flex-col items-center justify-center gap-2 text-center hover:shadow-md transition-all group"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-orange-50 transition-colors">
-                        <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-orange-600" />
-                      </div>
-                      <span className="text-xs font-bold text-gray-700">{source.name}</span>
-                    </a>
-                  ))}
-                </div>
-                
-                <div className="bg-orange-50/50 rounded-2xl p-6 mt-4 border border-orange-200/50">
-                  <h4 className="font-bold text-orange-800 text-sm mb-2 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Dica de Uso
-                  </h4>
-                  <p className="text-xs text-orange-700 leading-relaxed">
-                    Utilize os botões acima para encontrar a Liturgia Diária oficial e repertórios sugeridos por comunidades católicas. Você pode copiar o título da música encontrada e buscar diretamente na aba de <strong>Músicas</strong> do aplicativo para ver se já possui a cifra salva.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* CHORD IA TAB */}
-          {activeTab === 'chord' && (
-            <motion.div
-              key="chord-io"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="h-full flex flex-col p-4 pb-28"
-            >
-              {/* Main Prompt Tool Card */}
-              <div className="bg-white rounded-3xl p-6 mb-6 shadow-sm border border-orange-100">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-orange-600 p-2.5 rounded-xl flex items-center justify-center">
-                    <Wand2 className="text-white w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-gray-900 text-lg">Chord IA — Gerador de Cifras</h2>
-                    <p className="text-xs text-gray-500">Insira um link do YouTube ou título para gerar a cifra</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleGenerateChords} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Link do YouTube (Opcional)</label>
-                    <div className="relative">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                        <Youtube className="w-5 h-5 text-red-500" />
-                      </div>
-                      <input
-                        type="text"
-                        value={chordYoutubeUrl}
-                        onChange={(e) => setChordYoutubeUrl(e.target.value)}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        className="w-full bg-orange-50 border-0 text-gray-900 px-12 py-3.5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                        disabled={chordGenerationLoading}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Título da Música e Artista</label>
-                    <div className="relative">
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-600">
-                        <Music className="w-5 h-5" />
-                      </div>
-                      <input
-                        type="text"
-                        value={chordQuery}
-                        onChange={(e) => setChordQuery(e.target.value)}
-                        placeholder="Ex: Como é grande o meu amor por você, Roberto Carlos"
-                        className="w-full bg-orange-50 border-0 text-gray-900 px-12 py-3.5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                        disabled={chordGenerationLoading}
-                        required={!chordYoutubeUrl}
-                      />
-                    </div>
-                    <span className="text-[10px] text-gray-400 mt-1 block px-1">Se você não passar o link, a IA pesquisará na internet e montará a cifra com as notas ideais.</span>
-                  </div>
-
-                  {chordGenerationError && (
-                    <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-2xl text-xs font-medium">
-                      {chordGenerationError}
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={chordGenerationLoading}
-                    className="w-full flex items-center justify-center gap-3 bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-600/25 active:scale-95 disabled:opacity-50 transition-all text-sm cursor-pointer"
-                  >
-                    <Sparkles className="w-5 h-5" />
-                    {chordGenerationLoading ? 'Buscando cifra...' : 'Gerar Letra e Notas com IA'}
-                  </button>
-                </form>
-              </div>
-
-              {/* Loader Card with pulsing steps */}
-              {chordGenerationLoading && (
-                <div className="bg-white rounded-3xl p-8 shadow-sm border border-orange-100 flex flex-col items-center justify-center text-center py-12">
-                  <div className="relative mb-6">
-                    <div className="absolute inset-0 rounded-full bg-orange-200 animate-ping opacity-75"></div>
-                    <div className="relative w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center">
-                      <Music className="w-8 h-8 text-orange-600 animate-bounce" />
-                    </div>
-                  </div>
-                  <h3 className="font-bold text-gray-900 mb-2">Processamento com IA</h3>
-                  <p className="text-sm text-gray-500 max-w-sm font-medium animate-pulse">{chordGenerationStep}</p>
-                  <span className="text-[10px] text-gray-400 mt-4">Consultando dados com Google Search Grounding.</span>
-                </div>
-              )}
-
-              {/* Display Generated Chords Result */}
-              {generatedSongResult && (
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100 space-y-6">
-                  <div className="border-b border-orange-100 pb-5">
-                    <span className="inline-block bg-orange-50 text-orange-600 text-[10px] uppercase font-bold px-3 py-1 rounded-full mb-3 tracking-widest">Cifra Gerada com Sucesso</span>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Título</label>
-                        <input
-                          type="text"
-                          value={generatedSongResult.title}
-                          onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, title: e.target.value })}
-                          className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 font-bold text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Artista / Autor</label>
-                          <input
-                            type="text"
-                            value={generatedSongResult.artist}
-                            onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, artist: e.target.value })}
-                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Categoria de Destino</label>
-                          <select
-                            value={generatedSongResult.category}
-                            onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, category: e.target.value as Category })}
-                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-2 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
-                          >
-                            <option value="Entrada">Entrada</option>
-                            <option value="Perdão">Perdão</option>
-                            <option value="Glória">Glória</option>
-                            <option value="Salmos">Salmos</option>
-                            <option value="Aleluia">Aleluia</option>
-                            <option value="Santo">Santo</option>
-                            <option value="Cordeiro">Cordeiro</option>
-                            <option value="Comum">Comum</option>
-                            <option value="Ofertório">Ofertório</option>
-                            <option value="Comunhão">Comunhão</option>
-                            <option value="Final">Final</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between items-center mb-2 px-1">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Letra e Notas Musicais (Edição Livre)</label>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(generatedSongResult.content);
-                          alert('Cifra copiada para a área de transferência!');
-                        }}
-                        className="text-[10px] font-bold text-orange-600 border border-orange-200 hover:bg-orange-50 px-3 py-1 rounded-full transition-all cursor-pointer"
-                      >
-                        Copiar Cifra
-                      </button>
-                    </div>
-                    <textarea
-                      rows={14}
-                      value={generatedSongResult.content}
-                      onChange={(e) => setGeneratedSongResult({ ...generatedSongResult, content: e.target.value })}
-                      className="w-full bg-gray-50 border-0 rounded-2xl p-4 font-mono text-xs text-gray-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-orange-500 whitespace-pre"
-                    />
-                  </div>
-
-                  <div className="flex gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGeneratedSongResult(null);
-                        setChordYoutubeUrl('');
-                        setChordQuery('');
-                      }}
-                      className="flex-1 bg-gray-100 text-gray-700 py-3.5 rounded-xl font-bold active:scale-95 transition-transform text-sm cursor-pointer"
-                    >
-                      Limpar
-                    </button>
-                    {userRole === 'admin' ? (
-                      <button
-                        type="button"
-                        onClick={handleSaveGeneratedSong}
-                        className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-3.5 rounded-xl font-bold shadow-md shadow-orange-100 active:scale-95 transition-transform text-sm cursor-pointer"
-                        disabled={saving}
-                      >
-                        {saving ? 'Adicionando...' : 'Salvar no Repertório'}
-                      </button>
-                    ) : (
-                      <div className="flex-1 bg-orange-50 border border-orange-200 p-3 rounded-xl text-[11px] text-orange-700 text-center font-medium leading-relaxed">
-                        Cifra gerada! Para salvar diretamente no repertório do celular, faça login como administrador.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          )}
 
           {/* EDITOR TAB REMOVED */}
 
@@ -2369,25 +1963,8 @@ export default function App() {
           <ListMusic className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Playlists</span>
         </button>
-        <button 
-          onClick={() => {
-            setActiveTab('suggestions');
-            setViewMode('suggestions');
-          }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'suggestions' ? 'text-white' : 'text-orange-200'}`}
-        >
-          <Sparkles className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Sugestões</span>
-        </button>
-        <button 
-          onClick={() => {
-            setActiveTab('chord');
-          }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'chord' ? 'text-white' : 'text-orange-200'}`}
-        >
-          <Wand2 className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Chord IA</span>
-        </button>
+
+
         {/* Suggestions Tab */}
         {userRole === 'admin' && (
           <button 

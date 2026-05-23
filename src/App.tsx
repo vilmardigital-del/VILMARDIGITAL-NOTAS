@@ -900,6 +900,12 @@ export default function App() {
       };
 
       if (editingSong.id) {
+        const currentSong = songs.find(s => s.id === editingSong.id);
+        if (currentSong && !isMasterAdmin && currentSong.ownerId !== userIdentifier) {
+          alert("Você só pode editar as cifras que você mesmo adicionou.");
+          setSaving(false);
+          return;
+        }
         await updateDoc(doc(db, 'songs', editingSong.id), data);
       } else {
         await addDoc(collection(db, 'songs'), {
@@ -957,6 +963,11 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDeleteSong = async (id: string) => {
+    const songToDelete = songs.find(s => s.id === id);
+    if (songToDelete && !isMasterAdmin && songToDelete.ownerId !== userIdentifier) {
+      alert("Você só pode apagar as cifras que você mesmo adicionou.");
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'songs', id));
       setDeletingId(null);
@@ -1274,7 +1285,7 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-                      {userRole === 'admin' && (
+                      {userRole === 'admin' && (isMasterAdmin || song.ownerId === userIdentifier) && (
                         <div className="flex items-center gap-1">
                           <button 
                             onClick={() => {

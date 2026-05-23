@@ -60,7 +60,8 @@ import {
   AlignRight,
   Play,
   Pause,
-  Wand2
+  Wand2,
+  Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -734,7 +735,8 @@ export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
-  
+
+
   // Navigation & View States
   const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'users'>('songs');
   const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users'>('categories');
@@ -828,10 +830,6 @@ export default function App() {
       setAccessUsers(docs);
       setLoading(false);
       clearTimeout(timeout);
-    }, (error) => {
-      console.error("Users listener error:", error);
-      setLoading(false);
-      clearTimeout(timeout);
     });
 
     return () => {
@@ -897,6 +895,7 @@ export default function App() {
         lineHeight: editingSong.lineHeight || 1.5,
         letterSpacing: editingSong.letterSpacing || 0,
         textAlign: editingSong.textAlign || 'left',
+        ownerId: editingSong.id ? (editingSong.ownerId || 'Vilmardigital') : userIdentifier,
         updatedAt: serverTimestamp()
       };
 
@@ -977,8 +976,8 @@ export default function App() {
 
   const handleCreateAccessUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isMasterAdmin) {
-      alert("Apenas o administrador mestre pode cadastrar novos usuários.");
+    if (!isMasterAdmin && userRole !== 'admin') {
+      alert("Apenas administradores e o administrador mestre podem cadastrar novos usuários.");
       return;
     }
     if (!newUserName || !newUserPassword || saving) return;
@@ -988,7 +987,9 @@ export default function App() {
       await addDoc(collection(db, 'access_users'), {
         name: newUserName,
         password: newUserPassword,
-        role: newUserRole,
+        role: isMasterAdmin ? newUserRole : 'viewer',
+        createdBy: userId || 'master',
+        creatorName: userIdentifier,
         createdAt: serverTimestamp()
       });
       setNewUserName('');
@@ -1001,10 +1002,17 @@ export default function App() {
   };
 
   const handleRemoveAccessUser = async (id: string) => {
-    if (!isMasterAdmin) {
-      alert("Apenas o administrador mestre pode remover usuários.");
+    if (!isMasterAdmin && userRole !== 'admin') {
+      alert("Apenas administradores podem remover usuários.");
       return;
     }
+
+    const userToRemove = accessUsers.find(u => u.id === id);
+    if (!isMasterAdmin && userToRemove?.createdBy !== (userId || 'master')) {
+      alert("Você só pode remover usuários que você mesmo cadastrou.");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'access_users', id));
     } catch (err) {
@@ -1069,12 +1077,38 @@ export default function App() {
     );
   }
 
+  const currentUserDoc = accessUsers.find(u => u.name === userIdentifier || u.id === userId);
+
   const filteredSongs = songs
+    .filter(s => {
+      if (isMasterAdmin) return true;
+      if (userRole === 'admin') return true;
+      if (userRole === 'viewer') {
+        const creatorName = currentUserDoc?.creatorName;
+        const creatorId = currentUserDoc?.createdBy;
+        const isFromMyCreator = creatorName && (s.ownerId === creatorName || s.ownerId === creatorId);
+        const isMasterSong = !s.ownerId || s.ownerId === 'Vilmardigital' || s.ownerId === 'master';
+        return isFromMyCreator || isMasterSong;
+      }
+      return true;
+    })
     .filter(s => !selectedCategory || s.category === selectedCategory)
     .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const filteredPlaylists = playlists
-    .filter(p => p.ownerId === userIdentifier || (!p.ownerId && userIdentifier === '4040'))
+    .filter(p => {
+      if (isMasterAdmin) return true;
+      if (userRole === 'admin') {
+        return p.ownerId === userIdentifier || p.ownerId === userId;
+      }
+      if (userRole === 'viewer') {
+        const creatorName = currentUserDoc?.creatorName;
+        const creatorId = currentUserDoc?.createdBy;
+        const isFromMyCreator = creatorName && (p.ownerId === creatorName || p.ownerId === creatorId);
+        return isFromMyCreator;
+      }
+      return p.ownerId === userIdentifier || (!p.ownerId && userIdentifier === '4040');
+    })
     .filter(p => p.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
   // Active songs for currently viewed playlist
@@ -1521,6 +1555,8 @@ export default function App() {
                 />
               </div>
 
+
+
               {filteredPlaylists.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   {filteredPlaylists.map(playlist => (
@@ -1562,7 +1598,7 @@ export default function App() {
                             <Edit2 className="w-5 h-5" />
                           </button>
                         )}
-                        {(userRole === 'admin' || userRole === 'viewer') && (
+                        {userRole === 'admin' && (
                           <>
                             {deletingId === playlist.id ? (
                               <div className="flex items-center gap-1">
@@ -1695,6 +1731,8 @@ export default function App() {
                     className="w-48 h-11 bg-white border-2 border-orange-200 rounded-xl px-4 py-2 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-sm"
                   />
                 </div>
+
+
                 
                 <div className="mt-1">
                   <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Músicas Selecionadas ({editingPlaylist?.songIds?.length || 0})</label>
@@ -1802,35 +1840,35 @@ export default function App() {
                   <div>
                     <h2 className="font-bold text-gray-900 text-lg tracking-tight">Gerenciar Acessos</h2>
                     <p className="text-xs text-gray-500">
-                      {isMasterAdmin ? 'Crie novos usuários e senhas' : 'Veja a lista de usuários cadastrados'}
+                      Crie novos usuários e senhas de acesso
                     </p>
                   </div>
                 </div>
 
-                {isMasterAdmin ? (
-                  <form onSubmit={handleCreateAccessUser} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
-                      <input 
-                        type="text"
-                        required
-                        value={newUserName}
-                        onChange={e => setNewUserName(e.target.value)}
-                        placeholder="Ex: João da Silva"
-                        className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
-                      <input 
-                        type="text"
-                        required
-                        value={newUserPassword}
-                        onChange={e => setNewUserPassword(e.target.value)}
-                        placeholder="Senha numérica ou texto"
-                        className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                      />
-                    </div>
+                <form onSubmit={handleCreateAccessUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
+                    <input 
+                      type="text"
+                      required
+                      value={newUserName}
+                      onChange={e => setNewUserName(e.target.value)}
+                      placeholder="Ex: João da Silva"
+                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
+                    <input 
+                      type="text"
+                      required
+                      value={newUserPassword}
+                      onChange={e => setNewUserPassword(e.target.value)}
+                      placeholder="Senha numérica ou texto"
+                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                    />
+                  </div>
+                  {isMasterAdmin && (
                     <div>
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nível de Acesso</label>
                       <div className="flex gap-2">
@@ -1858,57 +1896,61 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
-                    >
-                      {saving ? 'Criando...' : 'Cadastrar Usuário'}
-                    </button>
-                  </form>
-                ) : (
-                  <div className="bg-orange-50/50 p-6 rounded-2xl border border-dashed border-orange-200 text-center">
-                    <Lock className="w-8 h-8 text-orange-300 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-orange-800 mb-1">Acesso Restrito</p>
-                    <p className="text-xs text-orange-600 leading-relaxed font-medium">
-                      Somente o administrador mestre (Vilmardigital) pode cadastrar ou remover usuários.
-                    </p>
-                  </div>
-                )}
+                  )}
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                  >
+                    {saving ? 'Criando...' : 'Cadastrar Usuário'}
+                  </button>
+                </form>
               </div>
 
               <div className="space-y-4 pb-28">
-                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">Usuários Cadastrados ({accessUsers.length})</h3>
-                 {accessUsers.map(user => (
-                   <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex items-center justify-between">
-                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
-                          {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-gray-900">{user.name}</h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
-                              {user.role}
-                            </span>
-                            {isMasterAdmin && (
-                              <p className="text-[11px] text-gray-400 font-medium">
-                                Senha: <span className="font-mono text-gray-600">{user.password}</span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                     </div>
-                     {isMasterAdmin && (
-                       <button
-                        onClick={() => handleRemoveAccessUser(user.id)}
-                        className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
-                       >
-                         <X className="w-5 h-5" />
-                       </button>
-                     )}
-                   </div>
-                 ))}
+                 {(() => {
+                   const displayedUsers = accessUsers.filter(user => {
+                     if (isMasterAdmin) return true;
+                     return user.createdBy === (userId || 'master');
+                   });
+                   return (
+                     <>
+                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">
+                         Usuários Cadastrados ({displayedUsers.length})
+                       </h3>
+                       {displayedUsers.map(user => (
+                         <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex items-center justify-between">
+                           <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                                {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-gray-900">{user.name}</h4>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
+                                    {user.role === 'admin' ? 'Administrador' : 'Visualizador'}
+                                  </span>
+                                  {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
+                                    <p className="text-[11px] text-gray-400 font-medium ml-1">
+                                      Senha: <span className="font-mono text-gray-600">{user.password}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                           </div>
+                           {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
+                             <button
+                               onClick={() => handleRemoveAccessUser(user.id)}
+                               className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
+                             >
+                               <X className="w-5 h-5" />
+                             </button>
+                           )}
+                         </div>
+                       ))}
+                     </>
+                   );
+                 })()}
               </div>
             </motion.div>
           )}
@@ -1928,7 +1970,7 @@ export default function App() {
         </button>
       )}
 
-      {activeTab === 'playlists' && viewMode === 'playlist-list' && (userRole === 'admin' || userRole === 'viewer') && (
+      {activeTab === 'playlists' && viewMode === 'playlist-list' && userRole === 'admin' && (
         <button 
           onClick={() => {
             setEditingPlaylist({ songIds: [], transpositions: {} });

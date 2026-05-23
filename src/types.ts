@@ -46,5 +46,7 @@ export interface AccessUser {
   password: string;
   role: 'admin' | 'viewer';
   currentSessionId?: string;
+  createdBy?: string; // ID of the admin who created them (or "master")
+  creatorName?: string; // Name of the creator admin
   createdAt: any;
 }

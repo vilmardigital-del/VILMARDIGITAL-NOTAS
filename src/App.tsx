@@ -61,7 +61,8 @@ import {
   Play,
   Pause,
   Wand2,
-  Users
+  Users,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -441,9 +442,15 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           </button>
           <div className="min-w-0">
             <h1 className="text-lg font-bold leading-tight truncate">{song.title}</h1>
-            <div className="flex items-center gap-1.5">
-            <span className="text-orange-600">{getCategoryIcon(song.category, "w-3 h-3")}</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-orange-600">{getCategoryIcon(song.category, "w-3 h-3")}</span>
               <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{song.category}</span>
+              {song.ownerId && (
+                <>
+                  <span className="text-gray-300 text-[10px]">•</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Por: {song.ownerId}</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -738,8 +745,52 @@ export default function App() {
 
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia'>('categories');
+  
+  // Liturgia States
+  const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
+    const today = new Date();
+    const offset = -3; // UTC-3 para Brasília
+    const localDate = new Date(today.getTime() + offset * 3600 * 1000);
+    return localDate.toISOString().split("T")[0];
+  });
+  const [liturgiaData, setLiturgiaData] = useState<any>(null);
+  const [liturgiaLoading, setLiturgiaLoading] = useState<boolean>(false);
+  const [liturgiaError, setLiturgiaError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'liturgia') return;
+    
+    let isCancelled = false;
+    const fetchLiturgia = async () => {
+      setLiturgiaLoading(true);
+      setLiturgiaError(null);
+      try {
+        const resp = await fetch(`/api/liturgia?date=${liturgiaDate}`);
+        const json = await resp.json();
+        if (isCancelled) return;
+        if (json.success) {
+          setLiturgiaData(json.data);
+        } else {
+          setLiturgiaError(json.error || "Não foi possível carregar as informações litúrgicas.");
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setLiturgiaError("Erro ao conectar ao servidor. Por favor, tente novamente.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setLiturgiaLoading(false);
+        }
+      }
+    };
+    
+    fetchLiturgia();
+    return () => {
+      isCancelled = true;
+    };
+  }, [liturgiaDate, activeTab]);
   
   // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
@@ -939,8 +990,9 @@ export default function App() {
       };
 
       if (editingPlaylist.id) {
-        if (userRole !== 'admin' && editingPlaylist.ownerId !== userIdentifier) {
-          alert('Apenas administradores ou o dono da playlist podem editar.');
+        if (!isMasterAdmin && editingPlaylist.ownerId !== userIdentifier) {
+          alert('Apenas o administrador mestre ou o proprietário da playlist podem editá-la.');
+          setSaving(false);
           return;
         }
         await updateDoc(doc(db, 'playlists', editingPlaylist.id), data);
@@ -977,6 +1029,11 @@ export default function App() {
   };
 
   const handleDeletePlaylist = async (id: string) => {
+    const playlistToDelete = playlists.find(p => p.id === id);
+    if (playlistToDelete && !isMasterAdmin && playlistToDelete.ownerId !== userIdentifier) {
+      alert("Você só pode apagar as playlists que você mesmo criou.");
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'playlists', id));
       setDeletingId(null);
@@ -1138,7 +1195,7 @@ export default function App() {
       <header className="bg-white border-b border-orange-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
         {/* Left Section: Back or Logo */}
         <div className="flex-1 flex items-center">
-          {viewMode !== 'categories' && viewMode !== 'playlist-list' ? (
+          {activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list' ? (
             <button 
               onClick={() => {
                 if (viewMode === 'songs') setViewMode('categories');
@@ -1184,7 +1241,8 @@ export default function App() {
               {userIdentifier || 'Vilmardigital'}
             </h1>
             <p className="text-[9px] font-bold text-orange-600 uppercase truncate w-full text-center tracking-tighter">
-              {viewMode === 'categories' ? 'Menu Principal' :
+              {activeTab === 'liturgia' ? 'Liturgia Diária' :
+               viewMode === 'categories' ? 'Menu Principal' :
                viewMode === 'playlist-list' ? 'Playlists' :
                viewMode === 'songs' ? selectedCategory : 
                viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
@@ -1280,9 +1338,19 @@ export default function App() {
                         </div>
                         <div className="min-w-0">
                           <h3 className="font-bold text-gray-900 truncate">{song.title}</h3>
-                          <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">
-                            {song.category}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">
+                              {song.category}
+                            </span>
+                            {song.ownerId && (
+                              <>
+                                <span className="text-gray-300 text-[10px]">•</span>
+                                <span className="text-[10px] text-gray-400 font-semibold lowercase bg-gray-100 px-1.5 py-0.5 rounded">
+                                  by {song.ownerId}
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                       {userRole === 'admin' && (isMasterAdmin || song.ownerId === userIdentifier) && (
@@ -1596,7 +1664,7 @@ export default function App() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        {userRole === 'admin' && (
+                        {userRole === 'admin' && (isMasterAdmin || playlist.ownerId === userIdentifier) && (
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1609,7 +1677,7 @@ export default function App() {
                             <Edit2 className="w-5 h-5" />
                           </button>
                         )}
-                        {userRole === 'admin' && (
+                        {userRole === 'admin' && (isMasterAdmin || playlist.ownerId === userIdentifier) && (
                           <>
                             {deletingId === playlist.id ? (
                               <div className="flex items-center gap-1">
@@ -1685,7 +1753,7 @@ export default function App() {
                       setCurrentPlaylistSongIndex(index);
                       setViewingSong(song);
                     }}
-                    className="bg-white p-4 rounded-xl border border-orange-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all h-[50px]"
+                    className="bg-white px-4 py-3 rounded-xl border border-orange-200 flex items-center gap-4 active:bg-gray-50 text-left hover:border-orange-200 transition-all min-h-[50px]"
                   >
                     <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm">
                       {index + 1}
@@ -1696,8 +1764,13 @@ export default function App() {
                       </div>
                       <div className="min-w-0">
                         <h3 className="font-bold text-gray-900 truncate text-[14px]">{song.title}</h3>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">{song.category}</p>
+                          {song.ownerId && (
+                            <span className="text-[10px] text-gray-400 font-semibold lowercase bg-gray-100 px-1.5 py-0.5 rounded">
+                              by {song.ownerId}
+                            </span>
+                          )}
                           {selectedPlaylist.transpositions?.[song.id] !== undefined && selectedPlaylist.transpositions[song.id] !== 0 && (
                             <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">
                               {selectedPlaylist.transpositions[song.id] > 0 ? `+${selectedPlaylist.transpositions[song.id]}` : selectedPlaylist.transpositions[song.id]}
@@ -1794,9 +1867,19 @@ export default function App() {
                             </div>
                             <div className="min-w-0">
                               <p className="font-bold text-sm truncate">{song.title}</p>
-                              <p className={`text-[10px] uppercase tracking-wider ${isSelected ? 'text-yellow-800' : 'text-gray-400'}`}>
-                                {song.category}
-                              </p>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className={`text-[10px] uppercase tracking-wider ${isSelected ? 'text-yellow-800' : 'text-gray-400'}`}>
+                                  {song.category}
+                                </p>
+                                {song.ownerId && (
+                                  <>
+                                    <span className={`${isSelected ? 'text-yellow-700' : 'text-gray-300'} text-[8px]`}>•</span>
+                                    <span className={`text-[8px] font-semibold lowercase px-1.5 py-0.5 rounded ${isSelected ? 'bg-yellow-500/30 text-yellow-950' : 'bg-gray-100 text-gray-400'}`}>
+                                      by {song.ownerId}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
                           {isSelected && <Check className="w-4 h-4 shrink-0" />}
@@ -1831,6 +1914,308 @@ export default function App() {
 
 
 
+
+
+          {/* LITURGIA TAB */}
+          {activeTab === 'liturgia' && (() => {
+            const getCorLiturgicaDetails = (cor: string) => {
+              const c = (cor || '').toLowerCase();
+              if (c.includes('verd')) {
+                return {
+                  bg: 'bg-emerald-50 border-emerald-200',
+                  text: 'text-emerald-800',
+                  badge: 'bg-emerald-600 text-white',
+                  label: 'Verde (Tempo Comum - Esperança)'
+                };
+              }
+              if (c.includes('rox') || c.includes('violet') || c.includes('púrp') || c.includes('purp')) {
+                return {
+                  bg: 'bg-purple-50 border-purple-200',
+                  text: 'text-purple-800',
+                  badge: 'bg-purple-600 text-white',
+                  label: 'Roxo (Penitência e Preparação)'
+                };
+              }
+              if (c.includes('branc') || c.includes('alv')) {
+                return {
+                  bg: 'bg-amber-50/30 border-amber-200',
+                  text: 'text-zinc-800',
+                  badge: 'bg-amber-100 text-amber-900 border border-amber-200',
+                  label: 'Branco (Alegria, Glória e Pureza)'
+                };
+              }
+              if (c.includes('vermelh')) {
+                return {
+                  bg: 'bg-rose-50 border-rose-200',
+                  text: 'text-rose-800',
+                  badge: 'bg-rose-600 text-white',
+                  label: 'Vermelho (Espírito Santo e Mártires)'
+                };
+              }
+              if (c.includes('ros')) {
+                return {
+                  bg: 'bg-pink-50 border-pink-200',
+                  text: 'text-pink-800',
+                  badge: 'bg-pink-500 text-white',
+                  label: 'Rosa (Gaudete / Laetare)'
+                };
+              }
+              if (c.includes('pret')) {
+                return {
+                  bg: 'bg-zinc-100 border-zinc-300',
+                  text: 'text-zinc-900',
+                  badge: 'bg-zinc-800 text-white',
+                  label: 'Preto (Luto e Finados)'
+                };
+              }
+              return {
+                bg: 'bg-orange-50 border-orange-200',
+                text: 'text-orange-950',
+                badge: 'bg-orange-600 text-white',
+                label: cor || 'Outra Cor'
+              };
+            };
+
+            const adjustDate = (days: number) => {
+              const current = new Date(liturgiaDate + 'T12:00:00');
+              current.setDate(current.getDate() + days);
+              setLiturgiaDate(current.toISOString().split('T')[0]);
+            };
+
+            return (
+              <motion.div
+                key="liturgia"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 15 }}
+                className="p-4 flex flex-col gap-4 text-gray-800 max-w-2xl mx-auto"
+              >
+                {/* Date Selection Card */}
+                <div className="bg-white rounded-3xl p-5 shadow-sm border border-orange-100 flex flex-col gap-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => adjustDate(-1)}
+                      className="p-2.5 rounded-xl hover:bg-orange-50 border border-orange-100 text-orange-600 transition-colors active:scale-95 duration-100"
+                      title="Dia Anterior"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    
+                    <div className="flex flex-col items-center flex-1 text-center min-w-0">
+                      <span className="text-[10px] uppercase font-extrabold tracking-widest text-orange-600">
+                        Calendário Litúrgico
+                      </span>
+                      <span className="font-extrabold text-zinc-800 truncate text-sm sm:text-base">
+                        {liturgiaData?.readableDate || "Buscando data..."}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => adjustDate(1)}
+                      className="p-2.5 rounded-xl hover:bg-orange-50 border border-orange-100 text-orange-600 transition-colors active:scale-95 duration-100"
+                      title="Próximo Dia"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2 items-center justify-center">
+                    <input
+                      type="date"
+                      value={liturgiaDate}
+                      onChange={(e) => setLiturgiaDate(e.target.value)}
+                      className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-orange-50 border border-orange-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    />
+                    <button
+                      onClick={() => {
+                        const today = new Date();
+                        const offset = -3;
+                        const localDate = new Date(today.getTime() + offset * 3600 * 1000);
+                        setLiturgiaDate(localDate.toISOString().split('T')[0]);
+                      }}
+                      className="px-3 py-1.5 text-xs font-extrabold text-orange-700 bg-orange-100 rounded-lg hover:bg-orange-200 transition-colors active:scale-95"
+                    >
+                      Hoje
+                    </button>
+                  </div>
+                </div>
+
+                {/* Loading Banner */}
+                {liturgiaLoading && (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <div className="relative">
+                      <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
+                      <Church className="w-5 h-5 text-orange-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-700">Lendo as Escrituras...</p>
+                      <p className="text-xs text-gray-400 mt-1">Conectando ao banco de dados litúrgico católico</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Connection Error Banner */}
+                {!liturgiaLoading && liturgiaError && (
+                  <div className="bg-red-50 border border-red-200 rounded-3xl p-6 text-center flex flex-col items-center gap-3">
+                    <div className="p-3 bg-red-100 rounded-full text-red-600">
+                      <Info className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-bold text-red-900 text-base">Falha ao Buscar</h3>
+                    <p className="text-sm text-red-700 max-w-md">
+                      {liturgiaError}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setLiturgiaDate(prev => prev);
+                      }}
+                      className="mt-2 bg-red-600 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-700 transition-colors"
+                    >
+                      Tentar Novamente
+                    </button>
+                  </div>
+                )}
+
+                {/* Presenting Information Panels */}
+                {!liturgiaLoading && !liturgiaError && liturgiaData && (() => {
+                  const corInfo = getCorLiturgicaDetails(liturgiaData.corLiturgica);
+                  return (
+                    <div className="flex flex-col gap-4">
+                      {/* Liturgical Celebration Header Panel */}
+                      <div className={`rounded-3xl p-6 border shadow-sm transition-all ${corInfo.bg}`}>
+                        <div className="flex items-center gap-2.5 mb-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${corInfo.badge}`}>
+                            {corInfo.label}
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                            {liturgiaData.tempoLiturgico}
+                          </span>
+                        </div>
+                        
+                        <h2 className="font-extrabold text-zinc-900 text-lg sm:text-xl tracking-tight leading-snug">
+                          {liturgiaData.celebracao}
+                        </h2>
+                      </div>
+
+                      {/* Santo do Dia Panel */}
+                      <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100 flex flex-col gap-3">
+                        <div className="flex items-center gap-3 border-b border-orange-50 pb-3">
+                          <div className="bg-amber-100/50 text-amber-600 p-2 rounded-xl">
+                            <Crown className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-extrabold text-zinc-900 text-sm">Santo do Dia</h3>
+                            <p className="text-[10px] text-zinc-500 italic mt-0.5 font-medium leading-tight truncate">
+                              &ldquo;{liturgiaData.santoDoDiaResumo}&rdquo;
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="text-xs text-zinc-650 leading-relaxed whitespace-pre-line text-justify max-h-56 overflow-y-auto pr-1">
+                          {liturgiaData.santoDoDia}
+                        </div>
+                      </div>
+
+                      {/* Biblical Readings Panel */}
+                      <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100 flex flex-col gap-4">
+                        <div className="flex items-center gap-3 border-b border-orange-50 pb-2">
+                          <div className="bg-orange-100/50 text-orange-600 p-2 rounded-xl">
+                            <Wand2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="font-extrabold text-zinc-900 text-sm">Leituras Oficiais da Liturgia</h3>
+                            <p className="text-[10px] text-gray-400">Proclamação bíblica sugerida para hoje no Brasil</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          {Array.isArray(liturgiaData.leituras) ? (
+                            liturgiaData.leituras.map((leitura: string, index: number) => (
+                              <div 
+                                key={index} 
+                                className="flex items-start gap-2.5 bg-orange-50/40 border border-orange-100/50 px-3.5 py-2.5 rounded-xl text-xs hover:bg-orange-100/30 transition-all shadow-sm"
+                              >
+                                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 shrink-0 animate-pulse" />
+                                <span className="font-bold text-zinc-800 leading-tight">{leitura}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-400 italic">Pesquisando as leituras...</p>
+                          )}
+                        </div>
+
+                        {/* Executed Gospel text fully proclaimed */}
+                        <div className="mt-2 bg-amber-50/25 border border-amber-100 rounded-2xl p-4 flex flex-col gap-2.5 shadow-sm">
+                          <div className="flex items-center justify-between gap-2 border-b border-amber-100 pb-2">
+                            <span className="text-amber-800 font-extrabold text-xs uppercase tracking-wider">
+                              Evangelho Proclamado
+                            </span>
+                            <span className="text-[10px] bg-amber-100 text-amber-950 px-2 py-0.5 rounded-full font-bold">
+                              {liturgiaData.evangelhoTitulo}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-700 leading-relaxed italic text-justify whitespace-pre-line bg-white/70 p-3.5 rounded-xl border border-amber-50 shadow-inner">
+                            {liturgiaData.evangelhoTexto}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Homily reflection panel */}
+                      <div className="bg-white rounded-3xl p-6 shadow-sm border border-orange-100 flex flex-col gap-3">
+                        <div className="flex items-center gap-3 border-b border-orange-50 pb-3">
+                          <div className="bg-emerald-100/50 text-emerald-600 p-2 rounded-xl">
+                            <Sparkles className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="font-extrabold text-zinc-900 text-sm">Reflexão Prática Diária</h3>
+                            <p className="text-[10px] text-gray-400">Nutrição espiritual para inspirar orações e cantos</p>
+                          </div>
+                        </div>
+                        
+                        <div className="text-xs text-zinc-650 leading-relaxed text-justify whitespace-pre-line">
+                          {liturgiaData.reflexao}
+                        </div>
+                      </div>
+
+                      {/* Devotional Prayer block */}
+                      <div className="bg-gradient-to-tr from-amber-50/60 to-orange-50/60 border border-amber-100 rounded-3xl p-6 flex flex-col gap-3 shadow-sm">
+                        <div className="flex items-center gap-2 text-amber-800">
+                          <Church className="w-5 h-5 shrink-0" />
+                          <h4 className="font-extrabold text-xs uppercase tracking-wider">Oração Espiritual</h4>
+                        </div>
+                        <blockquote className="text-zinc-700 italic text-xs leading-relaxed text-center font-medium">
+                          &ldquo;{liturgiaData.oracao}&rdquo;
+                        </blockquote>
+                      </div>
+
+                      {/* Citations Grounding Sources and references link */}
+                      {liturgiaData.sources && liturgiaData.sources.length > 0 && (
+                        <div className="flex flex-col gap-2 p-1">
+                          <span className="text-[9px] font-extrabold uppercase tracking-widest text-zinc-400">
+                            Referências Autênticas de Busca
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {liturgiaData.sources.slice(0, 3).map((source: any, idx: number) => (
+                              <a
+                                key={idx}
+                                href={source.url}
+                                target="_blank"
+                                referrerPolicy="no-referrer"
+                                rel="noreferrer"
+                                className="text-[10px] text-orange-600 font-bold bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-all inline-flex items-center gap-1 border border-orange-100/60 shadow-sm hover:-translate-y-0.5"
+                              >
+                                <span>{source.title.length > 30 ? source.title.substring(0, 30) + '...' : source.title}</span>
+                                <ExternalLink className="w-3 h-3 text-orange-500" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </motion.div>
+            );
+          })()}
 
 
           {/* EDITOR TAB REMOVED */}
@@ -2015,6 +2400,17 @@ export default function App() {
         >
           <ListMusic className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Playlists</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('liturgia');
+            setViewMode('categories'); // fallback safe viewMode
+          }}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Church className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Liturgia</span>
         </button>
 
 

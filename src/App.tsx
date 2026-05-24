@@ -62,7 +62,9 @@ import {
   Pause,
   Wand2,
   Users,
-  Info
+  Info,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -356,6 +358,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(14); // Default font size in px
+  const [showChords, setShowChords] = useState(true);
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -431,6 +434,14 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
     >
+      <style>{`
+        .chords-hidden .text-orange-600,
+        .chords-hidden span[class*="text-orange-600"],
+        .chords-hidden font {
+          display: none !important;
+        }
+      `}</style>
+
       {/* Header Fixo */}
       <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
         <div className="flex items-center gap-3 overflow-hidden mr-2">
@@ -459,12 +470,22 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           {song.youtubeUrl && (
             <button 
               onClick={() => setShowPlayer(!showPlayer)}
-              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600'}`}
+              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
               title="YouTube"
             >
               <Youtube className="w-5 h-5" />
             </button>
           )}
+
+          {/* Botão de Esconder / Mostrar Cifras no Header */}
+          <button 
+            onClick={() => setShowChords(!showChords)}
+            className={`p-2 rounded-lg transition-all ${!showChords ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+            title={showChords ? "Esconder Cifras (Apenas Letra)" : "Mostrar Cifras"}
+            id="btn-toggle-header-chords"
+          >
+            {showChords ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+          </button>
           
           <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
 
@@ -491,6 +512,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           <button 
             onClick={onClose}
             className="p-2 ml-1 text-gray-400 hover:bg-gray-100 rounded-full"
+            title="Fechar"
           >
             <Minimize2 className="w-5 h-5" />
           </button>
@@ -512,7 +534,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
                 textAlign: song.textAlign || 'left'
               }}
-              className="font-mono transition-all rich-text-song"
+              className={`font-mono transition-all rich-text-song ${!showChords ? 'chords-hidden' : ''}`}
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
@@ -527,6 +549,10 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             >
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
+                
+                // Se for linha de cifras e showChords for falso, omitimos a linha toda
+                if (isChords && !showChords) return null;
+
                 const parts = line.split(/(\s+)/);
                 return (
                   <div 
@@ -537,6 +563,9 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                       const trimmed = part.trim();
                       const isChord = CHORD_REGEX_EXACT.test(trimmed);
                       if (isChord && trimmed.length > 0) {
+                        // Se showChords for falso, não mostramos os acordes inline
+                        if (!showChords) return null;
+
                         const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
                         return (
                           <span 
@@ -563,16 +592,32 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           <button 
             onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
             className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+            title="Diminuir Letra"
           >
             <span className="text-[10px]">A-</span>
           </button>
           <button 
             onClick={() => setFontSize(prev => Math.min(30, prev + 2))}
             className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
+            title="Aumentar Letra"
           >
             <span className="text-sm">A+</span>
           </button>
         </div>
+
+        {/* Botão para alternar cifras também na barra inferior para facilidade de acesso */}
+        <button 
+          onClick={() => setShowChords(!showChords)}
+          className={`h-8 px-3 flex items-center gap-1.5 text-xs font-bold rounded-xl transition-all ${
+            !showChords 
+              ? 'bg-orange-600 text-white shadow-md' 
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+          title={showChords ? "Esconder cifras, ficar só a letra" : "Mostrar cifras da música"}
+        >
+          {showChords ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          <span>{showChords ? "Ocultar Cifras" : "Mostrar Cifras"}</span>
+        </button>
 
         {(onPrev || onNext) && (
           <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5">

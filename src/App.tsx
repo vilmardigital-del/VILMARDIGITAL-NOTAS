@@ -71,13 +71,13 @@ import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 
-const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#]?(?:m|maj|min|dim|aug|sus|add|M|7|9|11|13|alt|#|\\+|\\-|\\(|\\))*";
+const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|maj|min|dim|aug|sus|add|alt|ø|°|\\+|\\-|7|9|11|13|5|6|2|4|Δ)*(?:\\([^)]+\\))?(?:\\/(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|7|9|11|13|5|6|2|4)?)?";
 const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
 const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`);
 
 // Palavras comuns que podem ser confundidas com acordes (ex: "e", "Do")
-// Se a linha for predominantemente letras, evitamos destacar essas palavras curtas como acordes
-const EXCLUDED_WORDS = ['e', 'E', 'A', 'a', 'O', 'o', 'Do', 'do', 'Da', 'da', 'Si', 'si', 'De', 'de'];
+// Se a linha tiver outras palavras, evitamos classificar estas palavras curtas individuais como acordes
+const EXCLUDED_WORDS = ['e', 'E', 'A', 'a', 'O', 'o', 'Do', 'do', 'Da', 'da', 'Si', 'si', 'De', 'de', 'no', 'No', 'em', 'Em', 'me', 'Me', 'te', 'Te', 'se', 'Se'];
 
 const getYoutubeId = (url: string) => {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -359,7 +359,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(14); // Default font size in px
-  const [showChords, setShowChords] = useState(true);
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -410,18 +409,25 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     const trimmed = line.trim();
     if (!trimmed) return false;
     // Remove tags HTML para análise de texto puro
-    const plainText = trimmed.replace(/<[^>]*>/g, '');
-    const words = plainText.split(/\s+/).filter(w => w.length > 0);
+    const plainText = trimmed.replace(/<[^>]*>/g, '').trim();
+    
+    // Remove cabeçalhos de seções que não são letras ou cifras (ex: [Intro], [Solo], (Arranjo))
+    const cleaned = plainText.replace(/\[[^\]]+\]/g, '').replace(/\([^)]+\)/g, '').trim();
+    if (!cleaned) return false;
+
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
     const wordsCount = words.length;
     if (wordsCount === 0) return false;
     
     const chordsCount = words.filter(w => {
-      // Se for uma palavra excluída e estiver sozinha, só é acorde se o contexto for de acordes
-      if (EXCLUDED_WORDS.includes(w) && wordsCount > 3) return false;
-      return CHORD_REGEX_EXACT.test(w);
+      const cleanWord = w.replace(/[,.:;!?()]/g, '').trim();
+      if (!cleanWord) return false;
+      // Se for uma palavra excluída e houver mais palavras na linha, ignoramos para o cômputo de acordes
+      if (EXCLUDED_WORDS.includes(cleanWord) && wordsCount > 1) return false;
+      return CHORD_REGEX_EXACT.test(cleanWord);
     }).length;
     
-    return chordsCount / wordsCount >= 0.4; // Ajustado de 0.5 para 0.4 para ser mais sensível
+    return chordsCount / wordsCount >= 0.4;
   };
 
   const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
@@ -435,13 +441,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
     >
-      <style>{`
-        .chords-hidden .text-orange-600,
-        .chords-hidden span[class*="text-orange-600"],
-        .chords-hidden font {
-          display: none !important;
-        }
-      `}</style>
 
       {/* Header Fixo */}
       <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
@@ -477,16 +476,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               <Youtube className="w-5 h-5" />
             </button>
           )}
-
-          {/* Botão de Esconder / Mostrar Cifras no Header */}
-          <button 
-            onClick={() => setShowChords(!showChords)}
-            className={`p-2 rounded-lg transition-all ${!showChords ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
-            title={showChords ? "Esconder Cifras (Apenas Letra)" : "Mostrar Cifras"}
-            id="btn-toggle-header-chords"
-          >
-            {showChords ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-          </button>
           
           <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
 
@@ -535,7 +524,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
                 textAlign: song.textAlign || 'left'
               }}
-              className={`font-mono transition-all rich-text-song ${!showChords ? 'chords-hidden' : ''}`}
+              className="font-mono transition-all rich-text-song whitespace-pre-wrap"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
@@ -551,9 +540,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
                 
-                // Se for linha de cifras e showChords for falso, omitimos a linha toda
-                if (isChords && !showChords) return null;
-
                 const parts = line.split(/(\s+)/);
                 return (
                   <div 
@@ -564,9 +550,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                       const trimmed = part.trim();
                       const isChord = CHORD_REGEX_EXACT.test(trimmed);
                       if (isChord && trimmed.length > 0) {
-                        // Se showChords for falso, não mostramos os acordes inline
-                        if (!showChords) return null;
-
                         const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
                         return (
                           <span 
@@ -605,20 +588,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <span className="text-sm">A+</span>
           </button>
         </div>
-
-        {/* Botão para alternar cifras também na barra inferior para facilidade de acesso */}
-        <button 
-          onClick={() => setShowChords(!showChords)}
-          className={`h-8 px-3 flex items-center gap-1.5 text-xs font-bold rounded-xl transition-all ${
-            !showChords 
-              ? 'bg-orange-600 text-white shadow-md' 
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
-          title={showChords ? "Esconder cifras, ficar só a letra" : "Mostrar cifras da música"}
-        >
-          {showChords ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-          <span>{showChords ? "Ocultar Cifras" : "Mostrar Cifras"}</span>
-        </button>
 
         {(onPrev || onNext) && (
           <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5">

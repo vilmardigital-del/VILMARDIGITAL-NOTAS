@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import { getSantoDoDia, getReflexaoEspiritual } from "./santos_db";
+import { getSantoDoDia, getReflexaoEspiritual } from "./src/santos_db";
 
 dotenv.config();
 

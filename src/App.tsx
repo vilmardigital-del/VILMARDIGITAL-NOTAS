@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   onAuthStateChanged
 } from 'firebase/auth';
@@ -31,6 +31,7 @@ import {
   Flag,
   Music, 
   Church,
+  Mic,
   Plus, 
   Search, 
   ChevronLeft, 
@@ -64,12 +65,14 @@ import {
   Users,
   Info,
   Eye,
-  EyeOff
+  EyeOff,
+  Headphones
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
+import VoiceRecorder from './VoiceRecorder';
 
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|maj|min|dim|aug|sus|add|alt|ø|°|\\+|\\-|7|9|11|13|5|6|2|4|Δ)*(?:\\([^)]+\\))?(?:\\/(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|7|9|11|13|5|6|2|4)?)?";
 const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
@@ -359,6 +362,101 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(14); // Default font size in px
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Divide a música em páginas de forma inteligente ou respeitando divisores manuais "---"
+  const pages = useMemo(() => {
+    if (!song.content) return [""];
+    
+    const lines = song.content.split('\n');
+    const hasManualBreak = lines.some(line => {
+      const trimmed = line.trim();
+      return trimmed === '---' || trimmed === '===';
+    });
+
+    if (hasManualBreak) {
+      const p: string[] = [];
+      let currentPart: string[] = [];
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === '---' || trimmed === '===') {
+          if (currentPart.length > 0) {
+            p.push(currentPart.join('\n'));
+            currentPart = [];
+          }
+        } else {
+          currentPart.push(line);
+        }
+      }
+      if (currentPart.length > 0) {
+        p.push(currentPart.join('\n'));
+      }
+      return p.length > 0 ? p : [""];
+    }
+
+    // Divisão inteligente automática se a música for muito longa (mais que 32 linhas)
+    if (lines.length <= 32) {
+      return [song.content];
+    }
+
+    // Agrupa em estrofes
+    const paragraphs: string[][] = [];
+    let currentParagraph: string[] = [];
+    
+    for (const line of lines) {
+      if (line.trim() === '') {
+        if (currentParagraph.length > 0) {
+          paragraphs.push(currentParagraph);
+          currentParagraph = [];
+        }
+      } else {
+        currentParagraph.push(line);
+      }
+    }
+    if (currentParagraph.length > 0) {
+      paragraphs.push(currentParagraph);
+    }
+
+    if (paragraphs.length <= 1) {
+      const p: string[] = [];
+      const linesPerPage = 26;
+      for (let i = 0; i < lines.length; i += linesPerPage) {
+        p.push(lines.slice(i, i + linesPerPage).join('\n'));
+      }
+      return p;
+    }
+
+    // Distribui estrofes de forma balanceada tentando não quebrar estrofes ao meio
+    const p: string[] = [];
+    let currentPageLines: string[] = [];
+    let currentLinesCount = 0;
+    const linesThreshold = 26;
+
+    for (const para of paragraphs) {
+      if (currentLinesCount + para.length > linesThreshold && currentPageLines.length > 0) {
+        p.push(currentPageLines.join('\n'));
+        currentPageLines = [...para];
+        currentLinesCount = para.length;
+      } else {
+        if (currentPageLines.length > 0) {
+          currentPageLines.push('');
+          currentLinesCount += 1;
+        }
+        currentPageLines.push(...para);
+        currentLinesCount += para.length;
+      }
+    }
+    if (currentPageLines.length > 0) {
+      p.push(currentPageLines.join('\n'));
+    }
+
+    return p;
+  }, [song.content]);
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [song.id]);
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -431,12 +529,12 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   };
 
   const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
-  const processedContent = song.content;
+  const processedContent = pages[currentPage] || pages[0] || "";
 
   return (
     <motion.div 
       initial={{ opacity: 0, y: '100%' }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ opacity: 0.99, y: 0 }}
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
@@ -511,9 +609,10 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
       {/* Área de Conteúdo */}
       <div 
+        id="song-content-area"
         className="flex-1 overflow-auto bg-gray-50/30 
         [&_.text-orange-600]:text-orange-600 [&_.text-orange-600]:font-bold
-        [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold"
+        [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold scroll-smooth"
       >
         <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
           {isHtml ? (
@@ -567,12 +666,47 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               })}
             </div>
           )}
+
+          {/* Paginação Interna no Corpo da Música */}
+          {pages.length > 1 && (
+            <div id="song-body-pagination" className="mt-8 pt-6 border-t border-orange-100 flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-500">
+                Página {currentPage + 1} de {pages.length}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  id="btn-song-body-prev-page"
+                  disabled={currentPage === 0}
+                  onClick={() => {
+                    setCurrentPage(prev => Math.max(0, prev - 1));
+                    const contentArea = document.getElementById('song-content-area');
+                    if (contentArea) contentArea.scrollTop = 0;
+                  }}
+                  className="px-4 py-2 bg-white border border-orange-200 text-gray-700 hover:bg-orange-50 rounded-xl text-xs font-bold transition-all disabled:opacity-40 flex items-center gap-1 cursor-pointer disabled:pointer-events-none"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Anterior
+                </button>
+                <button
+                  id="btn-song-body-next-page"
+                  disabled={currentPage === pages.length - 1}
+                  onClick={() => {
+                    setCurrentPage(prev => Math.min(pages.length - 1, prev + 1));
+                    const contentArea = document.getElementById('song-content-area');
+                    if (contentArea) contentArea.scrollTop = 0;
+                  }}
+                  className="px-4 py-2 bg-orange-600 text-white hover:bg-orange-700 rounded-xl text-xs font-bold transition-all disabled:opacity-40 flex items-center gap-1 shadow-md shadow-orange-600/10 cursor-pointer disabled:pointer-events-none"
+                >
+                  Próxima <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Floating Toolbar Subordinada */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-0.5">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-0.5 animate-fade-in">
           <button 
             onClick={() => setFontSize(prev => Math.max(10, prev - 2))}
             className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-white rounded-lg transition-all"
@@ -588,6 +722,41 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             <span className="text-sm">A+</span>
           </button>
         </div>
+
+        {/* Paginação Integrada na Barra Flutuante */}
+        {pages.length > 1 && (
+          <div id="song-toolbar-pagination" className="flex items-center gap-1 bg-orange-50/80 border border-orange-100 rounded-xl p-0.5">
+            <button
+              id="btn-song-toolbar-prev-page"
+              disabled={currentPage === 0}
+              onClick={() => {
+                setCurrentPage(prev => Math.max(0, prev - 1));
+                const contentArea = document.getElementById('song-content-area');
+                if (contentArea) contentArea.scrollTop = 0;
+              }}
+              className="w-8 h-8 flex items-center justify-center text-orange-700 disabled:opacity-30 hover:bg-orange-100/50 rounded-lg transition-all disabled:pointer-events-none"
+              title="Página Anterior"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-[11px] font-black text-orange-800 px-1.5 whitespace-nowrap">
+              {currentPage + 1}/{pages.length}
+            </span>
+            <button
+              id="btn-song-toolbar-next-page"
+              disabled={currentPage === pages.length - 1}
+              onClick={() => {
+                setCurrentPage(prev => Math.min(pages.length - 1, prev + 1));
+                const contentArea = document.getElementById('song-content-area');
+                if (contentArea) contentArea.scrollTop = 0;
+              }}
+              className="w-8 h-8 flex items-center justify-center text-orange-700 disabled:opacity-30 hover:bg-orange-100/50 rounded-lg transition-all disabled:pointer-events-none"
+              title="Próxima Página"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {(onPrev || onNext) && (
           <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5">
@@ -760,8 +929,8 @@ export default function App() {
 
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -1717,6 +1886,9 @@ export default function App() {
                         textAlign: editingSong?.textAlign || 'left'
                       }}
                     />
+                    <p className="text-[11px] text-gray-500 font-medium">
+                      💡 <strong>Dica de Paginação:</strong> Músicas muito extensas (com mais de 32 linhas) são divididas automaticamente em páginas sem recortar estrofes. Para forçar uma quebra de página manual e precisa, insira uma linha contendo apenas <code>---</code> ou <code>===</code>.
+                    </p>
                   </div>
                 </div>
 
@@ -2343,8 +2515,17 @@ export default function App() {
             );
           })()}
 
-
-          {/* EDITOR TAB REMOVED */}
+          {/* RECORDER TAB */}
+          {activeTab === 'recorder' && (
+            <motion.div
+              key="recorder-tab"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex-1 overflow-y-auto"
+            >
+              <VoiceRecorder />
+            </motion.div>
+          )}
 
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
@@ -2537,6 +2718,17 @@ export default function App() {
         >
           <Church className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-widest">Liturgia</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('recorder');
+            setViewMode('recorder');
+          }}
+          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'recorder' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Mic className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Gravador</span>
         </button>
 
 

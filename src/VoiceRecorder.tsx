@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import goldMonstrance from './assets/images/gold_monstrance_1779848807599.png';
 import { 
   Mic, 
   Square, 
@@ -14,7 +15,9 @@ import {
   Clock,
   Music,
   AlertTriangle,
-  Share2
+  Share2,
+  Wand2,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -76,6 +79,82 @@ async function deleteRecordingFromDB(id: string): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
+  for (let i = 0; i < input.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, input[i]));
+    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+}
+
+function interleave(inputL: Float32Array, inputR: Float32Array): Float32Array {
+  const length = inputL.length + inputR.length;
+  const result = new Float32Array(length);
+  let index = 0;
+  let inputIndex = 0;
+  
+  while (index < length) {
+    result[index++] = inputL[inputIndex];
+    result[index++] = inputR[inputIndex];
+    inputIndex++;
+  }
+  return result;
+}
+
+function bufferToWav(buffer: AudioBuffer): Blob {
+  const numOfChan = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // 1 = raw PCM (16-bit)
+  const bitDepth = 16;
+  
+  let result;
+  if (numOfChan === 2) {
+    result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+  } else {
+    result = buffer.getChannelData(0);
+  }
+  
+  const bufferArr = new ArrayBuffer(44 + result.length * 2);
+  const view = new DataView(bufferArr);
+  
+  /* RIFF identifier */
+  writeString(view, 0, 'RIFF');
+  /* file length */
+  view.setUint32(4, 36 + result.length * 2, true);
+  /* RIFF type */
+  writeString(view, 8, 'WAVE');
+  /* format chunk identifier */
+  writeString(view, 12, 'fmt ');
+  /* format chunk length */
+  view.setUint32(16, 16, true);
+  /* sample format (raw) */
+  view.setUint16(20, format, true);
+  /* channel count */
+  view.setUint16(22, numOfChan, true);
+  /* sample rate */
+  view.setUint32(24, sampleRate, true);
+  /* byte rate */
+  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+  /* block align */
+  view.setUint16(32, numOfChan * (bitDepth / 8), true);
+  /* bits per sample */
+  view.setUint16(34, bitDepth, true);
+  /* data chunk identifier */
+  writeString(view, 36, 'data');
+  /* data chunk length */
+  view.setUint32(40, result.length * 2, true);
+  
+  // write samples
+  floatTo16BitPCM(view, 44, result);
+  
+  return new Blob([bufferArr], { type: 'audio/wav' });
 }
 
 export default function VoiceRecorder() {
@@ -298,6 +377,124 @@ export default function VoiceRecorder() {
     setShareItem(rec);
   };
 
+  const [isProcessingVocals, setIsProcessingVocals] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string>('');
+
+  const handleRemoveVocal = async (rec: LocalRecording) => {
+    setIsProcessingVocals(true);
+    setProcessingStatus('Inicializando processador de áudio...');
+    try {
+      const arrayBuffer = await rec.blob.arrayBuffer();
+      
+      setProcessingStatus('Lendo arquivo de áudio local...');
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioCtxClass();
+      
+      setProcessingStatus('Decodificando ondas sonoras...');
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      
+      setProcessingStatus('Configurando filtros de atenuação vocal...');
+      const offlineCtx = new OfflineAudioContext(
+        audioBuffer.numberOfChannels,
+        audioBuffer.length,
+        audioBuffer.sampleRate
+      );
+      
+      const source = offlineCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      
+      if (audioBuffer.numberOfChannels === 2) {
+        setProcessingStatus('Estéreo detectado. Aplicando cancelamento de fase central...');
+        const splitter = offlineCtx.createChannelSplitter(2);
+        const merger = offlineCtx.createChannelMerger(2);
+        
+        const leftGain = offlineCtx.createGain();
+        leftGain.gain.setValueAtTime(1, 0);
+        
+        const rightGain = offlineCtx.createGain();
+        rightGain.gain.setValueAtTime(-1, 0); // cancel matching center vocals
+        
+        const sumGain = offlineCtx.createGain();
+        sumGain.gain.setValueAtTime(0.5, 0);
+        
+        source.connect(splitter);
+        splitter.connect(leftGain, 0);
+        splitter.connect(rightGain, 1);
+        
+        leftGain.connect(sumGain);
+        rightGain.connect(sumGain);
+        
+        // Suppress vocal frequencies from panned signals
+        const notchFilter = offlineCtx.createBiquadFilter();
+        notchFilter.type = 'peaking';
+        notchFilter.frequency.setValueAtTime(1000, 0);
+        notchFilter.Q.setValueAtTime(0.7, 0);
+        notchFilter.gain.setValueAtTime(-18, 0);
+        
+        sumGain.connect(notchFilter);
+        notchFilter.connect(merger, 0, 0);
+        notchFilter.connect(merger, 0, 1);
+        
+        merger.connect(offlineCtx.destination);
+      } else {
+        setProcessingStatus('Mono detectado. Aplicando equalização de frequências vocais...');
+        const hpFilter = offlineCtx.createBiquadFilter();
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.setValueAtTime(150, 0);
+        
+        const peakFilter1 = offlineCtx.createBiquadFilter();
+        peakFilter1.type = 'peaking';
+        peakFilter1.frequency.setValueAtTime(950, 0);
+        peakFilter1.Q.setValueAtTime(0.9, 0);
+        peakFilter1.gain.setValueAtTime(-28, 0);
+        
+        const peakFilter2 = offlineCtx.createBiquadFilter();
+        peakFilter2.type = 'peaking';
+        peakFilter2.frequency.setValueAtTime(2400, 0);
+        peakFilter2.Q.setValueAtTime(1.1, 0);
+        peakFilter2.gain.setValueAtTime(-20, 0);
+        
+        source.connect(hpFilter);
+        hpFilter.connect(peakFilter1);
+        peakFilter1.connect(peakFilter2);
+        peakFilter2.connect(offlineCtx.destination);
+      }
+      
+      setProcessingStatus('Filtro ativo. Sintetizando trilha instrumental (karaokê)...');
+      source.start(0);
+      
+      const renderedBuffer = await offlineCtx.startRendering();
+      
+      setProcessingStatus('Formatando áudio para formato WAV...');
+      const wavBlob = bufferToWav(renderedBuffer);
+      
+      setProcessingStatus('Salvando trilha "Sem Vocal" no seu navegador...');
+      const timestamp = Date.now();
+      const newRecName = `${rec.name} (Sem Vocal)`;
+      
+      const newRec: LocalRecording = {
+        id: timestamp.toString(),
+        name: newRecName,
+        blob: wavBlob,
+        duration: rec.duration,
+        createdAt: timestamp
+      };
+      
+      await saveRecordingToDB(newRec);
+      setRecordings(prev => [newRec, ...prev]);
+      
+      setProcessingStatus('Concluído! Nova faixa adicionada.');
+      setTimeout(() => {
+        setIsProcessingVocals(false);
+      }, 1000);
+      
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao processar: ' + (err.message || err));
+      setIsProcessingVocals(false);
+    }
+  };
+
   // Delete recording
   const handleDelete = async (id: string) => {
     // Pause if playing
@@ -335,31 +532,38 @@ export default function VoiceRecorder() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto pb-32">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto pb-32 relative overflow-hidden">
       
-      {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
-          <Mic className="w-7 h-7 text-orange-600" />
-          Gravador de Áudio
-        </h2>
-        <p className="text-gray-500 mt-2 text-sm">
-          Grave seus ensaios, novas melodias ou arranjos litúrgicos. Tudo se mantém armazenado localmente no seu navegador para escutar offline, sem inteligência artificial.
-        </p>
+      {/* Background Watermark/Ostensório */}
+      <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.06] pointer-events-none w-[340px] h-[340px] md:w-[450px] md:h-[450px] flex items-center justify-center select-none z-0">
+        <img 
+          src={goldMonstrance} 
+          alt="Ostensório" 
+          className="w-full h-full object-contain select-none"
+          referrerPolicy="no-referrer"
+        />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Header */}
+      <div className="mb-6 relative z-10">
+        <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <Mic className="w-7 h-7 text-orange-600" />
+          Grave seus ensaios
+        </h2>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
         
-        {/* Painel do gravador */}
-        <div className="lg:col-span-12 xl:col-span-5 bg-white border border-orange-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between min-h-[300px]">
+        {/* Painel do gravador (compacted layout) */}
+        <div className="lg:col-span-12 xl:col-span-4 bg-white border border-orange-100 rounded-3xl p-5 shadow-sm flex flex-col justify-between min-h-[240px]">
           
-          <div className="flex-1 flex flex-col items-center justify-center py-6">
-            <div className="relative mb-6">
+          <div className="flex-1 flex flex-col items-center justify-center py-3">
+            <div className="relative mb-3.5">
               <AnimatePresence>
                 {isRecording && (
                   <motion.span 
                     initial={{ scale: 0.8, opacity: 0.5 }}
-                    animate={{ scale: [1, 1.8, 1], opacity: [0.4, 0.1, 0.4] }}
+                    animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0.1, 0.4] }}
                     transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
                     className="absolute inset-0 bg-red-600 rounded-full"
                   />
@@ -368,7 +572,7 @@ export default function VoiceRecorder() {
               
               <button
                 onClick={isRecording ? stopRecording : startRecording}
-                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 relative z-10 ${
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 relative z-10 ${
                   isRecording 
                     ? 'bg-red-600 text-white hover:bg-red-700 shadow-red-600/30' 
                     : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-600/30'
@@ -376,53 +580,53 @@ export default function VoiceRecorder() {
                 title={isRecording ? "Parar Gravação" : "Iniciar Gravação"}
               >
                 {isRecording ? (
-                  <Square className="w-8 h-8 fill-white text-white" />
+                  <Square className="w-6 h-6 fill-white text-white" />
                 ) : (
-                  <Mic className="w-9 h-9 text-white" />
+                  <Mic className="w-7 h-7 text-white" />
                 )}
               </button>
             </div>
 
             {/* Timer visual */}
             <div className="text-center">
-              <div className={`text-3xl font-black tracking-wider transition-colors duration-300 ${isRecording ? 'text-red-600' : 'text-gray-900'}`}>
+              <div className={`text-2xl font-black tracking-wider transition-colors duration-300 ${isRecording ? 'text-red-600' : 'text-gray-900'}`}>
                 {formatTime(recordingTime)}
               </div>
-              <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider mt-1.5 flex items-center justify-center gap-1">
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mt-1 flex items-center justify-center gap-1">
                 {isRecording ? (
                   <>
-                    <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
-                    Gravando Áudio...
+                    <Radio className="w-3 h-3 text-red-500 animate-pulse" />
+                    Gravando...
                   </>
                 ) : (
-                  'Pronto para gravar'
+                  'Pronto'
                 )}
               </p>
             </div>
           </div>
 
           {/* Campo opcional de Nome antes de gravar ou no processo */}
-          <div className="border-t border-gray-100 pt-4 mt-2">
-            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+          <div className="border-t border-gray-100 pt-3.5 mt-2">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
               Nome da Gravação (Opcional)
             </label>
             <div className="relative">
               <input 
                 type="text"
-                placeholder="Ex: Ensaio de canto, Melodia do Salmo..."
+                placeholder="Ex: Ensaio do Salmo..."
                 value={recordingName}
                 onChange={(e) => setRecordingName(e.target.value)}
                 disabled={isRecording}
-                className="w-full bg-orange-50/50 border border-orange-100 text-sm rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-orange-500 text-gray-700 font-medium placeholder-gray-400 disabled:opacity-50"
+                className="w-full bg-orange-50/50 border border-orange-100 text-xs rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-orange-500 text-gray-700 font-medium placeholder-gray-400 disabled:opacity-50"
               />
-              <Save className="absolute right-3.5 top-3 w-4 h-4 text-orange-400 pointer-events-none" />
+              <Save className="absolute right-3 top-2.5 w-3.5 h-3.5 text-orange-400 pointer-events-none" />
             </div>
           </div>
 
         </div>
 
         {/* Lista de gravações */}
-        <div className="lg:col-span-12 xl:col-span-7 flex flex-col">
+        <div className="lg:col-span-12 xl:col-span-8 flex flex-col">
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex-1 flex flex-col">
             <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
               <Disc className="w-5 h-5 text-orange-500" />
@@ -474,6 +678,15 @@ export default function VoiceRecorder() {
 
                         {/* Botões de Ações rápidas */}
                         <div className="flex gap-1.5 shrink-0">
+                          {!rec.name.includes('(Sem Vocal)') && (
+                            <button
+                              onClick={() => handleRemoveVocal(rec)}
+                              className="p-1.5 bg-purple-50 border border-purple-200/80 rounded-lg text-purple-600 hover:text-white hover:bg-purple-600 hover:border-purple-600 transition-all cursor-pointer flex items-center justify-center"
+                              title="Remover vocal da música (Gerar Instrumental)"
+                            >
+                              <Wand2 className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleShareWhatsApp(rec)}
                             className="p-1.5 bg-green-50 border border-green-200/80 rounded-lg text-green-600 hover:text-white hover:bg-green-600 hover:border-green-600 transition-all cursor-pointer"
@@ -642,6 +855,44 @@ export default function VoiceRecorder() {
                   Fechar
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isProcessingVocals && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center z-50"
+            >
+              <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 relative overflow-hidden">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
+                  className="absolute inset-0 border-2 border-dashed border-purple-500/35 rounded-full"
+                />
+                <Sparkles className="w-8 h-8 text-purple-600 animate-pulse relative z-10" />
+              </div>
+              <h3 className="text-lg font-black text-gray-900 mb-2">Processando Áudio</h3>
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-4">Removendo Vocais</p>
+              
+              <div className="w-full bg-purple-100/65 h-1.5 rounded-full overflow-hidden mb-6 relative">
+                <motion.div 
+                  initial={{ left: "-100%" }}
+                  animate={{ left: "100%" }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                  className="absolute top-0 bottom-0 w-1/2 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full"
+                />
+              </div>
+
+              <p className="text-sm text-gray-600 leading-relaxed font-semibold">
+                {processingStatus}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-4 leading-relaxed max-w-xs">
+                Este processo roda 100% no seu aparelho sem gastar internet ou enviar seus arquivos para fora.
+              </p>
             </motion.div>
           </div>
         )}

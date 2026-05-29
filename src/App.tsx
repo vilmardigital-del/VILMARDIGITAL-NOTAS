@@ -516,13 +516,29 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     const words = cleaned.split(/\s+/).filter(w => w.length > 0);
     const wordsCount = words.length;
     if (wordsCount === 0) return false;
+
+    // Verifica se todas as palavras limpas na linha são candidatas a cifra válidas
+    const allWordsAreChords = words.every(w => {
+      const cleanWord = w.replace(/[,.:;!?()]/g, '').trim();
+      return CHORD_REGEX_EXACT.test(cleanWord);
+    });
     
     const chordsCount = words.filter(w => {
       const cleanWord = w.replace(/[,.:;!?()]/g, '').trim();
       if (!cleanWord) return false;
-      // Se for uma palavra excluída e houver mais palavras na linha, ignoramos para o cômputo de acordes
-      if (EXCLUDED_WORDS.includes(cleanWord) && wordsCount > 1) return false;
-      return CHORD_REGEX_EXACT.test(cleanWord);
+      
+      const isExactlyChord = CHORD_REGEX_EXACT.test(cleanWord);
+      if (!isExactlyChord) return false;
+
+      // Se for uma palavra excluída comum (como 'A', 'E', 'Do'...)
+      // só contamos como cifra sob duas condições:
+      // 1. Há apenas essa palavra na linha.
+      // 2. Ou TODAS as palavras da linha são cifras válidas.
+      if (EXCLUDED_WORDS.includes(cleanWord)) {
+        return allWordsAreChords || wordsCount === 1;
+      }
+      
+      return true;
     }).length;
     
     return chordsCount / wordsCount >= 0.4;
@@ -647,13 +663,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                   >
                     {parts.map((part, j) => {
                       const trimmed = part.trim();
-                      const isChord = CHORD_REGEX_EXACT.test(trimmed);
+                      const isChord = isChords && CHORD_REGEX_EXACT.test(trimmed);
                       if (isChord && trimmed.length > 0) {
                         const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
                         return (
                           <span 
                             key={j} 
-                            className={`font-bold ${isChords ? '' : 'text-orange-600 bg-orange-50/50 px-0.5 rounded'}`}
+                            className="font-bold"
                           >
                             {part.replace(trimmed, transposed)}
                           </span>

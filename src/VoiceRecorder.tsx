@@ -14,10 +14,7 @@ import {
   Disc,
   Clock,
   Music,
-  AlertTriangle,
-  Share2,
-  Wand2,
-  Sparkles
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -79,82 +76,6 @@ async function deleteRecordingFromDB(id: string): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
-}
-
-function writeString(view: DataView, offset: number, string: string) {
-  for (let i = 0; i < string.length; i++) {
-    view.setUint8(offset + i, string.charCodeAt(i));
-  }
-}
-
-function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
-  for (let i = 0; i < input.length; i++, offset += 2) {
-    let s = Math.max(-1, Math.min(1, input[i]));
-    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-}
-
-function interleave(inputL: Float32Array, inputR: Float32Array): Float32Array {
-  const length = inputL.length + inputR.length;
-  const result = new Float32Array(length);
-  let index = 0;
-  let inputIndex = 0;
-  
-  while (index < length) {
-    result[index++] = inputL[inputIndex];
-    result[index++] = inputR[inputIndex];
-    inputIndex++;
-  }
-  return result;
-}
-
-function bufferToWav(buffer: AudioBuffer): Blob {
-  const numOfChan = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const format = 1; // 1 = raw PCM (16-bit)
-  const bitDepth = 16;
-  
-  let result;
-  if (numOfChan === 2) {
-    result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
-  } else {
-    result = buffer.getChannelData(0);
-  }
-  
-  const bufferArr = new ArrayBuffer(44 + result.length * 2);
-  const view = new DataView(bufferArr);
-  
-  /* RIFF identifier */
-  writeString(view, 0, 'RIFF');
-  /* file length */
-  view.setUint32(4, 36 + result.length * 2, true);
-  /* RIFF type */
-  writeString(view, 8, 'WAVE');
-  /* format chunk identifier */
-  writeString(view, 12, 'fmt ');
-  /* format chunk length */
-  view.setUint32(16, 16, true);
-  /* sample format (raw) */
-  view.setUint16(20, format, true);
-  /* channel count */
-  view.setUint16(22, numOfChan, true);
-  /* sample rate */
-  view.setUint32(24, sampleRate, true);
-  /* byte rate */
-  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
-  /* block align */
-  view.setUint16(32, numOfChan * (bitDepth / 8), true);
-  /* bits per sample */
-  view.setUint16(34, bitDepth, true);
-  /* data chunk identifier */
-  writeString(view, 36, 'data');
-  /* data chunk length */
-  view.setUint32(40, result.length * 2, true);
-  
-  // write samples
-  floatTo16BitPCM(view, 44, result);
-  
-  return new Blob([bufferArr], { type: 'audio/wav' });
 }
 
 export default function VoiceRecorder() {
@@ -351,149 +272,8 @@ export default function VoiceRecorder() {
   };
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [shareItem, setShareItem] = useState<LocalRecording | null>(null);
 
-  // Function to share using Native Web Share API or falling back to WhatsApp Web sharing helper
-  const handleShareWhatsApp = async (rec: LocalRecording) => {
-    try {
-      const ext = rec.blob.type.includes('ogg') ? 'ogg' : rec.blob.type.includes('mp4') ? 'm4a' : 'webm';
-      const cleanFileName = `${rec.name.replace(/[^a-zA-Z0-9\s-_]/g, '')}.${ext}`;
-      const file = new File([rec.blob], cleanFileName, { type: rec.blob.type });
 
-      // Check if Web Share API with files is supported
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: rec.name,
-          text: `Escute o ensaio/música: ${rec.name}`
-        });
-        return;
-      }
-    } catch (err) {
-      console.warn("Compartilhamento nativo falhou, usando modal:", err);
-    }
-
-    // Open explanatory fallback helper modal
-    setShareItem(rec);
-  };
-
-  const [isProcessingVocals, setIsProcessingVocals] = useState(false);
-  const [processingStatus, setProcessingStatus] = useState<string>('');
-
-  const handleRemoveVocal = async (rec: LocalRecording) => {
-    setIsProcessingVocals(true);
-    setProcessingStatus('Inicializando processador de áudio...');
-    try {
-      const arrayBuffer = await rec.blob.arrayBuffer();
-      
-      setProcessingStatus('Lendo arquivo de áudio local...');
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioCtxClass();
-      
-      setProcessingStatus('Decodificando ondas sonoras...');
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      
-      setProcessingStatus('Configurando filtros de atenuação vocal...');
-      const offlineCtx = new OfflineAudioContext(
-        audioBuffer.numberOfChannels,
-        audioBuffer.length,
-        audioBuffer.sampleRate
-      );
-      
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      
-      if (audioBuffer.numberOfChannels === 2) {
-        setProcessingStatus('Estéreo detectado. Aplicando cancelamento de fase central...');
-        const splitter = offlineCtx.createChannelSplitter(2);
-        const merger = offlineCtx.createChannelMerger(2);
-        
-        const leftGain = offlineCtx.createGain();
-        leftGain.gain.setValueAtTime(1, 0);
-        
-        const rightGain = offlineCtx.createGain();
-        rightGain.gain.setValueAtTime(-1, 0); // cancel matching center vocals
-        
-        const sumGain = offlineCtx.createGain();
-        sumGain.gain.setValueAtTime(0.5, 0);
-        
-        source.connect(splitter);
-        splitter.connect(leftGain, 0);
-        splitter.connect(rightGain, 1);
-        
-        leftGain.connect(sumGain);
-        rightGain.connect(sumGain);
-        
-        // Suppress vocal frequencies from panned signals
-        const notchFilter = offlineCtx.createBiquadFilter();
-        notchFilter.type = 'peaking';
-        notchFilter.frequency.setValueAtTime(1000, 0);
-        notchFilter.Q.setValueAtTime(0.7, 0);
-        notchFilter.gain.setValueAtTime(-18, 0);
-        
-        sumGain.connect(notchFilter);
-        notchFilter.connect(merger, 0, 0);
-        notchFilter.connect(merger, 0, 1);
-        
-        merger.connect(offlineCtx.destination);
-      } else {
-        setProcessingStatus('Mono detectado. Aplicando equalização de frequências vocais...');
-        const hpFilter = offlineCtx.createBiquadFilter();
-        hpFilter.type = 'highpass';
-        hpFilter.frequency.setValueAtTime(150, 0);
-        
-        const peakFilter1 = offlineCtx.createBiquadFilter();
-        peakFilter1.type = 'peaking';
-        peakFilter1.frequency.setValueAtTime(950, 0);
-        peakFilter1.Q.setValueAtTime(0.9, 0);
-        peakFilter1.gain.setValueAtTime(-28, 0);
-        
-        const peakFilter2 = offlineCtx.createBiquadFilter();
-        peakFilter2.type = 'peaking';
-        peakFilter2.frequency.setValueAtTime(2400, 0);
-        peakFilter2.Q.setValueAtTime(1.1, 0);
-        peakFilter2.gain.setValueAtTime(-20, 0);
-        
-        source.connect(hpFilter);
-        hpFilter.connect(peakFilter1);
-        peakFilter1.connect(peakFilter2);
-        peakFilter2.connect(offlineCtx.destination);
-      }
-      
-      setProcessingStatus('Filtro ativo. Sintetizando trilha instrumental (karaokê)...');
-      source.start(0);
-      
-      const renderedBuffer = await offlineCtx.startRendering();
-      
-      setProcessingStatus('Formatando áudio para formato WAV...');
-      const wavBlob = bufferToWav(renderedBuffer);
-      
-      setProcessingStatus('Salvando trilha "Sem Vocal" no seu navegador...');
-      const timestamp = Date.now();
-      const newRecName = `${rec.name} (Sem Vocal)`;
-      
-      const newRec: LocalRecording = {
-        id: timestamp.toString(),
-        name: newRecName,
-        blob: wavBlob,
-        duration: rec.duration,
-        createdAt: timestamp
-      };
-      
-      await saveRecordingToDB(newRec);
-      setRecordings(prev => [newRec, ...prev]);
-      
-      setProcessingStatus('Concluído! Nova faixa adicionada.');
-      setTimeout(() => {
-        setIsProcessingVocals(false);
-      }, 1000);
-      
-    } catch (err: any) {
-      console.error(err);
-      alert('Erro ao processar: ' + (err.message || err));
-      setIsProcessingVocals(false);
-    }
-  };
 
   // Delete recording
   const handleDelete = async (id: string) => {
@@ -678,24 +458,7 @@ export default function VoiceRecorder() {
 
                         {/* Botões de Ações rápidas */}
                         <div className="flex gap-1.5 shrink-0">
-                          {!rec.name.includes('(Sem Vocal)') && (
-                            <button
-                              onClick={() => handleRemoveVocal(rec)}
-                              className="p-1.5 bg-purple-50 border border-purple-200/80 rounded-lg text-purple-600 hover:text-white hover:bg-purple-600 hover:border-purple-600 transition-all cursor-pointer flex items-center justify-center"
-                              title="Remover vocal da música (Gerar Instrumental)"
-                            >
-                              <Wand2 className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleShareWhatsApp(rec)}
-                            className="p-1.5 bg-green-50 border border-green-200/80 rounded-lg text-green-600 hover:text-white hover:bg-green-600 hover:border-green-600 transition-all cursor-pointer"
-                            title="Compartilhar no WhatsApp"
-                          >
-                            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                              <path d="M12.008.01a11.95 11.95 0 0 0-8.477 3.513c-2.265 2.268-3.51 5.28-3.512 8.484.001 2.097.548 4.142 1.588 5.946L.057 24l6.17-1.616c1.751.956 3.719 1.457 5.724 1.458 6.613 0 11.949-5.34 11.953-11.997a11.921 11.921 0 0 0-3.505-8.484c-2.265-2.267-5.275-3.512-8.477-3.513zm0 21.993c-1.922 0-3.812-.516-5.466-1.493l-.392-.233-4.06 1.064 1.084-3.957-.256-.407a9.923 9.923 0 0 1-1.52-5.326c0-5.467 4.448-9.915 9.92-9.915s9.92 4.448 9.92 9.915-4.448 9.915-9.92 9.915zm5.437-7.409c-.297-.15-1.758-.868-2.03-.967-.273-.1-.472-.15-.67.15-.197.3-.767.967-.94 1.165-.173.2-.347.225-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.06-.173-.3-.018-.462.13-.61.135-.133.298-.347.446-.52.15-.174.198-.298.298-.497.1-.2.05-.373-.025-.522-.075-.15-.67-1.615-.918-2.212-.24-.579-.48-.5-.67-.51c-.172-.008-.371-.01-.57-.01-.198 0-.52.075-.792.373-.272.298-1.04 1.018-1.04 2.485s1.065 2.883 1.214 3.082c.148.199 2.096 3.2 5.077 4.487.709.306 1.262.49 1.694.627.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.292.173-1.417-.074-.124-.272-.198-.57-.348z" />
-                            </svg>
-                          </button>
+
                           <button
                             onClick={() => handleDownload(rec)}
                             className="p-1.5 bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-orange-600 hover:border-orange-100 transition-colors cursor-pointer"
@@ -794,108 +557,6 @@ export default function VoiceRecorder() {
           </div>
         )}
 
-        {shareItem && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col z-50"
-            >
-              <div className="text-center mb-4 flex flex-col items-center">
-                <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mb-3">
-                  <svg className="w-8 h-8 text-green-600 fill-current" viewBox="0 0 24 24">
-                    <path d="M12.008.01a11.95 11.95 0 0 0-8.477 3.513c-2.265 2.268-3.51 5.28-3.512 8.484.001 2.097.548 4.142 1.588 5.946L.057 24l6.17-1.616c1.751.956 3.719 1.457 5.724 1.458 6.613 0 11.949-5.34 11.953-11.997a11.921 11.921 0 0 0-3.505-8.484c-2.265-2.267-5.275-3.512-8.477-3.513zm0 21.993c-1.922 0-3.812-.516-5.466-1.493l-.392-.233-4.06 1.064 1.084-3.957-.256-.407a9.923 9.923 0 0 1-1.52-5.326c0-5.467 4.448-9.915 9.92-9.915s9.92 4.448 9.92 9.915-4.448 9.915-9.92 9.915zm5.437-7.409c-.297-.15-1.758-.868-2.03-.967-.273-.1-.472-.15-.67.15-.197.3-.767.967-.94 1.165-.173.2-.347.225-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.06-.173-.3-.018-.462.13-.61.135-.133.298-.347.446-.52.15-.174.198-.298.298-.497.1-.2.05-.373-.025-.522-.075-.15-.67-1.615-.918-2.212-.24-.579-.48-.5-.67-.51c-.172-.008-.371-.01-.57-.01-.198 0-.52.075-.792.373-.272.298-1.04 1.018-1.04 2.485s1.065 2.883 1.214 3.082c.148.199 2.096 3.2 5.077 4.487.709.306 1.262.49 1.694.627.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.292.173-1.417-.074-.124-.272-.198-.57-.348z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-black text-gray-900">Enviar no WhatsApp</h3>
-                <p className="text-xs text-gray-400 mt-1 truncate max-w-xs">{shareItem.name}</p>
-              </div>
-
-              <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-4 mb-5 text-left text-sm text-gray-700 space-y-3 leading-relaxed">
-                <div>
-                  <p className="font-extrabold text-orange-950 flex items-center gap-1.5 mb-1 text-xs uppercase tracking-wider">
-                    <span className="w-5 h-5 rounded-full bg-orange-200 text-orange-800 text-[10px] font-black flex items-center justify-center">1</span>
-                    Salve o Áudio no Aparelho
-                  </p>
-                  <p className="text-xs pl-6 text-gray-600">Como o áudio está guardado em segurança apenas no seu navegador, você precisa salvá-lo no celular/PC primeiro.</p>
-                </div>
-                <div>
-                  <p className="font-extrabold text-orange-950 flex items-center gap-1.5 mb-1 text-xs uppercase tracking-wider">
-                    <span className="w-5 h-5 rounded-full bg-orange-200 text-orange-800 text-[10px] font-black flex items-center justify-center">2</span>
-                    Anexe na Mensagem
-                  </p>
-                  <p className="text-xs pl-6 text-gray-600">Abra a conversa do WhatsApp, toque no ícone de clipe/anexo e selecione o arquivo baixado.</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 w-full">
-                <button
-                  onClick={() => {
-                    handleDownload(shareItem);
-                  }}
-                  className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl transition text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-orange-600/10"
-                >
-                  <Download className="w-4 h-4" /> 1. Baixar Áudio para Enviar
-                </button>
-                
-                <a
-                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Olá! Acabei de gravar o ensaio "${shareItem.name}" no aplicativo. Estou te enviando o arquivo de áudio!`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition text-sm flex items-center justify-center gap-2 cursor-pointer text-center shadow-md shadow-green-600/10"
-                >
-                  2. Chamar no WhatsApp
-                </a>
-
-                <button
-                  onClick={() => setShareItem(null)}
-                  className="w-full py-2 bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-500 hover:text-gray-700 font-bold rounded-xl transition text-sm cursor-pointer mt-2"
-                >
-                  Fechar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {isProcessingVocals && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center z-50"
-            >
-              <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-4 relative overflow-hidden">
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-                  className="absolute inset-0 border-2 border-dashed border-purple-500/35 rounded-full"
-                />
-                <Sparkles className="w-8 h-8 text-purple-600 animate-pulse relative z-10" />
-              </div>
-              <h3 className="text-lg font-black text-gray-900 mb-2">Processando Áudio</h3>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-4">Removendo Vocais</p>
-              
-              <div className="w-full bg-purple-100/65 h-1.5 rounded-full overflow-hidden mb-6 relative">
-                <motion.div 
-                  initial={{ left: "-100%" }}
-                  animate={{ left: "100%" }}
-                  transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                  className="absolute top-0 bottom-0 w-1/2 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full"
-                />
-              </div>
-
-              <p className="text-sm text-gray-600 leading-relaxed font-semibold">
-                {processingStatus}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-4 leading-relaxed max-w-xs">
-                Este processo roda 100% no seu aparelho sem gastar internet ou enviar seus arquivos para fora.
-              </p>
-            </motion.div>
-          </div>
-        )}
       </AnimatePresence>
 
     </div>

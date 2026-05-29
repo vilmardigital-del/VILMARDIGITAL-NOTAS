@@ -754,7 +754,17 @@ export default function App() {
     return localStorage.getItem('sessionId');
   });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (userId) {
+      try {
+        await updateDoc(doc(db, 'access_users', userId), {
+          isOnline: false,
+          currentSessionId: null
+        });
+      } catch (err) {
+        console.error("Error setting presence on logout:", err);
+      }
+    }
     setUserRole(null);
     setUserIdentifier(null);
     setUserId(null);
@@ -766,6 +776,35 @@ export default function App() {
     localStorage.removeItem('sessionId');
     localStorage.removeItem('isMasterAdmin');
   };
+
+  // Active status/presence real-time heartbeat
+  useEffect(() => {
+    if (!userId || !sessionId) return;
+
+    let intervalId: any;
+
+    const updatePresence = async (online: boolean) => {
+      try {
+        await updateDoc(doc(db, 'access_users', userId), {
+          isOnline: online,
+          lastActive: online ? Date.now() : null
+        });
+      } catch (err) {
+        // Silently ignore permissions issues
+      }
+    };
+
+    updatePresence(true);
+
+    intervalId = setInterval(() => {
+      updatePresence(true);
+    }, 15000);
+
+    return () => {
+      clearInterval(intervalId);
+      updatePresence(false);
+    };
+  }, [userId, sessionId]);
 
   // Session monitor
   useEffect(() => {
@@ -2483,36 +2522,83 @@ export default function App() {
                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">
                          Usuários Cadastrados ({displayedUsers.length})
                        </h3>
-                       {displayedUsers.map(user => (
-                         <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex items-center justify-between">
-                           <div className="flex items-center gap-3">
-                              <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
-                                {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
-                              </div>
-                              <div>
-                                <h4 className="font-bold text-gray-900">{user.name}</h4>
-                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                                  <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
-                                    {user.role === 'admin' ? 'Administrador' : 'Visualizador'}
-                                  </span>
-                                  {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
-                                    <p className="text-[11px] text-gray-400 font-medium ml-1">
-                                      Senha: <span className="font-mono text-gray-600">{user.password}</span>
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
+                       {displayedUsers.map(user => {
+                         const isOnline = user.isOnline === true && user.lastActive && (Date.now() - user.lastActive < 45000);
+
+                         return (
+                           <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                             <div className="flex items-center gap-3">
+                               <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                                 {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
+                               </div>
+                               <div>
+                                 <h4 className="font-bold text-gray-900">{user.name}</h4>
+                                 <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                   <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
+                                     {user.role === 'admin' ? 'Administrador' : 'Visualizador'}
+                                   </span>
+                                   {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
+                                     <p className="text-[11px] text-gray-400 font-medium ml-1">
+                                       Senha: <span className="font-mono text-gray-600">{user.password}</span>
+                                     </p>
+                                   )}
+                                 </div>
+                               </div>
+                             </div>
+
+                             <div className="flex items-center justify-between sm:justify-end gap-2.5 ml-11 sm:ml-0">
+                               {/* Status Luz (Verde quando logado / Vermelho quando deslogado) */}
+                               <button
+                                 type="button"
+                                 onClick={async () => {
+                                   if (isOnline) {
+                                     const confirmKick = window.confirm(`Deseja forçar a desconexão da sessão ativa de "${user.name}"?`);
+                                     if (confirmKick) {
+                                       try {
+                                         await updateDoc(doc(db, 'access_users', user.id), {
+                                           isOnline: false,
+                                           currentSessionId: 'kick_' + Date.now()
+                                         });
+                                         alert(`Usuário "${user.name}" foi desconectado.`);
+                                       } catch (error) {
+                                         console.error("Erro ao derrubar sessão:", error);
+                                       }
+                                     }
+                                   } else {
+                                     alert(`Status: "${user.name}" está deslogado.`);
+                                   }
+                                 }}
+                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all cursor-pointer select-none active:scale-95 ${
+                                   isOnline 
+                                     ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100 shadow-[0_0_8px_rgba(34,197,94,0.1)]' 
+                                     : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+                                 }`}
+                                 title={isOnline ? "Clique para derrubar a conexão deste usuário" : "Usuário deslogado"}
+                               >
+                                 <span className="relative flex h-2 w-2">
+                                   {isOnline && (
+                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                   )}
+                                   <span className={`relative inline-flex rounded-full h-2 w-2 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                 </span>
+                                 <span>
+                                   {isOnline ? 'Logado' : 'Deslogado'}
+                                 </span>
+                               </button>
+
+                               {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
+                                 <button
+                                   onClick={() => handleRemoveAccessUser(user.id)}
+                                   className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
+                                   title="Remover acesso"
+                                 >
+                                   <X className="w-5 h-5" />
+                                 </button>
+                               )}
+                             </div>
                            </div>
-                           {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
-                             <button
-                               onClick={() => handleRemoveAccessUser(user.id)}
-                               className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
-                             >
-                               <X className="w-5 h-5" />
-                             </button>
-                           )}
-                         </div>
-                       ))}
+                         );
+                       })}
                      </>
                    );
                  })()}

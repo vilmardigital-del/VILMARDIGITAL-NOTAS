@@ -364,6 +364,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(16); // Default font size in px
+  const [showControls, setShowControls] = useState(true);
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -592,53 +593,80 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
       </div>
 
-      {/* Floating Font Size Controls on the Bottom Right */}
-      <div className="fixed bottom-6 right-6 flex items-center bg-white/95 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30">
-        <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
-          <button 
-            type="button"
-            onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
-            className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
-            title="Diminuir letra"
-          >
-            A-
-          </button>
-          <span className="text-[11px] font-black w-10 text-center text-orange-700 select-none">
-            {fontSize}px
-          </span>
-          <button 
-            type="button"
-            onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
-            className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
-            title="Aumentar letra"
-          >
-            A+
-          </button>
-        </div>
-      </div>
+      {/* Floating Controls Bar (Navigation, Font Size & Hide) on the Bottom Right */}
+      {showControls ? (
+        <div className="fixed bottom-6 right-6 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)]">
+          {/* Playlist Navigation Controls */}
+          {(onPrev || onNext) && (
+            <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5 shadow-sm">
+              <button 
+                disabled={!onPrev}
+                onClick={onPrev} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Música anterior"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="w-[1px] h-5 bg-orange-400"></div>
+              <button 
+                disabled={!onNext}
+                onClick={onNext} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Próxima música"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
 
-      {/* Floating Navigation Controls Centered */}
-      {(onPrev || onNext) && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center bg-white/95 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30">
-          <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5">
+          {/* Divider between Navigation and Font Size */}
+          {(onPrev || onNext) && <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>}
+
+          {/* Font Size Adjusters */}
+          <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
             <button 
-              disabled={!onPrev}
-              onClick={onPrev} 
-              className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-              title="Música anterior"
+              type="button"
+              onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
+              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              title="Diminuir letra"
             >
-              <ChevronLeft className="w-5 h-5" />
+              A-
             </button>
-            <div className="w-[1px] h-5 bg-orange-400"></div>
+            <span className="text-[11px] font-black w-10 text-center text-orange-700 select-none">
+              {fontSize}px
+            </span>
             <button 
-              disabled={!onNext}
-              onClick={onNext} 
-              className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-              title="Próxima música"
+              type="button"
+              onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
+              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              title="Aumentar letra"
             >
-              <ChevronRight className="w-5 h-5" />
+              A+
             </button>
           </div>
+
+          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
+
+          {/* Hide Button */}
+          <button
+            type="button"
+            onClick={() => setShowControls(false)}
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all cursor-pointer"
+            title="Ocultar botões"
+          >
+            <EyeOff className="w-5 h-5" />
+          </button>
+        </div>
+      ) : (
+        <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
+          <button
+            type="button"
+            onClick={() => setShowControls(true)}
+            className="w-12 h-12 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-600 hover:text-white rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95"
+            title="Exibir ferramentas de visualização (Tamanho / Músicas)"
+          >
+            <Eye className="w-6 h-6" />
+          </button>
         </div>
       )}
 

@@ -275,6 +275,7 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Comunhão': return <Layers className={className} />;
     case 'Final': return <Flag className={className} />;
     case 'Comum': return <Music className={className} />;
+    case 'Grupo de Oração': return <Users className={className} />;
     default: return <Music className={className} />;
   }
 };

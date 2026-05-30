@@ -1,4 +1,4 @@
-export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final';
+export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final' | 'Grupo de Oração';
 
 export const CATEGORIES: Category[] = [
   'Entrada',
@@ -11,7 +11,8 @@ export const CATEGORIES: Category[] = [
   'Comum',
   'Ofertório',
   'Comunhão',
-  'Final'
+  'Final',
+  'Grupo de Oração'
 ];
 
 export interface Song {

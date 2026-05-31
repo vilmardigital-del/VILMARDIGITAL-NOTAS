@@ -18,7 +18,7 @@ service cloud.firestore {
       return data.keys().hasAll(['title', 'content', 'category']) &&
              data.title is string && data.title.size() <= 200 &&
              data.content is string && data.content.size() <= 10000 &&
-             data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Salmos", "Cordeiro", "Comum", "Ofertório", "Comunhão", "Final"] &&
+             data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Salmos", "Cordeiro", "Comum", "Ofertório", "Comunhão", "Final", "Grupo de Oração", "Espírito Santo", "Louvor", "Mariana", "Entrega", "Adoração"] &&
              (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500));
     }
 
@@ -34,7 +34,9 @@ service cloud.firestore {
              data.name is string && data.name.size() <= 100 &&
              data.password is string && data.password.size() <= 100 &&
              data.role in ['admin', 'viewer'] &&
-             (!('currentSessionId' in data) || (data.currentSessionId is string && data.currentSessionId.size() <= 128));
+             (!('currentSessionId' in data) || data.currentSessionId == null || (data.currentSessionId is string && data.currentSessionId.size() <= 128)) &&
+             (!('isOnline' in data) || data.isOnline is bool) &&
+             (!('lastActive' in data) || data.lastActive == null || data.lastActive is int);
     }
 
     match /songs/{songId} {
@@ -56,6 +58,11 @@ service cloud.firestore {
       allow create: if isValidAccessUser(request.resource.data);
       allow update: if isValidAccessUser(request.resource.data);
       allow delete: if true;
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

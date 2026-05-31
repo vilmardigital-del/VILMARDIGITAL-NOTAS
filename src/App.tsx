@@ -35,6 +35,8 @@ import {
   Plus, 
   Search, 
   ChevronLeft, 
+  ChevronDown,
+  ChevronUp,
   Maximize2, 
   Minimize2, 
   Edit2, 
@@ -71,9 +73,32 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
-import { CATEGORIES, Category, Song, Playlist, AccessUser } from './types';
+import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import VoiceRecorder from './VoiceRecorder';
+
+const CATEGORIES_MISSA: Category[] = [
+  'Entrada',
+  'Perdão',
+  'Glória',
+  'Salmos',
+  'Aleluia',
+  'Santo',
+  'Cordeiro',
+  'Comum',
+  'Ofertório',
+  'Comunhão',
+  'Final'
+];
+
+const CATEGORIES_GRUPO: Category[] = [
+  'Espírito Santo',
+  'Louvor',
+  'Perdão',
+  'Mariana',
+  'Entrega',
+  'Adoração'
+];
 
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|maj|min|dim|aug|sus|add|alt|ø|°|\\+|\\-|7|9|11|13|5|6|2|4|Δ)*(?:\\([^)]+\\))?(?:\\/(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|7|9|11|13|5|6|2|4)?)?";
 const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
@@ -276,6 +301,11 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Final': return <Flag className={className} />;
     case 'Comum': return <Music className={className} />;
     case 'Grupo de Oração': return <Users className={className} />;
+    case 'Espírito Santo': return <Sparkles className={className} />;
+    case 'Louvor': return <Mic2 className={className} />;
+    case 'Mariana': return <Heart className={className} />;
+    case 'Entrega': return <HandHeart className={className} />;
+    case 'Adoração': return <Crown className={className} />;
     default: return <Music className={className} />;
   }
 };
@@ -856,11 +886,50 @@ export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
+  const [events, setEvents] = useState<MuralEvent[]>([]);
 
+  // Filter songs added in the last 48 hours
+  const newSongsLast48h = useMemo(() => {
+    const now = Date.now();
+    const fortyEightHoursMs = 48 * 60 * 60 * 1000;
+    return songs.filter(song => {
+      if (!song.createdAt) {
+        if (song.updatedAt) {
+          let updateTime = 0;
+          if (typeof song.updatedAt.toDate === 'function') {
+            updateTime = song.updatedAt.toDate().getTime();
+          } else if (song.updatedAt.seconds) {
+            updateTime = song.updatedAt.seconds * 1000;
+          } else {
+            updateTime = new Date(song.updatedAt).getTime();
+          }
+          return (now - updateTime) <= fortyEightHoursMs;
+        }
+        return false;
+      }
+      let songTime = 0;
+      if (typeof song.createdAt.toDate === 'function') {
+        songTime = song.createdAt.toDate().getTime();
+      } else if (song.createdAt.seconds) {
+        songTime = song.createdAt.seconds * 1000;
+      } else {
+        songTime = new Date(song.createdAt).getTime();
+      }
+      return (now - songTime) <= fortyEightHoursMs;
+    });
+  }, [songs]);
+
+  // Category and Event States
+  const [currentCategoryTab, setCurrentCategoryTab] = useState<'missa' | 'grupo' | null>(null);
+  const [newEventName, setNewEventName] = useState('');
+  const [newEventDate, setNewEventDate] = useState('');
+  const [eventSaving, setEventSaving] = useState(false);
+  const [muralSongsExpanded, setMuralSongsExpanded] = useState(false);
+  const [muralEventsExpanded, setMuralEventsExpanded] = useState(false);
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -1108,9 +1177,22 @@ export default function App() {
       clearTimeout(timeout);
     });
 
+    const eventsQuery = query(
+      collection(db, 'events'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubEvents = onSnapshot(eventsQuery, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      setEvents(docs);
+    }, (error) => {
+      console.error("Events listener error:", error);
+    });
+
     return () => {
       unsubSongs();
       unsubPlaylists();
+      unsubEvents();
       unsubUsers();
       clearTimeout(timeout);
     };
@@ -1165,7 +1247,7 @@ export default function App() {
       const data = {
         title: editingSong.title || '',
         artist: editingSong.artist || '',
-        content: editingSong.content || '',
+        content: (editingSong.content || '').toUpperCase(),
         category: editingSong.category || selectedCategory || 'Comum',
         youtubeUrl: editingSong.youtubeUrl || '',
         lineHeight: editingSong.lineHeight || 1.5,
@@ -1313,6 +1395,34 @@ export default function App() {
     }
   };
 
+  const handleCreateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEventName.trim() || !newEventDate.trim()) return;
+    setEventSaving(true);
+    try {
+      await addDoc(collection(db, 'events'), {
+        name: newEventName.trim(),
+        date: newEventDate.trim(),
+        createdAt: serverTimestamp()
+      });
+      setNewEventName('');
+      setNewEventDate('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'events');
+    } finally {
+      setEventSaving(false);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!window.confirm("Deseja realmente excluir este evento? Esta ação não pode ser desfeita.")) return;
+    try {
+      await deleteDoc(doc(db, 'events', eventId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `events/${eventId}`);
+    }
+  };
+
   const handleTransposeChange = async (songId: string, transpose: number) => {
     if (viewMode === 'view-playlist' && selectedPlaylist) {
       try {
@@ -1420,21 +1530,28 @@ export default function App() {
       <header className="bg-white border-b border-orange-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
         {/* Left Section: Back or Logo */}
         <div className="flex-1 flex items-center">
-          {activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list' ? (
+          {(activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
             <button 
               onClick={() => {
-                if (viewMode === 'songs') setViewMode('categories');
-                else if (viewMode === 'edit-song') handleCancelEdit();
-                else if (viewMode === 'edit-playlist') setViewMode('playlist-list');
-                else if (viewMode === 'view-playlist') setViewMode('playlist-list');
+                if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
+                  setCurrentCategoryTab(null);
+                } else if (viewMode === 'songs') {
+                  setViewMode('categories');
+                } else if (viewMode === 'edit-song') {
+                  handleCancelEdit();
+                } else if (viewMode === 'edit-playlist') {
+                  setViewMode('playlist-list');
+                } else if (viewMode === 'view-playlist') {
+                  setViewMode('playlist-list');
+                }
               }}
               className="p-2 -ml-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
           ) : (
-            <div className="shrink-0 bg-white rounded-xl p-1 shadow-sm border border-orange-200">
-              <Logo className="w-12 h-12" />
+            <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-orange-200">
+              <Logo className="w-9 h-9" />
             </div>
           )}
         </div>
@@ -1448,11 +1565,11 @@ export default function App() {
               accept="image/*"
               onChange={handleProfilePicUpload}
             />
-            <div className="w-14 h-14 rounded-full bg-orange-100 border-2 border-orange-200 shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+            <div className="w-11 h-11 rounded-full bg-orange-100 border-2 border-orange-200 shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
               {userProfilePic ? (
                 <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-lg">
+                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-md">
                   {userIdentifier?.charAt(0).toUpperCase()}
                 </div>
               )}
@@ -1467,7 +1584,8 @@ export default function App() {
             </h1>
             <p className="text-[9px] font-bold text-orange-600 uppercase truncate w-full text-center tracking-tighter">
               {activeTab === 'liturgia' ? 'Liturgia Diária' :
-               viewMode === 'categories' ? 'Menu Principal' :
+               activeTab === 'events_panel' ? 'Painel de Eventos' :
+               viewMode === 'categories' ? (currentCategoryTab === 'missa' ? 'Cifras para Missa' : currentCategoryTab === 'grupo' ? 'Grupo de Oração' : 'Menu Principal') :
                viewMode === 'playlist-list' ? 'Playlists' :
                viewMode === 'songs' ? selectedCategory : 
                viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
@@ -1496,34 +1614,239 @@ export default function App() {
           {activeTab === 'songs' && viewMode === 'categories' && (
             <motion.div 
               key="categories"
-              initial={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0, x: -25 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="p-4 grid grid-cols-2 gap-3"
+              exit={{ opacity: 0, x: -25 }}
+              className="p-4"
             >
-              {CATEGORIES.map(category => (
-                <button
-                  key={category}
-                  onClick={() => {
-                    setSelectedCategory(category);
-                    setViewMode('songs');
-                  }}
-                  className="bg-white p-3.5 rounded-xl border-2 border-orange-500 flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none transform translate-x-2 -translate-y-2">
-                    {getCategoryIcon(category, "w-12 h-12 text-orange-600")}
+              {currentCategoryTab === null ? (
+                /* Main Menu Dashboard */
+                <div className="flex flex-col gap-4">
+                  {/* Category Directory Selection Cards */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Option 1: Cifras para Missa */}
+                    <button
+                      onClick={() => setCurrentCategoryTab('missa')}
+                      className="bg-gradient-to-br from-white to-orange-50/10 p-3.5 rounded-2xl border-2 border-orange-500 flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 text-left relative overflow-hidden shadow-xs cursor-pointer"
+                    >
+                      <div className="absolute -right-1 -bottom-1 opacity-5 pointer-events-none transform scale-110">
+                        <Church className="w-16 h-16 text-orange-600" />
+                      </div>
+                      <div className="bg-orange-600 text-white p-2.5 rounded-xl group-hover:scale-105 transition-transform shadow-md shadow-orange-500/20 shrink-0">
+                        <Church className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-extrabold text-orange-950 text-xs sm:text-sm tracking-tight uppercase leading-tight">Cifras para Missa</p>
+                        <p className="text-[10px] text-gray-400 font-bold mt-1 leading-snug">
+                          Entrada, Comunhão, etc.
+                        </p>
+                        <span className="inline-block mt-2 text-[9px] bg-orange-100 text-orange-700 font-black px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                          {songs.filter(s => CATEGORIES_MISSA.includes(s.category)).length} Cifras
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Option 2: Grupo de Oração */}
+                    <button
+                      onClick={() => setCurrentCategoryTab('grupo')}
+                      className="bg-gradient-to-br from-white to-orange-50/10 p-3.5 rounded-2xl border-2 border-orange-500 flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 text-left relative overflow-hidden shadow-xs cursor-pointer"
+                    >
+                      <div className="absolute -right-1 -bottom-1 opacity-5 pointer-events-none transform scale-110">
+                        <Users className="w-16 h-16 text-orange-600" />
+                      </div>
+                      <div className="bg-orange-600 text-white p-2.5 rounded-xl group-hover:scale-105 transition-transform shadow-md shadow-orange-500/20 shrink-0">
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-extrabold text-orange-950 text-xs sm:text-sm tracking-tight uppercase leading-tight">Grupo de Oração</p>
+                        <p className="text-[10px] text-gray-400 font-bold mt-1 leading-snug">
+                          Reflexão, Louvores, etc.
+                        </p>
+                        <span className="inline-block mt-2 text-[9px] bg-orange-100 text-orange-700 font-black px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                          {songs.filter(s => CATEGORIES_GRUPO.includes(s.category)).length} Cifras
+                        </span>
+                      </div>
+                    </button>
                   </div>
-                  <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-200 transition-colors backdrop-blur-sm border border-orange-200">
-                    {getCategoryIcon(category, "w-4 h-4")}
+
+                  {/* Mural de Notícias e Eventos */}
+                  <div className="mt-2.5 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {/* Mural de Notícias (Novas Músicas) */}
+                    <div className="bg-white border border-orange-100 rounded-2xl p-4 shadow-xs relative overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-100">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-orange-100 text-orange-600 rounded-lg">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="font-black text-orange-600 text-xs uppercase tracking-widest leading-none">Novas Músicas</h3>
+                            <p className="text-[8px] text-gray-400 font-bold uppercase mt-0.5">Últimas adições à comunidade</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setMuralSongsExpanded(!muralSongsExpanded)}
+                          className="p-1 hover:bg-orange-50 active:bg-orange-100 rounded-lg text-orange-600 transition-colors flex items-center justify-center shrink-0 cursor-pointer animate-none"
+                          aria-label="Alternar exibição de novas músicas"
+                        >
+                          {muralSongsExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+
+                      <AnimatePresence initial={false}>
+                        {muralSongsExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            {newSongsLast48h.length === 0 ? (
+                              <p className="text-xs text-gray-400 italic text-center py-6">Nenhuma música nova adicionada nas últimas 48h.</p>
+                            ) : (
+                              <div className="flex flex-col gap-2.5 pt-1">
+                                {newSongsLast48h.slice(0, 4).map(song => (
+                                  <div
+                                    key={song.id}
+                                    onClick={() => setViewingSong(song)}
+                                    className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-orange-50/40 cursor-pointer border border-dashed border-orange-100 hover:border-orange-200 transition-all"
+                                  >
+                                    <div className="min-w-0 flex-1 flex items-center gap-2.5 pr-2">
+                                      <div className="shrink-0 text-orange-600 bg-orange-50 p-2 rounded-xl">
+                                        {getCategoryIcon(song.category, "w-4 h-4")}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="font-extrabold text-sm text-gray-900 truncate tracking-tight">{song.title}</p>
+                                        <p className="text-[9px] text-orange-600 font-black uppercase tracking-wider mt-0.5">{song.category}</p>
+                                      </div>
+                                    </div>
+                                    <span className="text-[9px] bg-orange-100 text-orange-700 px-2.5 py-1 rounded-xl font-extrabold uppercase tracking-widest shrink-0 cursor-pointer">
+                                      Abrir
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Mural de Eventos */}
+                    <div className="bg-white border border-orange-100 rounded-2xl p-4 shadow-xs">
+                      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-100">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-orange-100 text-orange-600 rounded-lg">
+                            <Calendar className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="font-black text-orange-600 text-xs uppercase tracking-widest leading-none">Mural de Eventos</h3>
+                            <p className="text-[8px] text-gray-400 font-bold uppercase mt-0.5">Próximas atividades e eventos</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setMuralEventsExpanded(!muralEventsExpanded)}
+                          className="p-1 hover:bg-orange-50 active:bg-orange-100 rounded-lg text-orange-600 transition-colors flex items-center justify-center shrink-0 cursor-pointer animate-none"
+                          aria-label="Alternar exibição de eventos"
+                        >
+                          {muralEventsExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+
+                      <AnimatePresence initial={false}>
+                        {muralEventsExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            {events.length === 0 ? (
+                              <div className="flex flex-col items-center justify-center py-8 text-center px-4">
+                                <Calendar className="w-8 h-8 text-orange-200 mb-1" />
+                                <p className="text-xs text-gray-400 italic">Nenhum evento adicionado recentemente.</p>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-2.5 max-h-[290px] overflow-y-auto pr-1 pt-1">
+                                {events.map(event => (
+                                  <div
+                                    key={event.id}
+                                    className="flex items-start gap-3 p-3 bg-gradient-to-br from-orange-50/20 to-orange-100/10 rounded-2xl border border-orange-100/40 relative shadow-xs"
+                                  >
+                                    <div className="bg-orange-600 text-white rounded-xl p-2 shrink-0">
+                                      <Calendar className="w-4 h-4" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-black text-sm text-gray-900 leading-tight tracking-tight">{event.name}</p>
+                                      <p className="text-[9px] font-black text-orange-700 mt-1.5 uppercase tracking-widest">{event.date}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="block font-bold text-orange-950 text-sm leading-tight drop-shadow-sm">{category}</span>
-                    <span className="text-[9px] text-orange-600 font-bold uppercase tracking-wider">
-                      {songs.filter(s => s.category === category).length} CIFRAS
-                    </span>
+                </div>
+              ) : (
+                /* Subcategory View (Inside Missa or Grupo) */
+                <div className="flex flex-col gap-4">
+                  {/* Category list tag context */}
+                  <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-black text-orange-950 uppercase tracking-widest">
+                        {currentCategoryTab === 'missa' ? 'Celebração de Missa' : 'Encontro de Louvor'}
+                      </p>
+                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                        {currentCategoryTab === 'missa' ? 'Cifras canônicas e cantos rituais ordinários' : 'Músicas para rebanho, oração e louvores'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setCurrentCategoryTab(null)}
+                      className="px-3 py-1.5 bg-white border border-orange-200 hover:border-orange-300 rounded-xl text-[10px] font-black text-orange-700 shadow-sm uppercase tracking-wider cursor-pointer"
+                    >
+                      Voltar
+                    </button>
                   </div>
-                </button>
-              ))}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {(currentCategoryTab === 'missa' ? CATEGORIES_MISSA : CATEGORIES_GRUPO).map(category => (
+                      <button
+                        key={category}
+                        onClick={() => {
+                          setSelectedCategory(category);
+                          setViewMode('songs');
+                        }}
+                        className="bg-white p-3.5 rounded-2xl border-2 border-orange-500 flex flex-col items-start gap-2.5 hover:shadow-lg hover:-translate-y-0.5 transition-all group active:scale-95 relative overflow-hidden text-left cursor-pointer"
+                      >
+                        <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none transform translate-x-2 -translate-y-2">
+                          {getCategoryIcon(category, "w-12 h-12 text-orange-600")}
+                        </div>
+                        <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg group-hover:bg-orange-200 transition-colors backdrop-blur-sm border border-orange-200">
+                          {getCategoryIcon(category, "w-4 h-4")}
+                        </div>
+                        <div className="text-left">
+                          <span className="block font-bold text-orange-950 text-sm leading-tight drop-shadow-sm">{category}</span>
+                          <span className="text-[9px] text-orange-600 font-bold uppercase tracking-wider">
+                            {songs.filter(s => s.category === category).length} CIFRAS
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1807,9 +2130,9 @@ export default function App() {
                       required
                       rows={15}
                       value={editingSong?.content || ''}
-                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                      onChange={e => setEditingSong({...editingSong, content: e.target.value.toUpperCase()})}
                       placeholder="Cole aqui a cifra..."
-                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm"
+                      className="w-full bg-white border border-orange-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-sm uppercase"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 
                         letterSpacing: `${editingSong?.letterSpacing || 0}px`,
@@ -2634,6 +2957,99 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {/* EVENTS MANAGEMENT TAB (Admin only) */}
+          {activeTab === 'events_panel' && isMasterAdmin && (
+            <motion.div 
+              key="events_panel"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="p-4"
+            >
+              <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-sm max-w-lg mx-auto">
+                <div className="flex items-center gap-3 mb-6 pb-2 border-b border-orange-100">
+                  <div className="p-2 bg-orange-100 text-orange-600 rounded-xl">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-extrabold text-orange-950 text-md uppercase">Novo Evento / Atividade</h2>
+                    <p className="text-xs text-gray-400 font-bold uppercase mt-0.5">Adicionar um novo aviso ou data ao mural</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateEvent} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-[11px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                      Nome do Evento
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newEventName}
+                      onChange={(e) => setNewEventName(e.target.value)}
+                      placeholder="Ex: Noite de Louvor e Clamor"
+                      className="w-full bg-orange-50/50 border border-orange-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium text-zinc-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                      Data ou Horário do Evento
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newEventDate}
+                      onChange={(e) => setNewEventDate(e.target.value)}
+                      placeholder="Ex: Terça-feira, 03/12 às 19:30h"
+                      className="w-full bg-orange-50/50 border border-orange-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium text-zinc-900"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={eventSaving}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white rounded-2xl py-3 font-extrabold text-xs uppercase tracking-widest shadow-md shadow-orange-500/20 active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-2"
+                  >
+                    {eventSaving ? 'Salvando...' : 'Adicionar ao Mural'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Listed Events */}
+              <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-sm max-w-lg mx-auto mt-6">
+                <div className="flex items-center gap-2 mb-4 pb-2 border-b border-orange-100">
+                  <h3 className="font-bold text-gray-950 text-xs uppercase tracking-widest">Eventos Ativos</h3>
+                </div>
+
+                {events.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic text-center py-6">Nenhum evento agendado recentemente.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {events.map(event => (
+                      <div 
+                        key={event.id}
+                        className="flex items-center justify-between p-3.5 bg-orange-50/20 rounded-2xl border border-orange-100/60"
+                      >
+                        <div className="min-w-0 pr-2 flex-1">
+                          <p className="font-extrabold text-sm text-gray-900 tracking-tight leading-tight">{event.name}</p>
+                          <p className="text-[10px] font-bold text-orange-700 mt-1 uppercase tracking-wider">{event.date}</p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteEvent(event.id)}
+                          className="p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
+                          title="Remover Evento"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </main>
 
@@ -2670,20 +3086,20 @@ export default function App() {
             setActiveTab('songs');
             setViewMode('categories');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'songs' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'songs' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Music className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Cifras</span>
+          <Music className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Cifras</span>
         </button>
         <button 
           onClick={() => {
             setActiveTab('playlists');
             setViewMode('playlist-list');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'playlists' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'playlists' ? 'text-white' : 'text-orange-200'}`}
         >
-          <ListMusic className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Playlists</span>
+          <ListMusic className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Playlists</span>
         </button>
 
         <button 
@@ -2691,10 +3107,10 @@ export default function App() {
             setActiveTab('liturgia');
             setViewMode('categories'); // fallback safe viewMode
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Church className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Liturgia</span>
+          <Church className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Liturgia</span>
         </button>
 
         <button 
@@ -2702,10 +3118,10 @@ export default function App() {
             setActiveTab('recorder');
             setViewMode('recorder');
           }}
-          className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'recorder' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'recorder' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Mic className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Gravador</span>
+          <Mic className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Gravador</span>
         </button>
 
 
@@ -2716,10 +3132,23 @@ export default function App() {
               setActiveTab('users');
               setViewMode('manage-users');
             }}
-            className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${activeTab === 'users' ? 'text-white' : 'text-orange-200'}`}
+            className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'users' ? 'text-white' : 'text-orange-200'}`}
           >
-            <Lock className="w-6 h-6" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Acessos</span>
+            <Lock className="w-5 h-5" />
+            <span className="text-[8px] font-extrabold uppercase tracking-tight">Acessos</span>
+          </button>
+        )}
+
+        {isMasterAdmin && (
+          <button 
+            onClick={() => {
+              setActiveTab('events_panel');
+              setViewMode('events_panel');
+            }}
+            className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'events_panel' ? 'text-white' : 'text-orange-200'}`}
+          >
+            <Calendar className="w-5 h-5" />
+            <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
           </button>
         )}
       </nav>

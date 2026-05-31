@@ -1,4 +1,4 @@
-export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final' | 'Grupo de Oração';
+export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final' | 'Grupo de Oração' | 'Espírito Santo' | 'Louvor' | 'Mariana' | 'Entrega' | 'Adoração';
 
 export const CATEGORIES: Category[] = [
   'Entrada',
@@ -12,7 +12,12 @@ export const CATEGORIES: Category[] = [
   'Ofertório',
   'Comunhão',
   'Final',
-  'Grupo de Oração'
+  'Grupo de Oração',
+  'Espírito Santo',
+  'Louvor',
+  'Mariana',
+  'Entrega',
+  'Adoração'
 ];
 
 export interface Song {
@@ -52,4 +57,11 @@ export interface AccessUser {
   createdBy?: string; // ID of the admin who created them (or "master")
   creatorName?: string; // Name of the creator admin
   createdAt: any;
+}
+
+export interface MuralEvent {
+  id: string;
+  name: string;
+  date: string;
+  createdAt?: any;
 }

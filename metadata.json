@@ -1,5 +1,5 @@
 {
-  "name": "Vilmardigital",
+  "name": "Louvemos ao Senhor",
   "description": "Aplicativo mobile para gestão e visualização de cifras musicais organizadas por categorias litúrgicas, com modo de leitura em tela cheia.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

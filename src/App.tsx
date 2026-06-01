@@ -231,7 +231,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
         transition={{ delay: 0.2 }}
         className="w-full max-w-xs"
       >
-        <h1 className="text-3xl font-bold text-orange-600 mb-2 tracking-tight font-display">Vilmardigital</h1>
+        <h1 className="text-3xl font-bold text-orange-600 mb-2 tracking-tight font-display">Louvemos ao Senhor</h1>
         <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
 
         <form onSubmit={handleSubmit} className="space-y-1 text-left">
@@ -288,7 +288,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
       </motion.div>
 
       <div className="absolute bottom-8 text-zinc-600 text-sm font-light">
-        © 2026 Vilmardigital • Versão 2.4
+        © 2026 Louvemos ao Senhor • Versão 2.4
       </div>
     </div>
   );
@@ -1954,84 +1954,113 @@ export default function App() {
         <div className="absolute bottom-[20%] -left-[10%] w-[40%] h-[40%] bg-orange-50/50 blur-[100px] rounded-full" />
       </div>
       {/* Header */}
-      <header className="bg-white border-b border-orange-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
-        {/* Left Section: Back or Logo */}
-        <div className="flex-1 flex items-center">
-          {(activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
-            <button 
-              onClick={() => {
-                if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
-                  setCurrentCategoryTab(null);
-                } else if (viewMode === 'songs') {
-                  setViewMode('categories');
-                } else if (viewMode === 'edit-song') {
-                  handleCancelEdit();
-                } else if (viewMode === 'edit-playlist') {
-                  setViewMode('playlist-list');
-                } else if (viewMode === 'view-playlist') {
-                  setViewMode('playlist-list');
-                }
-              }}
-              className="p-2 -ml-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-          ) : (
-            <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-orange-200">
-              <Logo className="w-9 h-9" />
-            </div>
-          )}
-        </div>
-
-        {/* Center Section: User Info (Centered) */}
-        <div className="flex flex-col items-center justify-center gap-1.5 min-w-0 px-2 max-w-[60%]">
-          <label className="relative cursor-pointer group" title="Mudar foto de perfil">
-            <input 
-              type="file" 
-              className="hidden" 
-              accept="image/*"
-              onChange={handleProfilePicUpload}
-            />
-            <div className="w-11 h-11 rounded-full bg-orange-100 border-2 border-orange-200 shadow-md flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
-              {userProfilePic ? (
-                <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-md">
-                  {userIdentifier?.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <Plus className="w-4 h-4 text-white" />
+      <header className="bg-white border-b border-orange-200 sticky top-0 z-30 shadow-xs flex flex-col">
+        {/* Top layer: back, title, logout */}
+        <div className="flex items-center justify-between px-4 py-2.5 min-h-[56px] relative w-full">
+          {/* Left section: Back or Logo */}
+          <div className="flex-1 flex items-center">
+            {(activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
+              <button 
+                onClick={() => {
+                  if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
+                    setCurrentCategoryTab(null);
+                  } else if (viewMode === 'songs') {
+                    setViewMode('categories');
+                  } else if (viewMode === 'edit-song') {
+                    handleCancelEdit();
+                  } else if (viewMode === 'edit-playlist') {
+                    setViewMode('playlist-list');
+                  } else if (viewMode === 'view-playlist') {
+                    setViewMode('playlist-list');
+                  }
+                }}
+                className="p-2 -ml-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+            ) : (
+              <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-orange-200 bg-white">
+                <Logo className="w-8 h-8" />
               </div>
-            </div>
-          </label>
-          <div className="flex flex-col items-center min-w-0 w-full">
-            <h1 className="font-black text-xs text-zinc-900 uppercase tracking-widest truncate w-full text-center">
-              {userIdentifier || 'Vilmardigital'}
+            )}
+          </div>
+
+          {/* Centered Sophisticated Title with Lines (listras sofisticadas) */}
+          <div className="flex-grow flex items-center justify-center gap-2 max-w-[60%]">
+            <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-300 to-orange-500 opacity-60" />
+            <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest px-2 whitespace-nowrap text-center">
+              Louvemos ao Senhor
             </h1>
-            <p className="text-[9px] font-bold text-orange-600 uppercase truncate w-full text-center tracking-tighter">
-              {activeTab === 'liturgia' ? 'Liturgia Diária' :
-               activeTab === 'events_panel' ? 'Painel de Eventos' :
-               viewMode === 'categories' ? (currentCategoryTab === 'missa' ? 'Cifras para Missa' : currentCategoryTab === 'grupo' ? 'Grupo de Oração' : 'Menu Principal') :
-               viewMode === 'playlist-list' ? 'Playlists' :
-               viewMode === 'songs' ? selectedCategory : 
-               viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
-               viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
-               viewMode === 'view-playlist' ? selectedPlaylist?.title : 
-               viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
-            </p>
+            <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-300 to-orange-500 opacity-60" />
+          </div>
+
+          {/* Right section: Logout */}
+          <div className="flex-1 flex items-center justify-end">
+            <button 
+              onClick={handleLogout}
+              className="p-2 -mr-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
+              title="Sair"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Right Section: Logout */}
-        <div className="flex-1 flex items-center justify-end">
-          <button 
-            onClick={handleLogout}
-            className="p-2 -mr-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
-            title="Sair"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+        {/* Sophisticated Divisor Stripe / Listra fina decorativa */}
+        <div className="h-[2px] bg-gradient-to-r from-transparent via-orange-600 to-transparent opacity-80" />
+
+        {/* Bottom layer: Profile information side-by-side underneath */}
+        <div className="bg-orange-50/25 px-4 py-2 border-t border-orange-100/30 flex items-center justify-center gap-2.5">
+          <div className="flex items-center gap-2.5 max-w-full text-zinc-900">
+            {/* Foto (Avatar upload) */}
+            <label className="relative cursor-pointer group shrink-0" title="Mudar foto de perfil">
+              <input 
+                type="file" 
+                className="hidden" 
+                accept="image/*"
+                onChange={handleProfilePicUpload}
+              />
+              <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 shadow-xs flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+                {userProfilePic ? (
+                  <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-xs">
+                    {userIdentifier?.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <Plus className="w-3.5 h-3.5 text-white" />
+                </div>
+              </div>
+            </label>
+
+            {/* Micro divisor line */}
+            <div className="h-3.5 w-[1px] bg-orange-250" />
+
+            {/* Nome e Local (Lado a lado) */}
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Nome */}
+              <span className="font-extrabold text-[11px] sm:text-xs text-zinc-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px] uppercase">
+                {userIdentifier || 'Louvemos ao Senhor'}
+              </span>
+
+              {/* Bullet divider */}
+              <span className="text-orange-300 text-[10px] font-black">•</span>
+
+              {/* Local (Current section) */}
+              <span className="text-[10px] font-black text-orange-700 uppercase tracking-wider bg-orange-100/60 px-2 py-0.5 rounded-md border border-orange-200/50 truncate max-w-[140px] sm:max-w-[200px]">
+                {activeTab === 'liturgia' ? 'Liturgia Diária' :
+                 activeTab === 'events_panel' ? 'Painel de Eventos' :
+                 viewMode === 'categories' ? (currentCategoryTab === 'missa' ? 'Cifras para Missa' : currentCategoryTab === 'grupo' ? 'Grupo de Oração' : 'Menu Principal') :
+                 viewMode === 'playlist-list' ? 'Playlists' :
+                 viewMode === 'songs' ? selectedCategory : 
+                 viewMode === 'edit-song' ? (editingSong?.id ? 'Editar Cifra' : 'Nova Cifra') :
+                 viewMode === 'edit-playlist' ? (editingPlaylist?.id ? 'Editar Playlist' : 'Nova Playlist') :
+                 viewMode === 'view-playlist' ? selectedPlaylist?.title : 
+                 viewMode === 'manage-users' ? 'Gerenciar Usuários' : ''}
+              </span>
+            </div>
+          </div>
         </div>
       </header>
 

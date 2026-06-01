@@ -72,7 +72,8 @@ import {
   EyeOff,
   Headphones,
   Camera,
-  Image
+  Image,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -995,6 +996,26 @@ export default function App() {
   // Photo States
   const [massaPhotos, setMassaPhotos] = useState<MassaPhoto[]>([]);
   const [activePhotoSlide, setActivePhotoSlide] = useState(0);
+  const [lightboxPhotos, setLightboxPhotos] = useState<MassaPhoto[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Keyboard navigation for Lightbox
+  useEffect(() => {
+    if (lightboxIndex === null || lightboxPhotos.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        setLightboxIndex(prev => (prev !== null ? (prev + 1) % lightboxPhotos.length : 0));
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        setLightboxIndex(prev => (prev !== null ? (prev - 1 + lightboxPhotos.length) % lightboxPhotos.length : 0));
+      } else if (e.key === 'Escape') {
+        setLightboxIndex(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxIndex, lightboxPhotos]);
   const [newPhotoFiles, setNewPhotoFiles] = useState<File[]>([]);
   const [newPhotoPreviews, setNewPhotoPreviews] = useState<string[]>([]);
   const [selectedUploadDate, setSelectedUploadDate] = useState<string>(() => {
@@ -1704,6 +1725,43 @@ export default function App() {
     }
   };
 
+  const handleDownloadPhoto = async (photoUrl: string, index: number, description?: string) => {
+    try {
+      const filename = description 
+        ? `${description.replace(/[^a-z0-0]/gi, '_').toLowerCase()}.jpg` 
+        : `foto_celebracao_${index + 1}.jpg`;
+
+      if (photoUrl.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = photoUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        const response = await fetch(photoUrl);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+      }
+    } catch (error) {
+      console.error("Erro ao baixar a foto:", error);
+      const link = document.createElement('a');
+      link.href = photoUrl;
+      link.target = "_blank";
+      link.download = "foto.jpg";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   const handleDeletePlaylist = async (id: string) => {
     const playlistToDelete = playlists.find(p => p.id === id);
     if (playlistToDelete && !isMasterAdmin && playlistToDelete.ownerId !== userIdentifier) {
@@ -2046,19 +2104,10 @@ export default function App() {
                           <Camera className="w-4 h-4 font-bold" />
                         </div>
                         <div>
-                          <h3 className="font-extrabold text-orange-950 text-xs sm:text-sm uppercase tracking-tight leading-none">Nosso Álbum</h3>
+                          <h3 className="font-extrabold text-orange-950 text-xs sm:text-sm uppercase tracking-tight leading-none">Momentos Especiais</h3>
                           <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Momentos das celebrações</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          setActiveTab('photos');
-                          setViewMode('photos');
-                        }}
-                        className="text-[10px] font-black uppercase text-orange-600 hover:text-orange-700 bg-orange-50 px-2.5 py-1 rounded-lg tracking-wider"
-                      >
-                        Ver Álbum ({massaPhotos.length})
-                      </button>
                     </div>
 
                     {slidePhotos.length > 0 ? (
@@ -2073,16 +2122,25 @@ export default function App() {
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 1.02 }}
                                 transition={{ duration: 0.4 }}
-                                className="absolute inset-0 w-full h-full cursor-default"
+                                className="absolute inset-0 w-full h-full cursor-pointer group outline-none"
+                                onClick={() => {
+                                  setLightboxPhotos(slidePhotos);
+                                  setLightboxIndex(index);
+                                }}
                               >
                                 <img 
                                   src={photo.url} 
-                                  className="w-full h-full object-cover" 
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-103" 
                                   alt={photo.description || "Foto da Celebração"} 
                                   referrerPolicy="no-referrer"
                                 />
+                                <div className="absolute inset-0 bg-black/15 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                  <div className="bg-orange-600/90 text-white p-2.5 rounded-full shadow-lg scale-90 group-hover:scale-100 transition-all duration-300">
+                                    <Download className="w-5 h-5 animate-pulse" />
+                                  </div>
+                                </div>
                                 {photo.description && (
-                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end">
+                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end z-10">
                                     <p className="font-extrabold text-xs sm:text-sm text-white leading-tight uppercase tracking-tight max-w-[90%] drop-shadow-xs">
                                       {photo.description}
                                     </p>
@@ -3436,10 +3494,14 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {massaPhotos.map(photo => (
+                    {massaPhotos.map((photo, index) => (
                       <div 
                         key={photo.id}
-                        className="group border border-orange-100 rounded-2xl overflow-hidden bg-orange-50/10 shadow-xs relative aspect-square"
+                        className="group border border-orange-100 rounded-2xl overflow-hidden bg-orange-50/10 shadow-xs relative aspect-square cursor-pointer"
+                        onClick={() => {
+                          setLightboxPhotos(massaPhotos);
+                          setLightboxIndex(index);
+                        }}
                       >
                         <img 
                           src={photo.url} 
@@ -3943,6 +4005,111 @@ export default function App() {
               setViewingSong(playlistSongs[nextIndex]);
             } : undefined}
           />
+        )}
+
+        {/* Interactive Photo Lightbox */}
+        {lightboxIndex !== null && lightboxPhotos[lightboxIndex] && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/95 z-[9999] flex flex-col items-center justify-between p-4 backdrop-blur-md select-none"
+            onClick={() => setLightboxIndex(null)}
+          >
+            {/* Lightbox Header */}
+            <div className="w-full max-w-5xl flex items-center justify-between text-white pb-3 border-b border-white/10 z-10">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-orange-400 stroke-[2.5]" />
+                <span className="font-black text-xs uppercase tracking-widest text-orange-405">
+                  Visualizar Foto
+                </span>
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full font-bold">
+                  {lightboxIndex + 1} de {lightboxPhotos.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => handleDownloadPhoto(lightboxPhotos[lightboxIndex].url, lightboxIndex, lightboxPhotos[lightboxIndex].description)}
+                  className="p-2 sm:px-4 sm:py-2 bg-orange-655 hover:bg-orange-500 rounded-full sm:rounded-xl text-white flex items-center gap-2 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-lg active:scale-95"
+                  title="Baixar Foto"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Baixar</span>
+                </button>
+                <button
+                  onClick={() => setLightboxIndex(null)}
+                  className="p-2 bg-white/10 hover:bg-red-650 rounded-full text-white transition-colors cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Interactive Visualizer */}
+            <div className="flex-grow w-full max-w-5xl flex items-center justify-between gap-4 py-4 relative" onClick={e => e.stopPropagation()}>
+              {/* Left Arrow Button */}
+              {lightboxPhotos.length > 1 && (
+                <button
+                  onClick={() => setLightboxIndex(prev => (prev !== null ? (prev - 1 + lightboxPhotos.length) % lightboxPhotos.length : 0))}
+                  className="p-3 bg-white/5 hover:bg-orange-650 rounded-full text-white backdrop-blur-md transition-colors cursor-pointer absolute sm:static left-2 z-10 border border-white/5 active:scale-90"
+                  aria-label="Foto anterior"
+                >
+                  <ChevronLeft className="w-6 h-6 stroke-[3]" />
+                </button>
+              )}
+
+              {/* Centered Image Frame with Fade/Zoom Transition Animation */}
+              <div className="flex-1 h-full flex flex-col justify-center items-center relative overflow-hidden">
+                <motion.img
+                  key={lightboxIndex}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.05 }}
+                  transition={{ duration: 0.25, ease: 'easeOut' }}
+                  src={lightboxPhotos[lightboxIndex].url}
+                  alt={lightboxPhotos[lightboxIndex].description || "Visualização da Foto"}
+                  className="max-h-[70vh] max-w-full object-contain rounded-2xl shadow-2xl border border-white/5"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              {/* Right Arrow Button */}
+              {lightboxPhotos.length > 1 && (
+                <button
+                  onClick={() => setLightboxIndex(prev => (prev !== null ? (prev + 1) % lightboxPhotos.length : 0))}
+                  className="p-3 bg-white/5 hover:bg-orange-650 rounded-full text-white backdrop-blur-md transition-colors cursor-pointer absolute sm:static right-2 z-10 border border-white/5 active:scale-90"
+                  aria-label="Próxima foto"
+                >
+                  <ChevronRight className="w-6 h-6 stroke-[3]" />
+                </button>
+              )}
+            </div>
+
+            {/* Description Card & Download Bar at the Bottom */}
+            <div className="w-full max-w-2xl bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-3 text-center sm:text-left sm:flex-row sm:items-center sm:justify-between mb-2 z-10 backdrop-blur-md" onClick={e => e.stopPropagation()}>
+              <div className="flex-1">
+                <p className="text-[10px] text-orange-400 font-extrabold uppercase tracking-widest leading-none mb-1">
+                  Momento Registrado
+                </p>
+                <p className="text-sm font-bold text-white tracking-wide uppercase">
+                  {lightboxPhotos[lightboxIndex].description || "Momento da Celebração"}
+                </p>
+                {lightboxPhotos[lightboxIndex].date && (
+                  <p className="text-[10.5px] text-gray-400 font-semibold mt-1">
+                    Celebração de: <span className="text-orange-100 font-bold">{formatPhotoDate(lightboxPhotos[lightboxIndex].date)}</span>
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => handleDownloadPhoto(lightboxPhotos[lightboxIndex].url, lightboxIndex, lightboxPhotos[lightboxIndex].description)}
+                className="w-full sm:w-auto py-2.5 px-5 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-505 hover:to-orange-400 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-md transition-transform hover:scale-102 active:scale-98 cursor-pointer border border-orange-400/20"
+              >
+                <Download className="w-4 h-4 animate-bounce" />
+                Baixar Alta Resolução
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

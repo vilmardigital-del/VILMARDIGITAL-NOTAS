@@ -132,19 +132,19 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
         const rad = (angle * Math.PI) / 180;
         const x = 50 + radiusX * Math.cos(rad);
         const y = 48 + radiusY * Math.sin(rad);
-        return <circle key={i} cx={x} cy={y} r="2.5" fill="#f97316" className="opacity-60" />;
+        return <circle key={i} cx={x} cy={y} r="2.5" fill="#16a34a" className="opacity-60" />;
       })}
       {/* Medalha e Cruz na parte de baixo */}
-      <circle cx="50" cy="94" r="3" fill="#f97316" />
-      <path d="M50 96 L50 103" stroke="#f97316" strokeWidth="2" strokeLinecap="round" />
-      <path d="M47 99 L53 99" stroke="#f97316" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="50" cy="94" r="3" fill="#16a34a" />
+      <path d="M50 96 L50 103" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" />
+      <path d="M47 99 L53 99" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" />
     </svg>
     
     {/* Guitar Pick Shape SVG */}
     <svg viewBox="0 0 100 100" className="absolute inset-0 w-[80%] h-[80%] left-[10%] top-[8%] drop-shadow-sm">
       <path 
         d="M 10 32 C 10 15 25 2 50 2 C 75 2 90 15 90 32 C 90 55 65 92 50 98 C 35 92 10 55 10 32 Z" 
-        fill="#f97316" 
+        fill="#16a34a" 
       />
     </svg>
     <Music className="relative z-10 w-[35%] h-[35%] text-white -translate-y-1" />
@@ -189,10 +189,10 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-orange-50 px-6 text-center select-none overflow-hidden relative">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50/30 px-6 text-center select-none overflow-hidden relative">
       {/* Background decoration */}
-      <div className="absolute -top-20 -right-20 w-64 h-64 bg-orange-100/50 blur-[100px] rounded-full" />
-      <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-orange-100/50 blur-[100px] rounded-full" />
+      <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-100/50 blur-[100px] rounded-full" />
+      <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-emerald-100/50 blur-[100px] rounded-full" />
       
       <motion.div 
         initial={{ scale: 0.8, opacity: 0 }}
@@ -216,12 +216,12 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
             repeat: Infinity,
             ease: "easeInOut"
           }}
-          className="absolute inset-0 bg-orange-500 rounded-full blur-3xl"
+          className="absolute inset-0 bg-emerald-500 rounded-full blur-3xl opacity-40"
         />
         
-        <div className="relative w-64 h-64 bg-white rounded-[56px] flex items-center justify-center p-10 shadow-2xl shadow-orange-500/10 group hover:shadow-orange-500/20 transition-all duration-500">
-          <Logo className="w-48 h-48" />
-          <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 to-transparent rounded-[48px] pointer-events-none" />
+        <div className="relative w-64 h-64 bg-white rounded-[56px] flex items-center justify-center p-4 shadow-2xl shadow-emerald-500/10 group hover:shadow-emerald-500/20 transition-all duration-500">
+          <Logo className="w-56 h-56" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-emerald-50/50 to-transparent rounded-[48px] pointer-events-none" />
         </div>
       </motion.div>
 
@@ -1979,8 +1979,8 @@ export default function App() {
                 <ChevronLeft className="w-6 h-6" />
               </button>
             ) : (
-              <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-orange-200 bg-white">
-                <Logo className="w-8 h-8" />
+              <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-emerald-200 bg-white">
+                <Logo className="w-11 h-11" />
               </div>
             )}
           </div>
@@ -3799,12 +3799,12 @@ export default function App() {
                      </>
                    );
                  })()}
-              </div>
-            </motion.div>
-          )}
+             </div>
+           </motion.div>
+         )}
 
-          {/* EVENTS MANAGEMENT TAB (Admin only) */}
-          {activeTab === 'events_panel' && isMasterAdmin && (
+         {/* EVENTS MANAGEMENT TAB (Admin only) */}
+         {activeTab === 'events_panel' && isMasterAdmin && (
             <motion.div 
               key="events_panel"
               initial={{ opacity: 0, y: 20 }}
@@ -3825,7 +3825,7 @@ export default function App() {
 
                 <form onSubmit={handleCreateEvent} className="flex flex-col gap-4">
                   <div>
-                    <label className="block text-[11px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                    <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
                       Nome do Evento
                     </label>
                     <input
@@ -3839,7 +3839,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                    <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
                       Data ou Horário do Evento
                     </label>
                     <input
@@ -3869,7 +3869,7 @@ export default function App() {
                 </div>
 
                 {events.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic text-center py-6">Nenhum evento agendado recentemente.</p>
+                  <p className="text-xs text-gray-405 italic text-center py-6">Nenhum evento agendado recentemente.</p>
                 ) : (
                   <div className="flex flex-col gap-3">
                     {events.map(event => (
@@ -3877,14 +3877,13 @@ export default function App() {
                         key={event.id}
                         className="flex items-center justify-between p-3.5 bg-orange-50/20 rounded-2xl border border-orange-100/60"
                       >
-                        <div className="min-w-0 pr-2 flex-1">
+                        <div className="min-w-0 pr-2 flex-1 text-left">
                           <p className="font-extrabold text-sm text-gray-900 tracking-tight leading-tight">{event.name}</p>
                           <p className="text-[10px] font-bold text-orange-700 mt-1 uppercase tracking-wider">{event.date}</p>
                         </div>
                         <button
                           onClick={() => handleDeleteEvent(event.id)}
                           className="p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
-                          title="Remover Evento"
                         >
                           <X className="w-4 h-4" />
                         </button>

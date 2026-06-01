@@ -75,3 +75,5 @@ export interface MassaPhoto {
   createdAt: any;
   isBase64?: boolean;
 }
+
+

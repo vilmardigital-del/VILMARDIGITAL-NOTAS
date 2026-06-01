@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  onAuthStateChanged
+  onAuthStateChanged,
+  signInAnonymously
 } from 'firebase/auth';
 import { 
   collection, 
@@ -69,13 +70,16 @@ import {
   Info,
   Eye,
   EyeOff,
-  Headphones
+  Headphones,
+  Camera,
+  Image
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
-import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent } from './types';
+import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import VoiceRecorder from './VoiceRecorder';
+import heic2any from 'heic2any';
 
 const CATEGORIES_MISSA: Category[] = [
   'Entrada',
@@ -166,7 +170,9 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
       u.password === normalizedPassword
     );
     if (foundUser) {
-      onUnlock(foundUser.role, foundUser.name, foundUser.id, false);
+      const actualRole = foundUser.role === 'master' ? 'admin' : foundUser.role;
+      const isMasterUser = foundUser.role === 'master';
+      onUnlock(actualRole, foundUser.name, foundUser.id, isMasterUser);
       return;
     }
 
@@ -781,6 +787,65 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+const dataURItoBlob = (dataURI: string): Blob => {
+  const byteString = atob(dataURI.split(',')[1]);
+  const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+  return new Blob([ab], { type: mimeString });
+};
+
+const compressImage = (file: File, maxDimension: number = 640, quality: number = 0.45): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string); // fallback to original dataUrl
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Compress as JPEG
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = (err) => {
+        reject(err);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = (err) => {
+      reject(err);
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 export default function App() {
   const [userRole, setUserRole] = useState<'admin' | 'viewer' | null>(() => {
     const saved = localStorage.getItem('userRole');
@@ -927,9 +992,76 @@ export default function App() {
   const [muralSongsExpanded, setMuralSongsExpanded] = useState(false);
   const [muralEventsExpanded, setMuralEventsExpanded] = useState(false);
 
+  // Photo States
+  const [massaPhotos, setMassaPhotos] = useState<MassaPhoto[]>([]);
+  const [activePhotoSlide, setActivePhotoSlide] = useState(0);
+  const [newPhotoFiles, setNewPhotoFiles] = useState<File[]>([]);
+  const [newPhotoPreviews, setNewPhotoPreviews] = useState<string[]>([]);
+  const [selectedUploadDate, setSelectedUploadDate] = useState<string>(() => {
+    const today = new Date();
+    const offset = -3; // UTC-3 para Brasília
+    const localDate = new Date(today.getTime() + offset * 3600 * 1000);
+    return localDate.toISOString().split("T")[0];
+  });
+  const [newPhotoDesc, setNewPhotoDesc] = useState('');
+  const [newPhotoSaving, setNewPhotoSaving] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [isConvertingPhotos, setIsConvertingPhotos] = useState(false);
+
+  // Hidden system to filter slide photos to those uploaded/created in the last 4 days
+  const slidePhotos = useMemo(() => {
+    const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    return massaPhotos.filter(photo => {
+      if (!photo.createdAt) return true; // show newly uploaded/pending immediately
+
+      let uploadTime = 0;
+      if (typeof photo.createdAt.toMillis === 'function') {
+        uploadTime = photo.createdAt.toMillis();
+      } else if (photo.createdAt.seconds !== undefined) {
+        uploadTime = photo.createdAt.seconds * 1000 + ((photo.createdAt.nanoseconds || 0) / 1000000);
+      } else if (photo.createdAt instanceof Date) {
+        uploadTime = photo.createdAt.getTime();
+      } else if (typeof photo.createdAt === 'number') {
+        uploadTime = photo.createdAt;
+      } else if (typeof photo.createdAt === 'string') {
+        const parsed = Date.parse(photo.createdAt);
+        if (!isNaN(parsed)) uploadTime = parsed;
+      }
+
+      if (uploadTime === 0) return false;
+      return (now - uploadTime) <= fourDaysInMs;
+    });
+  }, [massaPhotos]);
+
+  // Keep active photo list index in bounds
+  useEffect(() => {
+    if (activePhotoSlide >= slidePhotos.length && slidePhotos.length > 0) {
+      setActivePhotoSlide(0);
+    }
+  }, [slidePhotos.length, activePhotoSlide]);
+
+  const formatPhotoDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const dateObj = new Date(year, month, day);
+    
+    const daysOfWeek = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    const dayName = daysOfWeek[dateObj.getDay()];
+    const formattedDay = String(day).padStart(2, '0');
+    const formattedMonth = String(month + 1).padStart(2, '0');
+    return `${dayName}, ${formattedDay}/${formattedMonth}/${year}`;
+  };
+
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel' | 'photos'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel' | 'photos'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -1089,7 +1221,7 @@ export default function App() {
   // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
+  const [newUserRole, setNewUserRole] = useState<'master' | 'admin' | 'viewer'>('viewer');
   
   // Song selection/editing
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -1133,6 +1265,16 @@ export default function App() {
     const timeout = setTimeout(() => {
       setLoading(false);
     }, 5000);
+
+    if (auth) {
+      onAuthStateChanged(auth, (user) => {
+        if (!user) {
+          signInAnonymously(auth).catch((error) => {
+            console.error("Firebase Auth anonymous error:", error);
+          });
+        }
+      });
+    }
 
     if (!db) {
       console.error("Database connection failed. Please check your configuration.");
@@ -1178,15 +1320,73 @@ export default function App() {
     });
 
     const eventsQuery = query(
-      collection(db, 'events'),
-      orderBy('createdAt', 'desc')
+      collection(db, 'events')
     );
 
     const unsubEvents = onSnapshot(eventsQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-      setEvents(docs);
+      // Sort in-memory safely to handle local pending timestamps and documents missing createdAt
+      const sortedDocs = [...docs].sort((a, b) => {
+        const getTime = (item: any) => {
+          if (!item.createdAt) return 0;
+          if (typeof item.createdAt.toMillis === 'function') {
+            return item.createdAt.toMillis();
+          }
+          if (item.createdAt.seconds !== undefined) {
+            return item.createdAt.seconds * 1000 + ((item.createdAt.nanoseconds || 0) / 1000000);
+          }
+          if (item.createdAt instanceof Date) {
+            return item.createdAt.getTime();
+          }
+          if (typeof item.createdAt === 'number') {
+            return item.createdAt;
+          }
+          if (typeof item.createdAt === 'string') {
+            const parsed = Date.parse(item.createdAt);
+            return isNaN(parsed) ? 0 : parsed;
+          }
+          return 0;
+        };
+        return getTime(b) - getTime(a);
+      });
+      setEvents(sortedDocs);
     }, (error) => {
       console.error("Events listener error:", error);
+    });
+
+    const photosQuery = query(
+      collection(db, 'massa_photos')
+    );
+
+    const unsubPhotos = onSnapshot(photosQuery, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as MassaPhoto[];
+      // Sort in-memory safely to handle local pending timestamps and documents missing createdAt
+      const sortedDocs = [...docs].sort((a, b) => {
+        const getTime = (photo: MassaPhoto) => {
+          if (!photo.createdAt) return 0;
+          if (typeof photo.createdAt.toMillis === 'function') {
+            return photo.createdAt.toMillis();
+          }
+          if (photo.createdAt.seconds !== undefined) {
+            return photo.createdAt.seconds * 1000 + ((photo.createdAt.nanoseconds || 0) / 1000000);
+          }
+          if (photo.createdAt instanceof Date) {
+            return photo.createdAt.getTime();
+          }
+          if (typeof photo.createdAt === 'number') {
+            return photo.createdAt;
+          }
+          if (typeof photo.createdAt === 'string') {
+            const parsed = Date.parse(photo.createdAt);
+            return isNaN(parsed) ? 0 : parsed;
+          }
+          return 0;
+        };
+        return getTime(b) - getTime(a);
+      });
+      setMassaPhotos(sortedDocs);
+    }, (error) => {
+      console.error("Photos listener error:", error);
     });
 
     return () => {
@@ -1194,6 +1394,7 @@ export default function App() {
       unsubPlaylists();
       unsubEvents();
       unsubUsers();
+      unsubPhotos();
       clearTimeout(timeout);
     };
   }, []);
@@ -1232,6 +1433,15 @@ export default function App() {
       setViewMode('songs');
     }
   };
+
+  // Slide auto-play for mass photos
+  useEffect(() => {
+    if (slidePhotos.length <= 1) return;
+    const interval = setInterval(() => {
+      setActivePhotoSlide((prev) => (prev + 1) % slidePhotos.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [slidePhotos]);
 
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1332,6 +1542,165 @@ export default function App() {
       setDeletingId(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `songs/${id}`);
+    }
+  };
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    setIsConvertingPhotos(true);
+    setPhotoError(null);
+    const filesArray = Array.from(files);
+    
+    const processedFiles: File[] = [];
+    const processedPreviews: string[] = [];
+
+    try {
+      for (const file of filesArray) {
+        const isHEIC = 
+          file.name.toLowerCase().endsWith('.heic') || 
+          file.name.toLowerCase().endsWith('.heif') || 
+          file.type === 'image/heic' || 
+          file.type === 'image/heif';
+
+        if (isHEIC) {
+          try {
+            console.log(`Converting HEIC file to JPEG: ${file.name}`);
+            // heic2any converts HEIC/HEIF to Blob/Blob[]
+            const convertedResult = await heic2any({
+              blob: file,
+              toType: 'image/jpeg',
+              quality: 0.85
+            });
+
+            const blob = Array.isArray(convertedResult) ? convertedResult[0] : convertedResult;
+            const newName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+            const convertedFile = new File([blob], newName, { type: "image/jpeg" });
+
+            processedFiles.push(convertedFile);
+
+            // Generate preview
+            const previewUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(convertedFile);
+            });
+            processedPreviews.push(previewUrl);
+
+          } catch (heicErr: any) {
+            console.error("Failed to convert HEIC to JPEG, using original file:", heicErr);
+            processedFiles.push(file);
+
+            const previewUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(file);
+            });
+            processedPreviews.push(previewUrl);
+          }
+        } else {
+          processedFiles.push(file);
+
+          const previewUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
+          processedPreviews.push(previewUrl);
+        }
+      }
+
+      setNewPhotoFiles(prev => [...prev, ...processedFiles]);
+      setNewPhotoPreviews(prev => [...prev, ...processedPreviews]);
+    } catch (err: any) {
+      console.error("Error processing selected photos:", err);
+      setPhotoError("Erro ao processar/converter as fotos selecionadas.");
+    } finally {
+      setIsConvertingPhotos(false);
+      // Reset input value so same files can be re-selected if needed
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePendingPhoto = (index: number) => {
+    setNewPhotoFiles(prev => prev.filter((_, i) => i !== index));
+    setNewPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCreatePhoto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPhotoFiles.length === 0) return;
+    setNewPhotoSaving(true);
+    setPhotoError(null);
+    setUploadProgress({ current: 0, total: newPhotoFiles.length });
+    
+    const today = new Date();
+    const offset = -3; // UTC-3 Brasília
+    const localDate = new Date(today.getTime() + offset * 3600 * 1000);
+    const dateStr = localDate.toISOString().split("T")[0];
+    const autoFormattedDate = formatPhotoDate(dateStr);
+
+    try {
+      for (let i = 0; i < newPhotoFiles.length; i++) {
+        const file = newPhotoFiles[i];
+        
+        // 1. Compress image to super-lightweight JPEG Base64 Web-ready
+        let base64Url = "";
+        try {
+          // Compress to 640px max-dimension and 0.45 quality so it saves fast and consumes very little bandwidth/space
+          base64Url = await compressImage(file, 640, 0.45);
+        } catch (compressErr) {
+          console.warn("Compression failed, using fallback reader", compressErr);
+          // Fallback to reading file normally if canvas-compressed fails
+          base64Url = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result as string);
+            r.onerror = (errFileReader) => reject(errFileReader);
+            r.readAsDataURL(file);
+          });
+        }
+
+        // 2. Add document to Firestore directly (bypassing Firebase Storage API setup completely)
+        await addDoc(collection(db, 'massa_photos'), {
+          url: base64Url,
+          date: autoFormattedDate,
+          description: newPhotoDesc.trim() || '',
+          storagePath: null,
+          createdAt: serverTimestamp(),
+          isBase64: true
+        });
+
+        // Short timeout to let UI update and separate sequential batch saves nicely
+        await new Promise(resolve => setTimeout(resolve, 80));
+        setUploadProgress({ current: i + 1, total: newPhotoFiles.length });
+      }
+
+      setNewPhotoFiles([]);
+      setNewPhotoPreviews([]);
+      setNewPhotoDesc('');
+      setUploadProgress(null);
+    } catch (err: any) {
+      console.error("Error in handleCreatePhoto:", err);
+      setPhotoError(err?.message || String(err) || "Erro ao salvar as fotos.");
+    } finally {
+      setNewPhotoSaving(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId: string, storagePath?: string) => {
+    try {
+      await deleteDoc(doc(db, 'massa_photos', photoId));
+      if (storagePath && storage) {
+        const fileRef = ref(storage, storagePath);
+        await deleteObject(fileRef).catch(err => {
+          console.error("Error deleting from Storage (might not exist):", err);
+        });
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `massa_photos/${photoId}`);
+    } finally {
+      setConfirmingDeleteId(null);
     }
   };
 
@@ -1530,7 +1899,7 @@ export default function App() {
       <header className="bg-white border-b border-orange-200 px-4 py-3 flex items-center sticky top-0 z-30 min-h-[72px]">
         {/* Left Section: Back or Logo */}
         <div className="flex-1 flex items-center">
-          {(activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
+          {(activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
             <button 
               onClick={() => {
                 if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
@@ -1667,6 +2036,114 @@ export default function App() {
                         </span>
                       </div>
                     </button>
+                  </div>
+
+                  {/* Dynamic Slide Carousel on Main Page */}
+                  <div className="bg-white border border-orange-100 rounded-3xl p-4 shadow-xs">
+                    <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-50">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-orange-100 text-orange-600 rounded-xl">
+                          <Camera className="w-4 h-4 font-bold" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-orange-950 text-xs sm:text-sm uppercase tracking-tight leading-none">Nosso Álbum</h3>
+                          <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Momentos das celebrações</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setActiveTab('photos');
+                          setViewMode('photos');
+                        }}
+                        className="text-[10px] font-black uppercase text-orange-600 hover:text-orange-700 bg-orange-50 px-2.5 py-1 rounded-lg tracking-wider"
+                      >
+                        Ver Álbum ({massaPhotos.length})
+                      </button>
+                    </div>
+
+                    {slidePhotos.length > 0 ? (
+                      <div className="relative w-full h-52 sm:h-64 rounded-2xl overflow-hidden shadow-inner border border-orange-200 bg-orange-50/20">
+                        <AnimatePresence mode="popLayout" initial={false}>
+                          {slidePhotos.map((photo, index) => {
+                            if (index !== activePhotoSlide) return null;
+                            return (
+                              <motion.div
+                                key={photo.id}
+                                initial={{ opacity: 0, scale: 0.98 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 1.02 }}
+                                transition={{ duration: 0.4 }}
+                                className="absolute inset-0 w-full h-full cursor-default"
+                              >
+                                <img 
+                                  src={photo.url} 
+                                  className="w-full h-full object-cover" 
+                                  alt={photo.description || "Foto da Celebração"} 
+                                  referrerPolicy="no-referrer"
+                                />
+                                {photo.description && (
+                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end">
+                                    <p className="font-extrabold text-xs sm:text-sm text-white leading-tight uppercase tracking-tight max-w-[90%] drop-shadow-xs">
+                                      {photo.description}
+                                    </p>
+                                  </div>
+                                )}
+                              </motion.div>
+                            );
+                          })}
+                        </AnimatePresence>
+
+                        {/* Arrows */}
+                        {slidePhotos.length > 1 && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePhotoSlide((prev) => (prev - 1 + slidePhotos.length) % slidePhotos.length);
+                              }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/45 hover:bg-orange-600 rounded-full text-white backdrop-blur-xs transition-colors cursor-pointer z-10"
+                              aria-label="Foto anterior"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePhotoSlide((prev) => (prev + 1) % slidePhotos.length);
+                              }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/45 hover:bg-orange-600 rounded-full text-white backdrop-blur-xs transition-colors cursor-pointer z-10"
+                              aria-label="Proxima foto"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+
+                        {/* Indicators dots */}
+                        {slidePhotos.length > 1 && (
+                          <div className="absolute bottom-3 right-4 flex gap-1 z-10">
+                            {slidePhotos.map((_, i) => (
+                              <button
+                                key={i}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActivePhotoSlide(i);
+                                }}
+                                className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
+                                  i === activePhotoSlide ? 'bg-orange-600 w-3' : 'bg-white/50 hover:bg-white'
+                                }`}
+                                aria-label={`Slide ${i + 1}`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 flex flex-col items-center gap-2 bg-orange-50/10 border border-dashed border-orange-200 rounded-2xl">
+                        <Image className="w-8 h-8 text-orange-250 animate-pulse" />
+                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider italic">Nenhum momento registrado nos últimos 4 dias.</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Mural de Notícias e Eventos */}
@@ -2768,6 +3245,260 @@ export default function App() {
             );
           })()}
 
+          {/* PHOTOS GALLERY TAB */}
+          {activeTab === 'photos' && (
+            <motion.div
+              key="photos-tab"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="p-4 flex flex-col gap-6"
+            >
+              <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-black text-orange-950 uppercase tracking-widest">
+                    Álbum de Fotos
+                  </p>
+                  <p className="text-[10px] text-gray-400 font-bold mt-0.5 uppercase">
+                    Biblioteca de lembranças de nossas celebrações
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab('songs');
+                    setViewMode('categories');
+                  }}
+                  className="px-3 py-1.5 bg-white border border-orange-200 hover:border-orange-300 rounded-xl text-[10px] font-black text-orange-700 shadow-xs uppercase tracking-wider cursor-pointer"
+                >
+                  Voltar
+                </button>
+              </div>
+
+              {/* ADMIN FORM: Upload Multi-Fotos */}
+              {isMasterAdmin && (
+                <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-xs">
+                  <div className="flex items-center gap-3 mb-6 pb-2.5 border-b border-orange-100">
+                    <div className="p-2 bg-orange-100 text-orange-600 rounded-xl">
+                      <Camera className="w-5 h-5 font-bold" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-orange-950 text-sm uppercase animate-none">Carregar Novas Fotos</h2>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Selecione e envie várias fotos de uma só vez</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCreatePhoto} className="flex flex-col gap-4">
+                    {/* Multi-Photo Input Area */}
+                    <div>
+                      <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
+                        Selecionar fotos (HEIC do iPhone aceito)
+                      </label>
+                      <div className="flex flex-col items-center justify-center border-2 border-dashed border-orange-200 rounded-2xl p-6 bg-orange-50/20 hover:border-orange-400 transition-all cursor-pointer relative min-h-[140px]">
+                        {isConvertingPhotos ? (
+                          <div className="text-center flex flex-col items-center gap-3">
+                            <div className="p-3 bg-orange-100 text-orange-600 rounded-full animate-spin">
+                              <RotateCcw className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-orange-950 uppercase tracking-wider">Otimizando imagens...</p>
+                              <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase">Convertendo HEIC para JPEG leve</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              required={newPhotoFiles.length === 0}
+                              onChange={handlePhotoSelect}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                            />
+                            <div className="text-center flex flex-col items-center gap-2">
+                              <div className="p-2.5 bg-orange-100 text-orange-600 rounded-full">
+                                <Plus className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-gray-700">Selecione fotos da celebração</p>
+                                <p className="text-[10px] text-gray-400 font-medium">Toque ou arraste os arquivos juntos</p>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Previews Grid list */}
+                    {newPhotoPreviews.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
+                            Fotos selecionadas ({newPhotoPreviews.length})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewPhotoFiles([]);
+                              setNewPhotoPreviews([]);
+                            }}
+                            className="text-[10px] font-bold text-red-500 hover:underline cursor-pointer"
+                          >
+                            Limpar todas
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-[180px] overflow-y-auto p-1.5 bg-orange-50/20 border border-orange-100 rounded-2xl">
+                          {newPhotoPreviews.map((preview, idx) => (
+                            <div key={idx} className="relative aspect-square rounded-lg overflow-hidden group shadow-xs">
+                              <img src={preview} alt="Prévia" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePendingPhoto(idx)}
+                                className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors cursor-pointer"
+                                title="Remover"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description/Label input */}
+                    <div>
+                      <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
+                        Momento da Celebração / Descrição
+                      </label>
+                      <input
+                        type="text"
+                        value={newPhotoDesc}
+                        onChange={(e) => setNewPhotoDesc(e.target.value)}
+                        placeholder="Ex: Procissão de Entrada, Ofertório, Comunhão, Benção..."
+                        className="w-full bg-orange-50/50 border border-orange-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium text-zinc-900 placeholder:text-gray-400 animate-none"
+                      />
+                    </div>
+
+                    {/* Progress indicators */}
+                    {uploadProgress && (
+                      <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-3.5 flex flex-col gap-2 mt-1">
+                        <div className="flex items-center justify-between text-xs font-bold text-orange-900">
+                          <span>Sincronizando fotos com o álbum...</span>
+                          <span className="font-extrabold text-orange-700">
+                            {uploadProgress.current} de {uploadProgress.total} ({Math.round((uploadProgress.current / uploadProgress.total) * 100)}%)
+                          </span>
+                        </div>
+                        <div className="w-full bg-orange-100 rounded-full h-2 overflow-hidden shadow-inner">
+                          <div 
+                            className="bg-orange-600 h-full rounded-full transition-all duration-300" 
+                            style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {photoError && (
+                      <div className="bg-red-50 border border-red-200 text-red-750 p-4 rounded-2xl text-[11px] font-black uppercase tracking-wide flex flex-col gap-1">
+                        <span>Erro ao carregar fotos:</span>
+                        <span className="text-[10px] font-bold text-gray-500 normal-case">{photoError}</span>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={newPhotoSaving || newPhotoFiles.length === 0}
+                      className="w-full bg-orange-600 hover:bg-orange-700 text-white rounded-2xl py-3 font-extrabold text-xs uppercase tracking-widest shadow-md shadow-orange-500/20 active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-2"
+                    >
+                      {newPhotoSaving ? (
+                        <span>Enviando fotos...</span>
+                      ) : (
+                        <span>Adicionar {newPhotoFiles.length > 0 ? `${newPhotoFiles.length} fotos simultâneas` : 'Fotos'} ao álbum</span>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Photos Gallery View Grid */}
+              <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-xs">
+                <div className="flex items-center gap-2.5 mb-5 pb-2 border-b border-orange-150">
+                  <div className="p-1 px-2.5 bg-orange-100 text-orange-600 rounded-lg text-xs font-black uppercase">
+                    Mural de Fotos
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-orange-950 text-sm uppercase">Momentos Registrados ({massaPhotos.length})</h3>
+                  </div>
+                </div>
+
+                {massaPhotos.length === 0 ? (
+                  <div className="text-center py-12 flex flex-col items-center gap-2">
+                    <Image className="w-10 h-10 text-orange-200 animate-pulse" />
+                    <p className="text-xs text-gray-400 italic">Nenhum momento registrado na galeria ainda.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {massaPhotos.map(photo => (
+                      <div 
+                        key={photo.id}
+                        className="group border border-orange-100 rounded-2xl overflow-hidden bg-orange-50/10 shadow-xs relative aspect-square"
+                      >
+                        <img 
+                          src={photo.url} 
+                          alt={photo.description || "Momento da Celebração"} 
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-350"
+                          referrerPolicy="no-referrer"
+                        />
+                        {photo.description && (
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2.5 pt-6 flex flex-col justify-end">
+                            <p className="text-[10px] sm:text-[11px] font-black text-white leading-tight uppercase tracking-tight truncate group-hover:whitespace-normal group-hover:overflow-visible drop-shadow-xs">
+                              {photo.description}
+                            </p>
+                          </div>
+                        )}
+                        {isMasterAdmin && (
+                          <div className="absolute top-2 right-2 flex gap-1 z-10">
+                            {confirmingDeleteId === photo.id ? (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePhoto(photo.id, photo.storagePath);
+                                  }}
+                                  className="px-2 py-1.5 bg-red-650 hover:bg-red-600 text-white font-extrabold text-[10px] rounded-lg tracking-wider uppercase shadow-md cursor-pointer select-none"
+                                >
+                                  Sim
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmingDeleteId(null);
+                                  }}
+                                  className="px-2 py-1.5 bg-zinc-850 hover:bg-zinc-700 text-white font-extrabold text-[10px] rounded-lg tracking-wider uppercase shadow-md cursor-pointer select-none"
+                                >
+                                  Não
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmingDeleteId(photo.id);
+                                }}
+                                className="p-1.5 bg-black/60 hover:bg-red-600 rounded-full text-white backdrop-blur-xs transition-colors cursor-pointer shadow-sm"
+                                title="Excluir Foto"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
           {/* RECORDER TAB */}
           {activeTab === 'recorder' && (
             <motion.div
@@ -2833,7 +3564,7 @@ export default function App() {
                           onClick={() => setNewUserRole('viewer')}
                           className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
                             newUserRole === 'viewer' 
-                              ? 'bg-orange-600 text-white shadow-md' 
+                              ? 'bg-orange-600 text-white shadow-md font-black' 
                               : 'bg-orange-50 text-orange-600'
                           }`}
                         >
@@ -2844,11 +3575,22 @@ export default function App() {
                           onClick={() => setNewUserRole('admin')}
                           className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
                             newUserRole === 'admin' 
-                              ? 'bg-orange-600 text-white shadow-md' 
+                              ? 'bg-orange-600 text-white shadow-md font-black' 
                               : 'bg-orange-50 text-orange-600'
                           }`}
                         >
                           Administrador
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewUserRole('master')}
+                          className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
+                            newUserRole === 'master' 
+                              ? 'bg-orange-600 text-white shadow-md font-black border-2 border-orange-300' 
+                              : 'bg-orange-50 text-orange-600'
+                          }`}
+                        >
+                          Master (Acesso Total)
                         </button>
                       </div>
                     </div>
@@ -2880,14 +3622,26 @@ export default function App() {
                          return (
                            <div key={user.id} className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                              <div className="flex items-center gap-3">
-                               <div className={`p-2 rounded-xl ${user.role === 'admin' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
-                                 {user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
+                               <div className={`p-2 rounded-xl ${
+                                 user.role === 'master' 
+                                   ? 'bg-rose-100 text-rose-600 border border-rose-200 shadow-xs' 
+                                   : user.role === 'admin' 
+                                     ? 'bg-orange-100 text-orange-600' 
+                                     : 'bg-gray-100 text-gray-600'
+                               }`}>
+                                 {user.role === 'master' ? <Crown className="w-5 h-5 stroke-[2.5]" /> : user.role === 'admin' ? <Crown className="w-5 h-5" /> : <Mic2 className="w-5 h-5" />}
                                </div>
                                <div>
                                  <h4 className="font-bold text-gray-900">{user.name}</h4>
                                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                                   <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider border border-orange-100">
-                                     {user.role === 'admin' ? 'Administrador' : 'Visualizador'}
+                                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider border ${
+                                     user.role === 'master' 
+                                       ? 'bg-rose-50 text-rose-600 border-rose-100' 
+                                       : user.role === 'admin' 
+                                         ? 'bg-orange-50 text-orange-600 border-orange-100' 
+                                         : 'bg-gray-50 text-gray-600 border-gray-100'
+                                   }`}>
+                                     {user.role === 'master' ? 'Master (Acesso Total)' : user.role === 'admin' ? 'Administrador' : 'Visualizador'}
                                    </span>
                                    {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
                                      <p className="text-[11px] text-gray-400 font-medium ml-1">
@@ -3050,6 +3804,8 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+
         </AnimatePresence>
       </main>
 
@@ -3123,6 +3879,19 @@ export default function App() {
           <Mic className="w-5 h-5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Gravador</span>
         </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('photos');
+            setViewMode('photos');
+          }}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'photos' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Camera className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Fotos</span>
+        </button>
+
+
 
 
         {/* Suggestions Tab */}

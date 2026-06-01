@@ -39,6 +39,16 @@ service cloud.firestore {
              (!('lastActive' in data) || data.lastActive == null || data.lastActive is int);
     }
 
+    function isValidMassaPhoto(data) {
+      return data.keys().hasAll(['url', 'date']) &&
+             data.url is string && data.url.size() <= 3000000 &&
+             data.date is string && data.date.size() <= 200 &&
+             (!('storagePath' in data) || data.storagePath == null || (data.storagePath is string && data.storagePath.size() <= 1000)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('isBase64' in data) || data.isBase64 is bool) &&
+             (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp);
+    }
+
     match /songs/{songId} {
       allow read: if true;
       allow create: if isValidSong(request.resource.data);
@@ -63,6 +73,13 @@ service cloud.firestore {
     match /events/{eventId} {
       allow read: if true;
       allow write: if true;
+    }
+
+    match /massa_photos/{photoId} {
+      allow read: if true;
+      allow create: if isValidMassaPhoto(request.resource.data);
+      allow update: if isValidMassaPhoto(request.resource.data);
+      allow delete: if true;
     }
   }
 }

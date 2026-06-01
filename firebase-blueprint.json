@@ -96,6 +96,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "password", "role"]
+    },
+    "MassaPhoto": {
+      "title": "MassaPhoto",
+      "description": "A photo taken during Sunday Masses/celebrations.",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "description": "Download URL of the photo in Firebase Storage." },
+        "date": { "type": "string", "description": "Date of the Mass/event, e.g. Domingo, 31/05" },
+        "description": { "type": "string", "description": "Optional description or name of the celebration." },
+        "storagePath": { "type": "string", "description": "Reference path to the file on Firebase Storage." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["url", "date", "storagePath"]
     }
   },
   "firestore": {
@@ -110,6 +123,10 @@
     "/access_users/{userId}": {
       "schema": "AccessUser",
       "description": "Collection of managed access users."
+    },
+    "/massa_photos/{photoId}": {
+      "schema": "MassaPhoto",
+      "description": "Collection of registered mass/celebration photos."
     }
   }
 }

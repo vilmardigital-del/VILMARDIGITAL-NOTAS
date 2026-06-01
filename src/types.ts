@@ -50,7 +50,7 @@ export interface AccessUser {
   id: string;
   name: string;
   password: string;
-  role: 'admin' | 'viewer';
+  role: 'master' | 'admin' | 'viewer';
   currentSessionId?: string;
   isOnline?: boolean;
   lastActive?: number;
@@ -64,4 +64,14 @@ export interface MuralEvent {
   name: string;
   date: string;
   createdAt?: any;
+}
+
+export interface MassaPhoto {
+  id: string;
+  url: string;
+  date: string;
+  description?: string;
+  storagePath?: string;
+  createdAt: any;
+  isBase64?: boolean;
 }

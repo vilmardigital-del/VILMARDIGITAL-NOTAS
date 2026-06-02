@@ -230,60 +230,60 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50/20 px-4 text-center select-none overflow-y-auto relative py-10">
+    <div className="h-screen max-h-screen flex flex-col items-center justify-between bg-emerald-50/20 px-4 text-center select-none overflow-hidden relative py-3 sm:py-5 md:py-6">
       {/* Background decoration */}
-      <div className="absolute -top-20 -right-20 w-80 h-80 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
-      <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute -top-20 -right-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute -bottom-20 -left-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-100/10 blur-[150px] rounded-full pointer-events-none" />
       
-      {/* Mini Logo */}
-      <motion.div 
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ 
-          type: "spring",
-          stiffness: 260,
-          damping: 20,
-          duration: 0.6 
-        }}
-        className="mb-3 relative shrink-0"
-      >
-        {/* Animated Glow Effect */}
+      {/* Mini Logo & Title grouped tightly at the very top */}
+      <div className="flex flex-col items-center shrink-0 gap-y-1 mt-1 sm:mt-2">
         <motion.div 
-          animate={{ 
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.6, 0.3]
-          }}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
           transition={{ 
-            duration: 4,
-            repeat: Infinity,
-            ease: "easeInOut"
+            type: "spring",
+            stiffness: 260,
+            damping: 20,
+            duration: 0.6 
           }}
-          className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-45"
-        />
-        
-        <div className="relative w-18 h-18 bg-white rounded-2xl flex items-center justify-center p-1 shadow-lg shadow-emerald-500/10 group hover:shadow-emerald-500/20 transition-all duration-500 border border-emerald-100">
-          <Logo className="w-14 h-14" />
-          <div className="absolute inset-0 bg-gradient-to-tr from-emerald-50/50 to-transparent rounded-2xl pointer-events-none" />
-        </div>
-      </motion.div>
+          className="relative"
+        >
+          {/* Animated Glow Effect */}
+          <motion.div 
+            animate={{ 
+              scale: [1, 1.2, 1],
+              opacity: [0.3, 0.6, 0.3]
+            }}
+            transition={{ 
+              duration: 4,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+            className="absolute inset-x-0 inset-y-0 bg-emerald-500 rounded-full blur-xl opacity-40 animate-pulse"
+          />
+          
+          <div className="relative w-11 h-11 sm:w-13 sm:h-13 bg-white rounded-xl flex items-center justify-center p-1 shadow-md shadow-emerald-500/10 border border-emerald-100">
+            <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
+          </div>
+        </motion.div>
 
-      {/* Título abaixo da Logo */}
-      <motion.h1 
-        initial={{ y: 10, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.05 }}
-        className="text-3xl font-black text-orange-650 mb-7 tracking-tight font-display text-center shrink-0 text-shadow-sm"
-      >
-        Louvemos ao Senhor
-      </motion.h1>
+        <motion.h1 
+          initial={{ y: 5, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.05 }}
+          className="text-lg sm:text-xl md:text-2xl font-black text-orange-650 tracking-tight font-display text-center text-shadow-sm"
+        >
+          Louvemos ao Senhor
+        </motion.h1>
+      </div>
 
-      {/* EVENT BANNERS CAROUSEL SLIDE (Larger & Highlighted green border) */}
+      {/* EVENT BANNERS CAROUSEL SLIDE (SIGNIFICANTLY LARGER & HIGHLIGHTED) */}
       <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1 }}
-        className="w-full max-w-[360px] sm:max-w-lg md:max-w-xl aspect-[16/9] rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] mb-8 shrink-0 ring-4 ring-emerald-500/20 transition-all duration-300"
+        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] aspect-[18/9] sm:aspect-[16/9] max-h-[190px] sm:max-h-[270px] md:max-h-[320px] lg:max-h-[345px] rounded-2xl md:rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] shrink hover:scale-[1.01] transition-all duration-300 ring-4 ring-emerald-500/15"
       >
         {displayBanners.map((banner, index) => (
           <motion.div
@@ -297,25 +297,35 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             className={`absolute inset-0 flex flex-col justify-end ${currentSlide === index ? 'pointer-events-auto' : 'pointer-events-none'}`}
           >
             {banner.url ? (
-              <img 
-                src={banner.url} 
-                alt={banner.description || "Banner"} 
-                className="absolute inset-0 w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
+              <div className="absolute inset-0 bg-neutral-950 overflow-hidden flex items-center justify-center">
+                {/* Imagem de fundo desfocada para preencher as bordas sem cortes brutos */}
+                <img 
+                  src={banner.url} 
+                  alt="" 
+                  className="absolute inset-0 w-full h-full object-cover blur-lg opacity-45 scale-110 select-none pointer-events-none"
+                  referrerPolicy="no-referrer"
+                />
+                {/* Imagem principal centralizada sem cortes */}
+                <img 
+                  src={banner.url} 
+                  alt={banner.description || "Banner"} 
+                  className="relative max-w-full h-full object-contain z-10 select-none pointer-events-none"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
             ) : (
               // Solid modern elegant gradient banner fallback
               <div className="absolute inset-0 bg-gradient-to-tr from-emerald-600 via-teal-600 to-orange-550 flex flex-col justify-center items-center p-4">
-                <Music className="w-12 h-12 text-emerald-250 animate-pulse opacity-80 mb-2" />
+                <Music className="w-10 h-10 text-emerald-250 animate-pulse opacity-80 mb-2" />
               </div>
             )}
             
             {/* Elegant dark gradient overlay with enhanced text contrast */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-5 sm:p-6 text-left">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-emerald-300 drop-shadow-md mb-1.5">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4 text-left">
+              <span className="text-[9px] sm:text-xs font-black uppercase tracking-widest text-emerald-300 drop-shadow-md mb-1">
                 {banner.date || "EVENTO"}
               </span>
-              <p className="text-white text-sm sm:text-[15px] font-black leading-snug uppercase drop-shadow-md line-clamp-2">
+              <p className="text-white text-xs sm:text-sm md:text-base font-black leading-snug uppercase drop-shadow-md line-clamp-2">
                 {banner.description || "Sem descrição"}
               </p>
             </div>
@@ -324,13 +334,13 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
 
         {/* Carousel indicators dots */}
         {displayBanners.length > 1 && (
-          <div className="absolute bottom-4 right-4 flex gap-1.5 z-10 bg-black/30 backdrop-blur-xs px-2.5 py-1.5 rounded-full">
+          <div className="absolute bottom-3 right-3 flex gap-1 z-10 bg-black/30 backdrop-blur-xs px-2 py-1 rounded-full">
             {displayBanners.map((_, idx) => (
               <button
                 key={idx}
                 type="button"
                 onClick={() => setCurrentSlide(idx)}
-                className={`w-2 h-2 rounded-full transition-all cursor-pointer ${currentSlide === idx ? 'bg-emerald-400 scale-125 w-4.5' : 'bg-white/50 hover:bg-white/80'}`}
+                className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${currentSlide === idx ? 'bg-emerald-400 scale-125 w-3' : 'bg-white/50 hover:bg-white/80'}`}
               />
             ))}
           </div>
@@ -339,47 +349,47 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
  
       {/* Login Card for clean, polished form visualization */}
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
+        initial={{ y: 15, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="w-full max-w-[360px] sm:max-w-md bg-white/95 backdrop-blur-md rounded-3xl p-6 sm:p-8 border border-emerald-100/60 shadow-2xl shadow-emerald-950/10 shrink-0 mb-12"
+        transition={{ delay: 0.15 }}
+        className="w-full max-w-[320px] sm:max-w-md bg-white/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 md:p-6 border border-emerald-100/60 shadow-xl shadow-emerald-950/5 shrink-0"
       >
-        <form onSubmit={handleSubmit} className="space-y-4 text-left">
-          <div className="space-y-1.5">
-            <label className="text-[11px] uppercase tracking-widest font-black text-emerald-900 ml-1">Usuário</label>
+        <form onSubmit={handleSubmit} className="space-y-2 text-left">
+          <div className="space-y-0.5">
+            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-900 ml-1">Usuário</label>
             <div className="relative">
-              <LogIn className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-emerald-600" />
+              <LogIn className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
               <input 
                 type="text"
                 placeholder="Seu nome de usuário"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-200 focus:border-emerald-500'} text-zinc-900 pl-11 pr-4 py-3 rounded-2xl outline-none transition-all placeholder:text-zinc-650 font-bold text-sm shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
+                className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-250 focus:border-emerald-500'} text-zinc-900 pl-10 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-650 font-bold text-xs shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
                 autoFocus
               />
             </div>
           </div>
  
-          <div className="space-y-1.5">
-            <label className="text-[11px] uppercase tracking-widest font-black text-emerald-900 ml-1 font-sans">Senha</label>
+          <div className="space-y-0.5">
+            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-950 ml-1 font-sans">Senha</label>
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-emerald-600" />
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
               <input 
                 type="password"
                 placeholder="Sua senha de acesso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-200 focus:border-emerald-500'} text-zinc-900 pl-11 pr-4 py-3 rounded-2xl outline-none transition-all placeholder:text-zinc-650 font-bold tracking-widest text-sm shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
+                className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-250 focus:border-emerald-500'} text-zinc-950 pl-10 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-650 font-bold tracking-widest text-xs shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
               />
             </div>
           </div>
  
-          <div className="h-4 relative">
+          <div className="h-1.5 relative">
             {error && (
               <motion.div 
-                initial={{ opacity: 0, y: 3 }}
+                initial={{ opacity: 0, y: 2 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="absolute inset-x-0 text-red-600 text-xs font-black text-center"
+                className="absolute inset-x-0 -top-1.5 text-red-650 text-[11px] font-black text-center"
               >
                 Credenciais incorretas. Tente novamente!
               </motion.div>
@@ -390,12 +400,12 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-orange-600/30 font-display uppercase tracking-wider text-xs cursor-pointer flex items-center justify-center gap-2"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-extrabold py-2.5 rounded-xl transition-all shadow-md shadow-orange-600/20 font-display uppercase tracking-wider text-xs cursor-pointer flex items-center justify-center gap-2"
           >
             Acessar Sistema
           </motion.button>
  
-          <div className="flex items-center py-1">
+          <div className="flex items-center py-0.5">
             <div className="flex-1 border-t border-zinc-200/80"></div>
             <span className="px-3.5 text-[10px] uppercase font-black tracking-widest text-zinc-400">ou</span>
             <div className="flex-1 border-t border-zinc-200/80"></div>
@@ -406,7 +416,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             onClick={() => onUnlock('viewer', 'Público', undefined, false)}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/25 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-2.5 rounded-xl transition-all shadow-md shadow-emerald-600/15 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
           >
             <Eye className="w-4 h-4 text-white" />
             Entrar como Público
@@ -414,7 +424,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         </form>
       </motion.div>
  
-      <div className="absolute bottom-6 text-zinc-500 text-[10.5px] font-bold select-none">
+      <div className="text-zinc-500 text-[10px] font-bold select-none mb-1">
         © 2026 Louvemos ao Senhor • Versão 2.4
       </div>
     </div>
@@ -3967,6 +3977,7 @@ export default function App() {
                                   <div>
                                     <p className="text-xs font-bold text-gray-700">Selecione banners de divulgação</p>
                                     <p className="text-[10px] text-gray-400 font-medium">Toque ou arraste os banners juntos</p>
+                                    <p className="text-[9px] text-orange-650 font-extrabold uppercase mt-1">Dica: Medidas de 16:9 (como 1280x720) evitam barras pretas!</p>
                                   </div>
                                 </div>
                               </>

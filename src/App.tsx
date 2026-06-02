@@ -230,7 +230,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
   };
 
   return (
-    <div className="h-screen max-h-screen flex flex-col items-center justify-between bg-emerald-50/20 px-4 text-center select-none overflow-hidden relative py-3 sm:py-5 md:py-6">
+    <div className="h-screen max-h-screen flex flex-col items-center justify-center gap-y-3 sm:gap-y-4 md:gap-y-5 bg-emerald-50/20 px-4 text-center select-none overflow-hidden relative py-3 sm:py-5 md:py-6">
       {/* Background decoration */}
       <div className="absolute -top-20 -right-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute -bottom-20 -left-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
@@ -352,7 +352,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         initial={{ y: 15, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.15 }}
-        className="w-full max-w-[320px] sm:max-w-md bg-white/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 md:p-6 border border-emerald-100/60 shadow-xl shadow-emerald-950/5 shrink-0"
+        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] bg-white/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 md:p-6 border border-emerald-100/60 shadow-xl shadow-emerald-950/5 shrink-0"
       >
         <form onSubmit={handleSubmit} className="space-y-2 text-left">
           <div className="space-y-0.5">

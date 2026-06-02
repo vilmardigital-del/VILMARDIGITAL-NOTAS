@@ -280,9 +280,26 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-orange-600/20 font-display uppercase tracking-wider text-sm"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-orange-600/20 font-display uppercase tracking-wider text-sm cursor-pointer"
           >
             Acessar
+          </motion.button>
+
+          <div className="flex items-center my-4 py-1">
+            <div className="flex-1 border-t border-zinc-200/20"></div>
+            <span className="px-3 text-[10px] uppercase font-black tracking-widest text-zinc-500">ou</span>
+            <div className="flex-1 border-t border-zinc-200/20"></div>
+          </div>
+
+          <motion.button 
+            type="button"
+            onClick={() => onUnlock('viewer', 'Público', undefined, false)}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/20 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Eye className="w-4 h-4 text-white" />
+            Público
           </motion.button>
         </form>
       </motion.div>
@@ -383,10 +400,12 @@ const highlightChords = (html: string) => {
   
   // Clean existing spans to avoid duplicates
   const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
-                          .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1');
+                          .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                          .replace(/<span className="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1')
+                          .replace(/<span class="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1');
                           
   return cleanedHtml.replace(CHORD_REGEX, (match) => {
-    return `<span class="text-orange-600 font-bold">${match}</span>`;
+    return `<span class="text-chord-orange font-bold">${match}</span>`;
   });
 };
 
@@ -440,11 +459,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const transposeHtml = (html: string, semitones: number) => {
     // Clean existing spans to avoid doubling up
     const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
-                            .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1');
+                            .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                            .replace(/<span className="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1')
+                            .replace(/<span class="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1');
 
     return cleanedHtml.replace(CHORD_REGEX, (match) => {
       const transposed = semitones !== 0 ? transposeChord(match, semitones) : match;
-      return `<span class="text-orange-600 font-bold">${transposed}</span>`;
+      return `<span class="text-chord-orange font-bold">${transposed}</span>`;
     });
   };
 
@@ -572,7 +593,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       <div 
         id="song-content-area"
         className="flex-1 overflow-auto bg-gray-50/30 
-        [&_.text-orange-600]:text-orange-600 [&_.text-orange-600]:font-bold
+        [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold
         [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold"
       >
         <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
@@ -604,7 +625,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 return (
                   <div 
                     key={i} 
-                    className={`min-h-[1.2em] relative font-bold ${isChords ? 'text-orange-600 pb-1 mt-2' : 'text-black mb-2'}`}
+                    className={`min-h-[1.2em] relative font-bold ${isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2' : 'text-black mb-2'}`}
                   >
                     {parts.map((part, j) => {
                       const trimmed = part.trim();
@@ -614,7 +635,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                         return (
                           <span 
                             key={j} 
-                            className="font-bold"
+                            className="font-bold text-chord-orange !text-chord-orange"
                           >
                             {part.replace(trimmed, transposed)}
                           </span>
@@ -1852,6 +1873,7 @@ export default function App() {
 
   const handleTransposeChange = async (songId: string, transpose: number) => {
     if (viewMode === 'view-playlist' && selectedPlaylist) {
+      if (userIdentifier === 'Público') return; // Don't write to DB for public access profile
       try {
         const transpositions = { ...(selectedPlaylist.transpositions || {}) };
         transpositions[songId] = transpose;
@@ -1914,6 +1936,9 @@ export default function App() {
       if (isMasterAdmin) return true;
       if (userRole === 'admin') return true;
       if (userRole === 'viewer') {
+        if (userIdentifier === 'Público') {
+          return true; // Public access has view permissions for all songs
+        }
         const creatorName = currentUserDoc?.creatorName;
         const creatorId = currentUserDoc?.createdBy;
         const isFromMyCreator = creatorName && (s.ownerId === creatorName || s.ownerId === creatorId);
@@ -1932,6 +1957,9 @@ export default function App() {
         return p.ownerId === userIdentifier || p.ownerId === userId;
       }
       if (userRole === 'viewer') {
+        if (userIdentifier === 'Público') {
+          return true; // Public access has view permissions for all playlists
+        }
         const creatorName = currentUserDoc?.creatorName;
         const creatorId = currentUserDoc?.createdBy;
         const isFromMyCreator = creatorName && (p.ownerId === creatorName || p.ownerId === creatorId);
@@ -2013,24 +2041,28 @@ export default function App() {
         <div className="bg-orange-50/25 px-4 py-2 border-t border-orange-100/30 flex items-center justify-center gap-2.5">
           <div className="flex items-center gap-2.5 max-w-full text-zinc-900">
             {/* Foto (Avatar upload) */}
-            <label className="relative cursor-pointer group shrink-0" title="Mudar foto de perfil">
-              <input 
-                type="file" 
-                className="hidden" 
-                accept="image/*"
-                onChange={handleProfilePicUpload}
-              />
+            <label className={`relative group shrink-0 ${userIdentifier === 'Público' ? 'pointer-events-none' : 'cursor-pointer'}`} title={userIdentifier === 'Público' ? 'Perfil Público (Visitante)' : 'Mudar foto de perfil'}>
+              {userIdentifier !== 'Público' && (
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  accept="image/*"
+                  onChange={handleProfilePicUpload}
+                />
+              )}
               <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 shadow-xs flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
-                {userProfilePic ? (
+                {userProfilePic && userIdentifier !== 'Público' ? (
                   <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <div className="bg-orange-100 w-full h-full flex items-center justify-center text-orange-600 font-bold text-xs">
+                  <div className={`${userIdentifier === 'Público' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-600'} w-full h-full flex items-center justify-center font-bold text-xs`}>
                     {userIdentifier?.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Plus className="w-3.5 h-3.5 text-white" />
-                </div>
+                {userIdentifier !== 'Público' && (
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Plus className="w-3.5 h-3.5 text-white" />
+                  </div>
+                )}
               </div>
             </label>
 
@@ -2040,9 +2072,14 @@ export default function App() {
             {/* Nome e Local (Lado a lado) */}
             <div className="flex items-center gap-2 min-w-0">
               {/* Nome */}
-              <span className="font-extrabold text-[11px] sm:text-xs text-zinc-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px] uppercase">
+              <span className={`font-extrabold text-[11px] sm:text-xs tracking-tight truncate max-w-[120px] sm:max-w-[180px] uppercase ${userIdentifier === 'Público' ? 'text-emerald-700' : 'text-zinc-800'}`}>
                 {userIdentifier || 'Louvemos ao Senhor'}
               </span>
+              {userIdentifier === 'Público' && (
+                <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/55 shrink-0 uppercase tracking-widest">
+                  Visitante
+                </span>
+              )}
 
               {/* Bullet divider */}
               <span className="text-orange-300 text-[10px] font-black">•</span>

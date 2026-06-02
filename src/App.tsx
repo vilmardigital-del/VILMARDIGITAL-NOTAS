@@ -263,8 +263,8 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             className="absolute inset-x-0 inset-y-0 bg-emerald-500 rounded-full blur-xl opacity-40 animate-pulse"
           />
           
-          <div className="relative w-10 h-10 sm:w-11 sm:h-11 bg-white rounded-xl flex items-center justify-center p-1 shadow-md shadow-emerald-500/10 border border-emerald-100">
-            <Logo className="w-7 h-7 sm:w-8 sm:h-8" />
+          <div className="relative w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-2xl flex items-center justify-center p-1.5 shadow-lg shadow-emerald-500/15 border border-emerald-100/80">
+            <Logo className="w-10 h-10 sm:w-12 sm:h-12" />
           </div>
         </motion.div>
 
@@ -272,7 +272,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           initial={{ y: 5, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.05 }}
-          className="text-base sm:text-lg md:text-xl font-black text-orange-650 tracking-tight font-display text-center text-shadow-sm"
+          className="text-2xl sm:text-3xl md:text-4xl font-black tracking-wider font-outfit text-center text-3d-title select-none"
         >
           Louvemos ao Senhor
         </motion.h1>

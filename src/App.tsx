@@ -189,7 +189,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50/30 px-6 text-center select-none overflow-hidden relative">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50/30 px-6 text-center select-none overflow-hidden relative py-4">
       {/* Background decoration */}
       <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-100/50 blur-[100px] rounded-full" />
       <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-emerald-100/50 blur-[100px] rounded-full" />
@@ -203,7 +203,7 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
           damping: 20,
           duration: 0.6 
         }}
-        className="mb-8 relative"
+        className="mb-5 relative shrink-0"
       >
         {/* Animated Glow Effect */}
         <motion.div 
@@ -216,26 +216,26 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
             repeat: Infinity,
             ease: "easeInOut"
           }}
-          className="absolute inset-0 bg-emerald-500 rounded-full blur-3xl opacity-40"
+          className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-40"
         />
         
-        <div className="relative w-64 h-64 bg-white rounded-[56px] flex items-center justify-center p-4 shadow-2xl shadow-emerald-500/10 group hover:shadow-emerald-500/20 transition-all duration-500">
-          <Logo className="w-56 h-56" />
-          <div className="absolute inset-0 bg-gradient-to-tr from-emerald-50/50 to-transparent rounded-[48px] pointer-events-none" />
+        <div className="relative w-32 h-32 bg-white rounded-[28px] flex items-center justify-center p-2.5 shadow-xl shadow-emerald-500/10 group hover:shadow-emerald-500/20 transition-all duration-500">
+          <Logo className="w-24 h-24" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-emerald-50/50 to-transparent rounded-[24px] pointer-events-none" />
         </div>
       </motion.div>
-
+ 
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}
-        className="w-full max-w-xs"
+        className="w-full max-w-xs shrink-0"
       >
-        <h1 className="text-3xl font-bold text-orange-600 mb-2 tracking-tight font-display">Louvemos ao Senhor</h1>
-        <p className="text-zinc-400 mb-8 text-xs font-light leading-relaxed max-w-xs mx-auto">
+        <h1 className="text-2xl font-bold text-orange-600 mb-1 tracking-tight font-display text-center">Louvemos ao Senhor</h1>
+        <p className="text-zinc-400 mb-5 text-[10.5px] font-light leading-relaxed max-w-xs mx-auto text-center">
           Aplicativo de eventos, fotos e cifras digitais. Para obter acesso total e utilizar recursos de gravador, gravação e playlists, entre em contato: <a href="mailto:vilmardigital@gmail.com" className="text-orange-500 hover:text-orange-400 font-semibold transition-colors">vilmardigital@gmail.com</a>
         </p>
-
+ 
         <form onSubmit={handleSubmit} className="space-y-1 text-left">
           <div className="space-y-0.5">
             <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1">Login</label>
@@ -246,12 +246,12 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Seu nome de usuário"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-600 font-medium text-xs`}
                 autoFocus
               />
             </div>
           </div>
-
+ 
           <div className="space-y-0.5">
             <label className="text-[10px] uppercase tracking-widest font-black text-zinc-500 ml-1 font-sans">Senha</label>
             <div className="relative">
@@ -261,15 +261,15 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
                 placeholder="Sua senha de acesso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2.5 rounded-2xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest`}
+                className={`w-full bg-zinc-900 border ${error ? 'border-orange-500' : 'border-orange-600 focus:border-orange-400'} text-white pl-11 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-600 font-medium tracking-widest text-xs`}
               />
             </div>
           </div>
-
-          <div className="h-3 relative">
+ 
+          <div className="h-2.5 relative">
             {error && (
               <motion.div 
-                initial={{ opacity: 0, y: 5 }}
+                initial={{ opacity: 0, y: 3 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="absolute inset-0 text-orange-600 text-[10px] font-bold text-center"
               >
@@ -277,36 +277,36 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
               </motion.div>
             )}
           </div>
-
+ 
           <motion.button 
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-orange-600/20 font-display uppercase tracking-wider text-sm cursor-pointer"
+            className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-2.5 rounded-xl transition-all shadow-md shadow-orange-600/20 font-display uppercase tracking-wider text-xs cursor-pointer"
           >
             Acessar
           </motion.button>
-
-          <div className="flex items-center my-4 py-1">
+ 
+          <div className="flex items-center my-2.5 py-0.5">
             <div className="flex-1 border-t border-zinc-200/20"></div>
             <span className="px-3 text-[10px] uppercase font-black tracking-widest text-zinc-500">ou</span>
             <div className="flex-1 border-t border-zinc-200/20"></div>
           </div>
-
+ 
           <motion.button 
             type="button"
             onClick={() => onUnlock('viewer', 'Público', undefined, false)}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/20 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-2.5 rounded-xl transition-all shadow-md shadow-emerald-600/20 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
           >
             <Eye className="w-4 h-4 text-white" />
             Público
           </motion.button>
         </form>
       </motion.div>
-
-      <div className="absolute bottom-8 text-zinc-600 text-sm font-light">
+ 
+      <div className="absolute bottom-4 text-zinc-600 text-[10.5px] font-light">
         © 2026 Louvemos ao Senhor • Versão 2.4
       </div>
     </div>

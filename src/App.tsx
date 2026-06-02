@@ -232,7 +232,9 @@ const PasswordView = ({ onUnlock, accessUsers }: { onUnlock: (role: 'admin' | 'v
         className="w-full max-w-xs"
       >
         <h1 className="text-3xl font-bold text-orange-600 mb-2 tracking-tight font-display">Louvemos ao Senhor</h1>
-        <p className="text-zinc-400 mb-8 font-light">Partituras e Cifras Digitais</p>
+        <p className="text-zinc-400 mb-8 text-xs font-light leading-relaxed max-w-xs mx-auto">
+          Aplicativo de eventos, fotos e cifras digitais. Para obter acesso total e utilizar recursos de gravador, gravação e playlists, entre em contato: <a href="mailto:vilmardigital@gmail.com" className="text-orange-500 hover:text-orange-400 font-semibold transition-colors">vilmardigital@gmail.com</a>
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-1 text-left">
           <div className="space-y-0.5">

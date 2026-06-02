@@ -110,6 +110,19 @@
         "isBanner": { "type": "boolean", "description": "Indicates if this is an event banner to show in the login carousel." }
       },
       "required": ["url", "date", "storagePath"]
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "A user session entry containing their active status and estimated physical login location.",
+      "type": "object",
+      "properties": {
+        "userIdentifier": { "type": "string" },
+        "location": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "lastActive": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userIdentifier", "location", "isOnline"]
     }
   },
   "firestore": {
@@ -128,6 +141,10 @@
     "/massa_photos/{photoId}": {
       "schema": "MassaPhoto",
       "description": "Collection of registered mass/celebration photos."
+    },
+    "/visits/{visitId}": {
+      "schema": "Visit",
+      "description": "Collection of active and historic visits with geolocation parameters."
     }
   }
 }

@@ -82,5 +82,9 @@ service cloud.firestore {
       allow update: if isValidMassaPhoto(request.resource.data);
       allow delete: if true;
     }
+
+    match /visits/{visitId} {
+      allow read, write: if true;
+    }
   }
 }

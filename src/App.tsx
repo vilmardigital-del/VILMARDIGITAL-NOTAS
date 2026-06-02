@@ -230,14 +230,14 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
   };
 
   return (
-    <div className="h-screen max-h-screen flex flex-col items-center justify-center gap-y-3 sm:gap-y-4 md:gap-y-5 bg-emerald-50/20 px-4 text-center select-none overflow-hidden relative py-3 sm:py-5 md:py-6">
+    <div className="h-screen max-h-screen flex flex-col items-center justify-start gap-y-2.5 sm:gap-y-3.5 bg-emerald-50/20 px-4 text-center select-none overflow-hidden relative pt-3 sm:pt-4 md:pt-5 pb-2">
       {/* Background decoration */}
       <div className="absolute -top-20 -right-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute -bottom-20 -left-20 w-85 h-85 bg-emerald-200/30 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-100/10 blur-[150px] rounded-full pointer-events-none" />
       
       {/* Mini Logo & Title grouped tightly at the very top */}
-      <div className="flex flex-col items-center shrink-0 gap-y-1 mt-1 sm:mt-2">
+      <div className="flex flex-col items-center shrink-0 gap-y-0.5 mt-0.5 sm:mt-1">
         <motion.div 
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -263,8 +263,8 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             className="absolute inset-x-0 inset-y-0 bg-emerald-500 rounded-full blur-xl opacity-40 animate-pulse"
           />
           
-          <div className="relative w-11 h-11 sm:w-13 sm:h-13 bg-white rounded-xl flex items-center justify-center p-1 shadow-md shadow-emerald-500/10 border border-emerald-100">
-            <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
+          <div className="relative w-10 h-10 sm:w-11 sm:h-11 bg-white rounded-xl flex items-center justify-center p-1 shadow-md shadow-emerald-500/10 border border-emerald-100">
+            <Logo className="w-7 h-7 sm:w-8 sm:h-8" />
           </div>
         </motion.div>
 
@@ -272,7 +272,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           initial={{ y: 5, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.05 }}
-          className="text-lg sm:text-xl md:text-2xl font-black text-orange-650 tracking-tight font-display text-center text-shadow-sm"
+          className="text-base sm:text-lg md:text-xl font-black text-orange-650 tracking-tight font-display text-center text-shadow-sm"
         >
           Louvemos ao Senhor
         </motion.h1>
@@ -283,7 +283,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1 }}
-        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] aspect-[18/9] sm:aspect-[16/9] max-h-[190px] sm:max-h-[270px] md:max-h-[320px] lg:max-h-[345px] rounded-2xl md:rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] shrink hover:scale-[1.01] transition-all duration-300 ring-4 ring-emerald-500/15"
+        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] aspect-[16/10] sm:aspect-[16/10] max-h-[235px] sm:max-h-[310px] md:max-h-[365px] lg:max-h-[390px] rounded-2xl md:rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] shrink hover:scale-[1.01] transition-all duration-300 ring-4 ring-emerald-500/15"
       >
         {displayBanners.map((banner, index) => (
           <motion.div
@@ -424,7 +424,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         </form>
       </motion.div>
  
-      <div className="text-zinc-500 text-[10px] font-bold select-none mb-1">
+      <div className="text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
         © 2026 Louvemos ao Senhor • Versão 2.4
       </div>
     </div>

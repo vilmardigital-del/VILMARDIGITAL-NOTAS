@@ -993,17 +993,17 @@ const compressImage = (file: File, maxDimension: number = 640, quality: number =
 
 export default function App() {
   const [userRole, setUserRole] = useState<'admin' | 'viewer' | null>(() => {
-    const saved = localStorage.getItem('userRole');
+    const saved = sessionStorage.getItem('userRole');
     return (saved === 'admin' || saved === 'viewer') ? saved : null;
   });
   const [isMasterAdmin, setIsMasterAdmin] = useState<boolean>(() => {
-    return localStorage.getItem('isMasterAdmin') === 'true';
+    return sessionStorage.getItem('isMasterAdmin') === 'true';
   });
   const [userIdentifier, setUserIdentifier] = useState<string | null>(() => {
-    return localStorage.getItem('userIdentifier');
+    return sessionStorage.getItem('userIdentifier');
   });
   const [userProfilePic, setUserProfilePic] = useState<string | null>(() => {
-    const id = localStorage.getItem('userIdentifier');
+    const id = sessionStorage.getItem('userIdentifier');
     return id ? localStorage.getItem(`profilePic_${id}`) : null;
   });
 
@@ -1017,10 +1017,10 @@ export default function App() {
   }, [userIdentifier]);
 
   const [userId, setUserId] = useState<string | null>(() => {
-    return localStorage.getItem('userId');
+    return sessionStorage.getItem('userId');
   });
   const [sessionId, setSessionId] = useState<string | null>(() => {
-    return localStorage.getItem('sessionId');
+    return sessionStorage.getItem('sessionId');
   });
 
   const handleLogout = async () => {
@@ -1039,11 +1039,11 @@ export default function App() {
     setUserId(null);
     setSessionId(null);
     setIsMasterAdmin(false);
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('userIdentifier');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('sessionId');
-    localStorage.removeItem('isMasterAdmin');
+    sessionStorage.removeItem('userRole');
+    sessionStorage.removeItem('userIdentifier');
+    sessionStorage.removeItem('userId');
+    sessionStorage.removeItem('sessionId');
+    sessionStorage.removeItem('isMasterAdmin');
   };
 
   // Active status/presence real-time heartbeat
@@ -2193,11 +2193,11 @@ export default function App() {
           setUserId(id || null);
           setSessionId(newSession);
           setIsMasterAdmin(isMaster);
-          localStorage.setItem('userRole', role);
-          localStorage.setItem('userIdentifier', identifier);
-          if (id) localStorage.setItem('userId', id);
-          localStorage.setItem('sessionId', newSession);
-          localStorage.setItem('isMasterAdmin', String(isMaster));
+          sessionStorage.setItem('userRole', role);
+          sessionStorage.setItem('userIdentifier', identifier);
+          if (id) sessionStorage.setItem('userId', id);
+          sessionStorage.setItem('sessionId', newSession);
+          sessionStorage.setItem('isMasterAdmin', String(isMaster));
           setActiveTab('songs');
           setViewMode('categories');
           setSelectedCategory(null);
@@ -2263,9 +2263,9 @@ export default function App() {
       <header className="bg-white border-b border-orange-200 sticky top-0 z-30 shadow-xs flex flex-col">
         {/* Top layer: back, title, logout */}
         <div className="flex items-center justify-between px-4 py-2.5 min-h-[56px] relative w-full">
-          {/* Left section: Back or Logo */}
-          <div className="flex-1 flex items-center">
-            {(activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) ? (
+          {/* Left section: Back and Interactive Logo */}
+          <div className="flex-1 flex items-center gap-2">
+            {((activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
               <button 
                 onClick={() => {
                   if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
@@ -2280,15 +2280,23 @@ export default function App() {
                     setViewMode('playlist-list');
                   }
                 }}
-                className="p-2 -ml-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-1.5 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
+                title="Voltar"
               >
                 <ChevronLeft className="w-6 h-6" />
               </button>
-            ) : (
-              <div className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-emerald-200 bg-white">
-                <Logo className="w-11 h-11" />
-              </div>
             )}
+            <button 
+              onClick={() => {
+                setActiveTab('songs');
+                setViewMode('categories');
+                setCurrentCategoryTab(null);
+              }}
+              className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
+              title="Ir para o Menu Principal"
+            >
+              <Logo className="w-10 h-10 sm:w-11 sm:h-11" />
+            </button>
           </div>
 
           {/* Centered Sophisticated Title with Lines (listras sofisticadas) */}

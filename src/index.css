@@ -35,6 +35,19 @@
   --color-orange-650: #047857;
   --color-chord-orange: #ea580c;
 
+  /* Custom Authentically Orange Palette for Editor and Chords View (avoiding green override) */
+  --color-realorange-50: #fff7ed;
+  --color-realorange-100: #ffedd5;
+  --color-realorange-200: #fed7aa;
+  --color-realorange-300: #fdbb74;
+  --color-realorange-400: #fb923c;
+  --color-realorange-500: #f97316;
+  --color-realorange-600: #ea580c;
+  --color-realorange-700: #c2410c;
+  --color-realorange-800: #9a3412;
+  --color-realorange-900: #7c2d12;
+  --color-realorange-950: #431407;
+
   /* Overriding amber as well to blend custom multi-tones seamlessly */
   --color-amber-50: #f0fdf4;
   --color-amber-100: #dcfce7;

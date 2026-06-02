@@ -46,6 +46,7 @@ service cloud.firestore {
              (!('storagePath' in data) || data.storagePath == null || (data.storagePath is string && data.storagePath.size() <= 1000)) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
              (!('isBase64' in data) || data.isBase64 is bool) &&
+             (!('isBanner' in data) || data.isBanner is bool) &&
              (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp);
     }
 

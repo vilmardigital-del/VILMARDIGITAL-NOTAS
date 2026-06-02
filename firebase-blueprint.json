@@ -106,7 +106,8 @@
         "date": { "type": "string", "description": "Date of the Mass/event, e.g. Domingo, 31/05" },
         "description": { "type": "string", "description": "Optional description or name of the celebration." },
         "storagePath": { "type": "string", "description": "Reference path to the file on Firebase Storage." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "isBanner": { "type": "boolean", "description": "Indicates if this is an event banner to show in the login carousel." }
       },
       "required": ["url", "date", "storagePath"]
     }

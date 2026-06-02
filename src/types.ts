@@ -74,6 +74,7 @@ export interface MassaPhoto {
   storagePath?: string;
   createdAt: any;
   isBase64?: boolean;
+  isBanner?: boolean;
 }
 
 

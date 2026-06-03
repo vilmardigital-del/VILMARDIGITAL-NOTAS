@@ -290,7 +290,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1 }}
-        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] aspect-[16/10] sm:aspect-[16/10] max-h-[235px] sm:max-h-[310px] md:max-h-[365px] lg:max-h-[390px] rounded-2xl md:rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] shrink hover:scale-[1.01] transition-all duration-300 ring-4 ring-emerald-500/15"
+        className="w-full max-w-[380px] sm:max-w-[520px] md:max-w-[640px] lg:max-w-[700px] aspect-video max-h-[220px] sm:max-h-[300px] md:max-h-[360px] lg:max-h-[390px] rounded-2xl md:rounded-3xl overflow-hidden relative border-4 border-emerald-500 bg-black shadow-[0_20px_50px_rgba(16,185,129,0.3)] shrink hover:scale-[1.01] transition-all duration-300 ring-4 ring-emerald-500/15"
       >
         {displayBanners.map((banner, index) => (
           <motion.div
@@ -316,7 +316,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
                 <img 
                   src={banner.url} 
                   alt={banner.description || "Banner"} 
-                  className="relative max-w-full h-full object-contain z-10 select-none pointer-events-none"
+                  className="relative w-full h-full object-contain z-10 select-none pointer-events-none"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -327,15 +327,21 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
               </div>
             )}
             
-            {/* Elegant dark gradient overlay with enhanced text contrast */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4 text-left">
-              <span className="text-[9px] sm:text-xs font-black uppercase tracking-widest text-emerald-300 drop-shadow-md mb-1">
-                {banner.date || "EVENTO"}
-              </span>
-              <p className="text-white text-xs sm:text-sm md:text-base font-black leading-snug uppercase drop-shadow-md line-clamp-2">
-                {banner.description || "Sem descrição"}
-              </p>
-            </div>
+            {/* Elegant dark gradient overlay only covering the bottom third for text, leaving content 100% visible and uncropped */}
+            {(banner.description || banner.date) && (
+              <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-3 text-left z-20">
+                {banner.date && (
+                  <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-300 drop-shadow-md mb-0.5">
+                    {banner.date}
+                  </span>
+                )}
+                {banner.description && (
+                  <p className="text-white text-[10px] sm:text-xs md:text-sm font-black leading-snug uppercase drop-shadow-md line-clamp-1">
+                    {banner.description}
+                  </p>
+                )}
+              </div>
+            )}
           </motion.div>
         ))}
 
@@ -433,15 +439,26 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
  
       <div className="flex flex-col items-center gap-1 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
         <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
-        <a 
-          href="https://instagram.com/paroquia_nsluz" 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-        >
-          <Instagram className="w-3.5 h-3.5" />
-          <span>@paroquia_nsluz</span>
-        </a>
+        <div className="flex items-center gap-4">
+          <a 
+            href="https://instagram.com/paroquia_nsluz" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+          >
+            <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
+            <span>@paroquia_nsluz</span>
+          </a>
+          <a 
+            href="https://instagram.com/diocesefoz" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+          >
+            <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
+            <span>@diocesefoz</span>
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -2616,8 +2633,8 @@ export default function App() {
                   </div>
 
                   {/* Dynamic Slide Carousel on Main Page */}
-                  <div className="bg-white border border-orange-100 rounded-3xl p-4 shadow-xs">
-                    <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-50">
+                  <div className="bg-white border border-orange-100 rounded-3xl p-2 sm:p-3 shadow-xs">
+                    <div className="flex items-center justify-between gap-2 mb-2 px-2 pb-2 border-b border-orange-50">
                       <div className="flex items-center gap-2">
                         <div className="p-1.5 bg-orange-100 text-orange-600 rounded-xl">
                           <Camera className="w-4 h-4 font-bold" />
@@ -2630,7 +2647,7 @@ export default function App() {
                     </div>
 
                     {slidePhotos.length > 0 ? (
-                      <div className="relative w-full h-52 sm:h-64 rounded-2xl overflow-hidden shadow-inner border border-orange-200 bg-orange-50/20">
+                      <div className="relative w-full h-56 sm:h-72 md:h-80 lg:h-[380px] xl:h-[420px] rounded-xl overflow-hidden shadow-inner border border-orange-200 bg-neutral-950">
                         <AnimatePresence mode="popLayout" initial={false}>
                           {slidePhotos.map((photo, index) => {
                             if (index !== activePhotoSlide) return null;
@@ -2641,25 +2658,33 @@ export default function App() {
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 1.02 }}
                                 transition={{ duration: 0.4 }}
-                                className="absolute inset-0 w-full h-full cursor-pointer group outline-none"
+                                className="absolute inset-0 w-full h-full cursor-pointer group outline-none flex items-center justify-center overflow-hidden"
                                 onClick={() => {
                                   setLightboxPhotos(slidePhotos);
                                   setLightboxIndex(index);
                                 }}
                               >
+                                {/* Imagem de fundo desfocada para preencher as laterais e evitar cortes brutos */}
                                 <img 
                                   src={photo.url} 
-                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-103" 
+                                  alt="" 
+                                  className="absolute inset-0 w-full h-full object-cover blur-lg opacity-45 scale-110 select-none pointer-events-none"
+                                  referrerPolicy="no-referrer"
+                                />
+                                {/* Imagem principal centralizada sem nenhum tipo de corte */}
+                                <img 
+                                  src={photo.url} 
+                                  className="relative w-full h-full object-contain z-10 transition-transform duration-500 group-hover:scale-101" 
                                   alt={photo.description || "Foto da Celebração"} 
                                   referrerPolicy="no-referrer"
                                 />
-                                <div className="absolute inset-0 bg-black/15 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                <div className="absolute inset-0 bg-black/15 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-15">
                                   <div className="bg-orange-600/90 text-white p-2.5 rounded-full shadow-lg scale-90 group-hover:scale-100 transition-all duration-300">
                                     <Download className="w-5 h-5 animate-pulse" />
                                   </div>
                                 </div>
                                 {photo.description && (
-                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end z-10">
+                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end z-20">
                                     <p className="font-extrabold text-xs sm:text-sm text-white leading-tight uppercase tracking-tight max-w-[90%] drop-shadow-xs">
                                       {photo.description}
                                     </p>
@@ -4286,19 +4311,27 @@ export default function App() {
                         {eventBannersOnly.map((banner, index) => (
                           <div 
                             key={banner.id}
-                            className="group border border-emerald-100 rounded-2xl overflow-hidden bg-emerald-50/10 shadow-xs relative aspect-[21/9] cursor-pointer"
+                            className="group border border-emerald-100 rounded-2xl overflow-hidden bg-neutral-950 shadow-xs relative aspect-video flex items-center justify-center cursor-pointer"
                             onClick={() => {
                               setLightboxPhotos(eventBannersOnly);
                               setLightboxIndex(index);
                             }}
                           >
+                            {/* Blur background for consistency */}
+                            <img 
+                              src={banner.url} 
+                              alt="" 
+                              className="absolute inset-0 w-full h-full object-cover blur-md opacity-40 scale-105 select-none pointer-events-none"
+                              referrerPolicy="no-referrer"
+                            />
+                            {/* Main uncropped image */}
                             <img 
                               src={banner.url} 
                               alt={banner.description || "Banner de Evento"} 
-                              className="w-full h-full object-cover transition-transform group-hover:scale-103 duration-350"
+                              className="relative w-full h-full object-contain z-10 transition-transform group-hover:scale-102 duration-350"
                               referrerPolicy="no-referrer"
                             />
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2.5 pt-6 flex flex-col justify-end">
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2.5 pt-6 flex flex-col justify-end z-20">
                               {banner.date && (
                                 <span className="text-[7.5px] font-black uppercase tracking-widest text-emerald-300 mb-0.5 drop-shadow-sm">
                                   {banner.date}
@@ -4666,15 +4699,26 @@ export default function App() {
         {/* Rodapé compartilhado com link do Instagram em outras telas */}
         <div className="w-full text-center py-6 border-t border-orange-100/60 mt-8 select-none flex flex-col items-center justify-center gap-1.5 shrink-0 text-zinc-400 text-[10px] font-bold">
           <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
-          <a 
-            href="https://instagram.com/paroquia_nsluz" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-          >
-            <Instagram className="w-3.5 h-3.5" />
-            <span>@paroquia_nsluz</span>
-          </a>
+          <div className="flex items-center justify-center gap-4">
+            <a 
+              href="https://instagram.com/paroquia_nsluz" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+            >
+              <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
+              <span>@paroquia_nsluz</span>
+            </a>
+            <a 
+              href="https://instagram.com/diocesefoz" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+            >
+              <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
+              <span>@diocesefoz</span>
+            </a>
+          </div>
         </div>
       </main>
 

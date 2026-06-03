@@ -69,6 +69,8 @@ import {
   Wand2,
   Users,
   MapPin,
+  Laptop,
+  Smartphone,
   Activity,
   Globe,
   Info,
@@ -1027,10 +1029,19 @@ export default function App() {
     return sessionStorage.getItem('sessionId');
   });
 
+  const [deviceId] = useState<string>(() => {
+    let saved = localStorage.getItem('deviceUuid');
+    if (!saved) {
+      saved = 'aparelho_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36);
+      localStorage.setItem('deviceUuid', saved);
+    }
+    return saved;
+  });
+
   const handleLogout = async () => {
-    if (sessionId) {
+    if (deviceId) {
       try {
-        await setDoc(doc(db, 'visits', sessionId), {
+        await setDoc(doc(db, 'visits', deviceId), {
           isOnline: false,
           lastActive: Date.now()
         }, { merge: true });
@@ -1129,45 +1140,29 @@ export default function App() {
     let cleanupFn = () => {};
 
     const registerVisit = async () => {
-      let finalLocation = "Desconhecido";
-      try {
-        const savedLoc = sessionStorage.getItem('loginLocation');
-        if (savedLoc) {
-          finalLocation = savedLoc;
-        } else {
-          // Resolve using multiple geoloc endpoints for highest reliability
-          const res = await fetch('https://ipapi.co/json/');
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.city) {
-              const state = data.region_code || data.region || '';
-              finalLocation = state ? `${data.city} - ${state}` : data.city;
-            }
-          } else {
-            const fallbackRes = await fetch('https://ip-api.com/json/');
-            if (fallbackRes.ok) {
-              const fData = await fallbackRes.json();
-              if (fData && fData.city) {
-                finalLocation = fData.region ? `${fData.city} - ${fData.region}` : fData.city;
-              }
-            }
-          }
-          if (isCompMounted && finalLocation !== "Desconhecido") {
-            sessionStorage.setItem('loginLocation', finalLocation);
-          }
-        }
-      } catch (err) {
-        console.warn("Failed fetching location info:", err);
+      // Robust client-side device category resolution
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      let detectedDeviceType = isMobile ? 'Smartphone / Tablet' : 'Computador / Notebook';
+      
+      const ua = navigator.userAgent;
+      if (ua.indexOf("Chrome") > -1 && ua.indexOf("Edg") === -1) {
+        detectedDeviceType += " (Chrome)";
+      } else if (ua.indexOf("Firefox") > -1) {
+        detectedDeviceType += " (Firefox)";
+      } else if (ua.indexOf("Safari") > -1 && ua.indexOf("Chrome") === -1) {
+        detectedDeviceType += " (Safari)";
+      } else if (ua.indexOf("Edg") > -1) {
+        detectedDeviceType += " (Edge)";
       }
 
       if (!isCompMounted) return;
 
-      const visitRef = doc(db, 'visits', sessionId);
+      const visitRef = doc(db, 'visits', deviceId);
       const updateVisitState = async (online: boolean) => {
         try {
           await setDoc(visitRef, {
             userIdentifier: userIdentifier,
-            location: finalLocation,
+            location: detectedDeviceType,
             isOnline: online,
             lastActive: Date.now(),
             createdAt: serverTimestamp()
@@ -1180,7 +1175,7 @@ export default function App() {
       // Register initially as online
       await updateVisitState(true);
 
-      // Setup Heartbeat every 15 seconds to keep exact sync and prevent stale reads
+      // Setup Heartbeat every 15 seconds
       heartbeatInterval = setInterval(() => {
         updateVisitState(true);
       }, 15000);
@@ -1207,7 +1202,7 @@ export default function App() {
       isCompMounted = false;
       cleanupFn();
     };
-  }, [sessionId, userIdentifier]);
+  }, [sessionId, userIdentifier, deviceId]);
 
   // Derive real-time active (online) visitors
   const onlineVisits = useMemo(() => {
@@ -1216,48 +1211,28 @@ export default function App() {
     return visits.filter(v => v.isOnline === true && v.lastActive && (now - v.lastActive) < 45000);
   }, [visits]);
 
-  // Segment totals and online counts by location
-  const visitsByLocationBreakdown = useMemo(() => {
-    const map: Record<string, { online: number; total: number; names: string[] }> = {};
-    
-    // First map all registered visits to their location
-    visits.forEach(v => {
-      const loc = v.location || 'Desconhecido';
-      if (!map[loc]) {
-        map[loc] = { online: 0, total: 0, names: [] };
-      }
-      map[loc].total += 1;
+  // Create formatted helper to show device presence
+  const formatActiveTime = (timestamp?: number) => {
+    if (!timestamp) return 'Fora do ar';
+    const diff = Date.now() - timestamp;
+    if (diff < 45000) return 'Online';
+    if (diff < 60000) return 'Agora mesmo';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `Há ${mins} min${mins > 1 ? 's' : ''}`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `Há ${hours} h${hours > 1 ? 's' : ''}`;
+    const days = Math.floor(hours / 24);
+    return `Há ${days} dia${days > 1 ? 's' : ''}`;
+  };
+
+  const sortedDevices = useMemo(() => {
+    return [...visits].sort((a, b) => {
+      const aOnline = a.isOnline && (Date.now() - (a.lastActive || 0) < 45000);
+      const bOnline = b.isOnline && (Date.now() - (b.lastActive || 0) < 45000);
+      if (aOnline && !bOnline) return -1;
+      if (!aOnline && bOnline) return 1;
+      return (b.lastActive || 0) - (a.lastActive || 0);
     });
-
-    // Then increment online counts based on active presence
-    onlineVisits.forEach(v => {
-      const loc = v.location || 'Desconhecido';
-      if (map[loc]) {
-        map[loc].online += 1;
-        if (v.userIdentifier && !map[loc].names.includes(v.userIdentifier)) {
-          map[loc].names.push(v.userIdentifier);
-        }
-      }
-    });
-
-    // Convert to sorted array (with location names having online counts first)
-    return Object.entries(map).map(([loc, stats]) => ({
-      location: loc,
-      online: stats.online,
-      total: stats.total,
-      names: stats.names
-    })).sort((a, b) => b.online - a.online || b.total - a.total);
-  }, [visits, onlineVisits]);
-
-  // Count unique login locations registered so far (each location counted once)
-  const uniqueLocationsCount = useMemo(() => {
-    const set = new Set(
-      visits
-        .map(v => v.location)
-        .filter(loc => loc && loc !== 'Desconhecido')
-    );
-    if (set.size === 0 && visits.length > 0) return 1;
-    return set.size;
   }, [visits]);
 
   const [loading, setLoading] = useState(true);
@@ -2536,21 +2511,18 @@ export default function App() {
                 </span>
               )}
 
-              {/* Contador de Visitantes (Locais únicos de Login) */}
-              <motion.button
-                onClick={() => setShowVisitorModal(true)}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-extrabold text-pink-750 hover:text-pink-650 bg-pink-100/35 hover:bg-pink-10 border border-pink-200/60 rounded-md px-1.5 py-0.5 shrink-0 cursor-pointer transition-all shadow-xs"
-                title="Locais de Login Únicos (Cada local conta uma vez)"
+              {/* Contador de Visitantes (Aparelhos Únicos de Login) */}
+              <div
+                className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-extrabold text-pink-750 bg-pink-100/35 border border-pink-200/60 rounded-md px-1.5 py-0.5 shrink-0 shadow-xs"
+                title="Aparelhos que já acessaram o sistema (cada aparelho conta apenas uma vez)"
               >
-                <div className="relative flex h-1.5 w-1.5">
+                <div className="relative flex h-1 w-1">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-pink-605"></span>
+                  <span className="relative inline-flex rounded-full h-1 w-1 bg-pink-600"></span>
                 </div>
-                <MapPin className="w-3 h-3 text-pink-750 animate-pulse shrink-0" />
-                <span>{uniqueLocationsCount} {uniqueLocationsCount === 1 ? 'Local' : 'Locais'}</span>
-              </motion.button>
+                <Smartphone className="w-3 h-3 text-pink-755 shrink-0" />
+                <span>{visits.length} {visits.length === 1 ? 'Acesso' : 'Acessos'}</span>
+              </div>
 
               {/* Bullet divider */}
               <span className="text-orange-300 text-[10px] font-black shrink-0">•</span>
@@ -4923,126 +4895,7 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* Visitor Location Analytics Modal */}
-        {showVisitorModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-xs"
-            onClick={() => setShowVisitorModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 15 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-orange-100 flex flex-col max-h-[85vh]"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Modal Header */}
-              <div className="bg-gradient-to-r from-orange-655 to-orange-500 p-5 text-white flex items-center justify-between shadow-md">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/10 rounded-xl">
-                    <Globe className="w-5 h-5 text-white animate-spin" style={{ animationDuration: '8s' }} />
-                  </div>
-                  <div>
-                    <h2 className="text-sm sm:text-base font-black uppercase tracking-widest leading-none">Visitantes do App</h2>
-                    <p className="text-[10px] text-orange-200 uppercase font-black mt-1">Conexões por Local de Login</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowVisitorModal(false)}
-                  className="p-1.5 bg-white/15 hover:bg-white/25 active:scale-95 rounded-full text-white transition-colors cursor-pointer"
-                  title="Fechar"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
 
-              {/* Modal Body */}
-              <div className="p-6 overflow-y-auto flex-1 space-y-4">
-                <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                  <div className="bg-orange-50/50 rounded-2xl p-3 sm:p-4 border border-orange-100/80 text-center flex flex-col justify-center">
-                    <p className="text-[9px] sm:text-[10px] text-gray-500 font-extrabold uppercase tracking-wider mb-1">Online Agora</p>
-                    <p className="text-xl sm:text-2xl md:text-3xl font-black text-orange-600 font-display flex items-center justify-center gap-1.5">
-                      <span className="relative flex h-2 sm:h-2.5 w-2 sm:w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 sm:h-2.5 w-2 sm:w-2.5 bg-emerald-500"></span>
-                      </span>
-                      {onlineVisits.length}
-                    </p>
-                  </div>
-                  <div className="bg-pink-50/40 rounded-2xl p-3 sm:p-4 border border-pink-100/70 text-center flex flex-col justify-center">
-                    <p className="text-[9px] sm:text-[10px] text-pink-700 font-extrabold uppercase tracking-wider mb-1" title="Cada local de login é contado uma única vez">Cidades Únicas</p>
-                    <p className="text-xl sm:text-2xl md:text-3xl font-black text-pink-600 font-display flex items-center justify-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-pink-500 shrink-0" />
-                      {uniqueLocationsCount}
-                    </p>
-                  </div>
-                  <div className="bg-zinc-50 rounded-2xl p-3 sm:p-4 border border-zinc-150 text-center flex flex-col justify-center">
-                    <p className="text-[9px] sm:text-[10px] text-gray-500 font-extrabold uppercase tracking-wider mb-1">Acessos Totais</p>
-                    <p className="text-xl sm:text-2xl md:text-3xl font-black text-zinc-800 font-display">{visits.length}</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-[11px] font-black uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-orange-500" />
-                    Distribuição Geográfica
-                  </h3>
-                  
-                  {visitsByLocationBreakdown.length === 0 ? (
-                    <div className="text-center py-6 text-gray-400">
-                      <p className="text-xs font-bold uppercase tracking-wider">Buscando dados de acesso...</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100 border border-gray-150/50 rounded-2xl overflow-hidden bg-white">
-                      {visitsByLocationBreakdown.map((item, index) => (
-                        <div key={index} className="p-3 sm:p-4 hover:bg-orange-50/15 transition-all flex items-center justify-between">
-                          <div className="flex items-start gap-2.5 min-w-0">
-                            <MapPin className={`w-4 h-4 shrink-0 mt-0.5 ${item.online > 0 ? "text-pink-600 drop-shadow-sm animate-bounce" : "text-gray-400"}`} />
-                            <div className="min-w-0">
-                              <p className="text-xs sm:text-sm font-extrabold text-zinc-855 truncate capitalize">
-                                {item.location.toLowerCase()}
-                              </p>
-                              {item.names.length > 0 && (
-                                <p className="text-[9.5px] font-bold text-gray-400 uppercase mt-0.5 truncate max-w-[190px] sm:max-w-[280px]">
-                                  Conectados: <span className="text-orange-655 font-black">{item.names.join(', ')}</span>
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="text-right shrink-0 flex items-center gap-3">
-                            {item.online > 0 && (
-                              <span className="text-[9.5px] bg-emerald-100 border border-emerald-250/50 text-emerald-855 font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                {item.online} Online
-                              </span>
-                            )}
-                            <span className="text-[10px] text-gray-500 font-black uppercase bg-gray-100 px-2 py-0.5 rounded-full">
-                              {item.total} {item.total === 1 ? 'Acesso' : 'Acessos'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="p-4 bg-gray-50/70 border-t border-gray-100 text-center">
-                <button
-                  onClick={() => setShowVisitorModal(false)}
-                  className="w-full sm:w-auto px-6 py-2 bg-zinc-805 hover:bg-zinc-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer hover:shadow-lg active:scale-95"
-                >
-                  Fechar Painel
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
       </AnimatePresence>
     </div>
   );

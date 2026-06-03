@@ -79,7 +79,8 @@ import {
   Headphones,
   Camera,
   Image,
-  Download
+  Download,
+  Instagram
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -430,8 +431,17 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         </form>
       </motion.div>
  
-      <div className="text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
-        © 2026 Louvemos ao Senhor • Versão 2.4
+      <div className="flex flex-col items-center gap-1 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
+        <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
+        <a 
+          href="https://instagram.com/paroquia_nsluz" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+        >
+          <Instagram className="w-3.5 h-3.5" />
+          <span>@paroquia_nsluz</span>
+        </a>
       </div>
     </div>
   );
@@ -4652,6 +4662,20 @@ export default function App() {
 
 
         </AnimatePresence>
+
+        {/* Rodapé compartilhado com link do Instagram em outras telas */}
+        <div className="w-full text-center py-6 border-t border-orange-100/60 mt-8 select-none flex flex-col items-center justify-center gap-1.5 shrink-0 text-zinc-400 text-[10px] font-bold">
+          <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
+          <a 
+            href="https://instagram.com/paroquia_nsluz" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
+          >
+            <Instagram className="w-3.5 h-3.5" />
+            <span>@paroquia_nsluz</span>
+          </a>
+        </div>
       </main>
 
       {/* Floating Action Buttons */}

@@ -179,7 +179,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
       {
         id: 'default1',
         url: '',
-        description: 'Bem-vindo ao Louvemos ao Senhor! Faça login para acesso total.',
+        description: 'Bem-vindo ao Cifras Digitais! Faça login para acesso total.',
         date: 'EVENTOS E FOTOS'
       },
       {
@@ -281,7 +281,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           transition={{ delay: 0.05 }}
           className="text-2xl sm:text-3xl md:text-4xl font-black tracking-wider font-outfit text-center text-3d-title select-none"
         >
-          Louvemos ao Senhor
+          Cifras Digitais
         </motion.h1>
       </div>
 
@@ -438,27 +438,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
       </motion.div>
  
       <div className="flex flex-col items-center gap-1 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
-        <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
-        <div className="flex items-center gap-4">
-          <a 
-            href="https://instagram.com/paroquia_nsluz" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-          >
-            <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
-            <span>@paroquia_nsluz</span>
-          </a>
-          <a 
-            href="https://instagram.com/diocesefoz" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="flex items-center gap-1 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-          >
-            <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
-            <span>@diocesefoz</span>
-          </a>
-        </div>
+        <div>© 2026 Cifras Digitais • Versão 2.4</div>
       </div>
     </div>
   );
@@ -2474,7 +2454,7 @@ export default function App() {
           <div className="flex-grow flex items-center justify-center gap-2 max-w-[60%]">
             <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-300 to-orange-500 opacity-60" />
             <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest px-2 whitespace-nowrap text-center">
-              Louvemos ao Senhor
+              Cifras Digitais
             </h1>
             <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-300 to-orange-500 opacity-60" />
           </div>
@@ -2530,7 +2510,7 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               {/* Nome */}
               <span className={`font-extrabold text-[11px] sm:text-xs tracking-tight truncate max-w-[125px] uppercase ${userIdentifier === 'Público' ? 'text-emerald-700' : 'text-zinc-800'}`}>
-                {userIdentifier || 'Louvemos ao Senhor'}
+                {userIdentifier || 'Cifras Digitais'}
               </span>
               {userIdentifier === 'Público' && (
                 <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/55 shrink-0 uppercase tracking-widest hidden xs:inline-block">
@@ -4696,29 +4676,9 @@ export default function App() {
 
         </AnimatePresence>
 
-        {/* Rodapé compartilhado com link do Instagram em outras telas */}
+        {/* Rodapé compartilhado em outras telas */}
         <div className="w-full text-center py-6 border-t border-orange-100/60 mt-8 select-none flex flex-col items-center justify-center gap-1.5 shrink-0 text-zinc-400 text-[10px] font-bold">
-          <div>© 2026 Louvemos ao Senhor • Versão 2.4</div>
-          <div className="flex items-center justify-center gap-4">
-            <a 
-              href="https://instagram.com/paroquia_nsluz" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-            >
-              <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
-              <span>@paroquia_nsluz</span>
-            </a>
-            <a 
-              href="https://instagram.com/diocesefoz" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="flex items-center gap-1.5 text-pink-600 hover:text-pink-500 transition-colors font-extrabold cursor-pointer"
-            >
-              <Instagram className="w-3.5 h-3.5 animate-pulse text-pink-600 shrink-0" />
-              <span>@diocesefoz</span>
-            </a>
-          </div>
+          <div>© 2026 Cifras Digitais • Versão 2.4</div>
         </div>
       </main>
 

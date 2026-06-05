@@ -1346,9 +1346,9 @@ export default function App() {
     return massaPhotos.filter(photo => photo.isBanner === true);
   }, [massaPhotos]);
 
-  // Hidden system to filter slide photos to those uploaded/created in the last 4 days
+  // Hidden system to filter slide photos to those uploaded/created in the last 48 hours (2 days)
   const slidePhotos = useMemo(() => {
-    const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
+    const fortyEightHoursInMs = 48 * 60 * 60 * 1000;
     const now = Date.now();
     return albumPhotosOnly.filter(photo => {
       if (!photo.createdAt) return true; // show newly uploaded/pending immediately
@@ -1368,7 +1368,7 @@ export default function App() {
       }
 
       if (uploadTime === 0) return false;
-      return (now - uploadTime) <= fourDaysInMs;
+      return (now - uploadTime) <= fortyEightHoursInMs;
     });
   }, [albumPhotosOnly]);
 

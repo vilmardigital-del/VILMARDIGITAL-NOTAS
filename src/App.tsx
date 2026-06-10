@@ -418,22 +418,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             Acessar Sistema
           </motion.button>
  
-          <div className="flex items-center py-0.5">
-            <div className="flex-1 border-t border-zinc-200/80"></div>
-            <span className="px-3.5 text-[10px] uppercase font-black tracking-widest text-zinc-400">ou</span>
-            <div className="flex-1 border-t border-zinc-200/80"></div>
-          </div>
- 
-          <motion.button 
-            type="button"
-            onClick={() => onUnlock('viewer', 'Público', undefined, false)}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-2.5 rounded-xl transition-all shadow-md shadow-emerald-600/15 font-sans uppercase tracking-widest text-xs flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Eye className="w-4 h-4 text-white" />
-            Entrar como Público
-          </motion.button>
+
         </form>
       </motion.div>
  
@@ -1335,7 +1320,7 @@ export default function App() {
   const [bannerProgress, setBannerProgress] = useState<{ current: number; total: number } | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [isConvertingBanners, setIsConvertingBanners] = useState(false);
-  const [photoSubMode, setPhotoSubMode] = useState<'mural' | 'banners'>('mural');
+  const [photoSubMode, setPhotoSubMode] = useState<'mural' | 'banners'>('banners');
 
   // Filter regular album photos vs login event banners
   const albumPhotosOnly = useMemo(() => {
@@ -1346,31 +1331,19 @@ export default function App() {
     return massaPhotos.filter(photo => photo.isBanner === true);
   }, [massaPhotos]);
 
-  // Hidden system to filter slide photos to those uploaded/created in the last 48 hours (2 days)
+  // Display active dynamic banners in rotating carousel instead of celebration photos
   const slidePhotos = useMemo(() => {
-    const fortyEightHoursInMs = 48 * 60 * 60 * 1000;
-    const now = Date.now();
-    return albumPhotosOnly.filter(photo => {
-      if (!photo.createdAt) return true; // show newly uploaded/pending immediately
-
-      let uploadTime = 0;
-      if (typeof photo.createdAt.toMillis === 'function') {
-        uploadTime = photo.createdAt.toMillis();
-      } else if (photo.createdAt.seconds !== undefined) {
-        uploadTime = photo.createdAt.seconds * 1000 + ((photo.createdAt.nanoseconds || 0) / 1000000);
-      } else if (photo.createdAt instanceof Date) {
-        uploadTime = photo.createdAt.getTime();
-      } else if (typeof photo.createdAt === 'number') {
-        uploadTime = photo.createdAt;
-      } else if (typeof photo.createdAt === 'string') {
-        const parsed = Date.parse(photo.createdAt);
-        if (!isNaN(parsed)) uploadTime = parsed;
+    if (eventBannersOnly.length > 0) return eventBannersOnly;
+    return [
+      {
+        id: 'default1',
+        url: '',
+        description: 'Bem-vindo ao Cifras Digitais!',
+        date: 'AVISOS E DIVULGAÇÕES',
+        createdAt: null
       }
-
-      if (uploadTime === 0) return false;
-      return (now - uploadTime) <= fortyEightHoursInMs;
-    });
-  }, [albumPhotosOnly]);
+    ];
+  }, [eventBannersOnly]);
 
   // Keep active photo list index in bounds
   useEffect(() => {
@@ -2370,9 +2343,10 @@ export default function App() {
         }
         const creatorName = currentUserDoc?.creatorName;
         const creatorId = currentUserDoc?.createdBy;
+        const isCreatorMaster = creatorId === 'master' || creatorName === 'Vilmardigital' || creatorName === 'Master' || !creatorId;
         const isFromMyCreator = creatorName && (s.ownerId === creatorName || s.ownerId === creatorId);
         const isMasterSong = !s.ownerId || s.ownerId === 'Vilmardigital' || s.ownerId === 'master';
-        return isFromMyCreator || isMasterSong;
+        return isFromMyCreator || (isCreatorMaster ? isMasterSong : false);
       }
       return true;
     })
@@ -2617,11 +2591,11 @@ export default function App() {
                     <div className="flex items-center justify-between gap-2 mb-2 px-2 pb-2 border-b border-orange-50">
                       <div className="flex items-center gap-2">
                         <div className="p-1.5 bg-orange-100 text-orange-600 rounded-xl">
-                          <Camera className="w-4 h-4 font-bold" />
+                          <Image className="w-4 h-4 font-bold" />
                         </div>
                         <div>
-                          <h3 className="font-extrabold text-orange-950 text-xs sm:text-sm uppercase tracking-tight leading-none">Momentos Especiais</h3>
-                          <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Momentos das celebrações</p>
+                          <h3 className="font-extrabold text-orange-950 text-xs sm:text-sm uppercase tracking-tight leading-none">Avisos e Eventos</h3>
+                          <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Mural de Slide de Banners</p>
                         </div>
                       </div>
                     </div>
@@ -2728,10 +2702,10 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Mural de Notícias e Eventos */}
-                  <div className="mt-2.5 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Mural de Notícias */}
+                  <div className="mt-2.5">
                     {/* Mural de Notícias (Novas Músicas) */}
-                    <div className="bg-white border border-orange-100 rounded-2xl p-4 shadow-xs relative overflow-hidden">
+                    <div className="bg-white border border-orange-100 rounded-2xl p-4 shadow-xs relative overflow-hidden animate-none">
                       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-100">
                         <div className="flex items-center gap-2">
                           <div className="p-1.5 bg-orange-100 text-orange-600 rounded-lg">
@@ -2786,68 +2760,6 @@ export default function App() {
                                     <span className="text-[9px] bg-orange-100 text-orange-700 px-2.5 py-1 rounded-xl font-extrabold uppercase tracking-widest shrink-0 cursor-pointer">
                                       Abrir
                                     </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    {/* Mural de Eventos */}
-                    <div className="bg-white border border-orange-100 rounded-2xl p-4 shadow-xs">
-                      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-orange-100">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 bg-orange-100 text-orange-600 rounded-lg">
-                            <Calendar className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h3 className="font-black text-orange-600 text-xs uppercase tracking-widest leading-none">Mural de Eventos</h3>
-                            <p className="text-[8px] text-gray-400 font-bold uppercase mt-0.5">Próximas atividades e eventos</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setMuralEventsExpanded(!muralEventsExpanded)}
-                          className="p-1 hover:bg-orange-50 active:bg-orange-100 rounded-lg text-orange-600 transition-colors flex items-center justify-center shrink-0 cursor-pointer animate-none"
-                          aria-label="Alternar exibição de eventos"
-                        >
-                          {muralEventsExpanded ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-                      </div>
-
-                      <AnimatePresence initial={false}>
-                        {muralEventsExpanded && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
-                          >
-                            {events.length === 0 ? (
-                              <div className="flex flex-col items-center justify-center py-8 text-center px-4">
-                                <Calendar className="w-8 h-8 text-orange-200 mb-1" />
-                                <p className="text-xs text-gray-400 italic">Nenhum evento adicionado recentemente.</p>
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 gap-2.5 max-h-[290px] overflow-y-auto pr-1 pt-1">
-                                {events.map(event => (
-                                  <div
-                                    key={event.id}
-                                    className="flex items-start gap-3 p-3 bg-gradient-to-br from-orange-50/20 to-orange-100/10 rounded-2xl border border-orange-100/40 relative shadow-xs"
-                                  >
-                                    <div className="bg-orange-600 text-white rounded-xl p-2 shrink-0">
-                                      <Calendar className="w-4 h-4" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="font-black text-sm text-gray-900 leading-tight tracking-tight">{event.name}</p>
-                                      <p className="text-[9px] font-black text-orange-700 mt-1.5 uppercase tracking-widest">{event.date}</p>
-                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -3840,10 +3752,10 @@ export default function App() {
               <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-black text-orange-950 uppercase tracking-widest">
-                    Álbum de Fotos & Banners
+                    Mural de Banners & Slides
                   </p>
                   <p className="text-[10px] text-gray-400 font-bold mt-0.5 uppercase">
-                    Gerencie lembranças das celebrações e avisos da tela de login
+                    Configure os avisos, divulgação de eventos e slides rotativos do aplicativo
                   </p>
                 </div>
                 <button
@@ -3856,256 +3768,6 @@ export default function App() {
                   Voltar
                 </button>
               </div>
-
-              {/* Custom rounded nested selector tabs */}
-              <div className="flex bg-orange-100/40 p-1 rounded-2xl border border-orange-100 max-w-sm shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setPhotoSubMode('mural')}
-                  className={`flex-1 py-2 text-[10px] sm:text-[11px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer ${photoSubMode === 'mural' ? 'bg-orange-600 text-white shadow-sm' : 'text-orange-900/70 hover:text-orange-900 hover:bg-orange-150/40'}`}
-                >
-                  Mural de Fotos 📸
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPhotoSubMode('banners')}
-                  className={`flex-1 py-2 text-[10px] sm:text-[11px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer ${photoSubMode === 'banners' ? 'bg-emerald-600 text-white shadow-sm' : 'text-emerald-900/70 hover:text-emerald-900 hover:bg-emerald-150/40'}`}
-                >
-                  Banners (Slide) 🎪
-                </button>
-              </div>
-
-              {/* SUBMODE = MURAL (PHOTOS) */}
-              {photoSubMode === 'mural' && (
-                <>
-                  {/* ADMIN FORM: Upload Multi-Fotos */}
-                  {isMasterAdmin && (
-                    <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-xs">
-                      <div className="flex items-center gap-3 mb-6 pb-2.5 border-b border-orange-100">
-                        <div className="p-2 bg-orange-100 text-orange-600 rounded-xl">
-                          <Camera className="w-5 h-5 font-bold" />
-                        </div>
-                        <div>
-                          <h2 className="font-extrabold text-orange-950 text-sm uppercase animate-none">Carregar Novas Fotos</h2>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Selecione e envie várias fotos de uma só vez</p>
-                        </div>
-                      </div>
-
-                      <form onSubmit={handleCreatePhoto} className="flex flex-col gap-4">
-                        {/* Multi-Photo Input Area */}
-                        <div>
-                          <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
-                            Selecionar fotos (HEIC do iPhone aceito)
-                          </label>
-                          <div className="flex flex-col items-center justify-center border-2 border-dashed border-orange-200 rounded-2xl p-6 bg-orange-50/20 hover:border-orange-400 transition-all cursor-pointer relative min-h-[140px]">
-                            {isConvertingPhotos ? (
-                              <div className="text-center flex flex-col items-center gap-3">
-                                <div className="p-3 bg-orange-100 text-orange-600 rounded-full animate-spin">
-                                  <RotateCcw className="w-5 h-5" />
-                                </div>
-                                <div>
-                                  <p className="text-xs font-black text-orange-950 uppercase tracking-wider">Otimizando imagens...</p>
-                                  <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase">Convertendo HEIC para JPEG leve</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  required={newPhotoFiles.length === 0}
-                                  onChange={handlePhotoSelect}
-                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                                />
-                                <div className="text-center flex flex-col items-center gap-2">
-                                  <div className="p-2.5 bg-orange-100 text-orange-600 rounded-full">
-                                    <Plus className="w-5 h-5" />
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-bold text-gray-700">Selecione fotos da celebração</p>
-                                    <p className="text-[10px] text-gray-400 font-medium">Toque ou arraste os arquivos juntos</p>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Previews Grid list */}
-                        {newPhotoPreviews.length > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
-                                Fotos selecionadas ({newPhotoPreviews.length})
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNewPhotoFiles([]);
-                                  setNewPhotoPreviews([]);
-                                }}
-                                className="text-[10px] font-bold text-red-500 hover:underline cursor-pointer"
-                              >
-                                Limpar todas
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-[180px] overflow-y-auto p-1.5 bg-orange-50/20 border border-orange-100 rounded-2xl">
-                              {newPhotoPreviews.map((preview, idx) => (
-                                <div key={idx} className="relative aspect-square rounded-lg overflow-hidden group shadow-xs">
-                                  <img src={preview} alt="Prévia" className="w-full h-full object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemovePendingPhoto(idx)}
-                                    className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors cursor-pointer"
-                                    title="Remover"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Description/Label input */}
-                        <div>
-                          <label className="block text-[11px] font-black text-orange-850 uppercase tracking-widest mb-1.5">
-                            Momento da Celebração / Descrição
-                          </label>
-                          <input
-                            type="text"
-                            value={newPhotoDesc}
-                            onChange={(e) => setNewPhotoDesc(e.target.value)}
-                            placeholder="Ex: Procissão de Entrada, Ofertório, Comunhão, Benção..."
-                            className="w-full bg-orange-50/50 border border-orange-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium text-zinc-900 placeholder:text-gray-400 animate-none"
-                          />
-                        </div>
-
-                        {/* Progress indicators */}
-                        {uploadProgress && (
-                          <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-3.5 flex flex-col gap-2 mt-1">
-                            <div className="flex items-center justify-between text-xs font-bold text-orange-900">
-                              <span>Sincronizando fotos com o álbum...</span>
-                              <span className="font-extrabold text-orange-700">
-                                {uploadProgress.current} de {uploadProgress.total} ({Math.round((uploadProgress.current / uploadProgress.total) * 100)}%)
-                              </span>
-                            </div>
-                            <div className="w-full bg-orange-100 rounded-full h-2 overflow-hidden shadow-inner">
-                              <div 
-                                className="bg-orange-600 h-full rounded-full transition-all duration-300" 
-                                style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {photoError && (
-                          <div className="bg-red-50 border border-red-200 text-red-750 p-4 rounded-2xl text-[11px] font-black uppercase tracking-wide flex flex-col gap-1">
-                            <span>Erro ao carregar fotos:</span>
-                            <span className="text-[10px] font-bold text-gray-500 normal-case">{photoError}</span>
-                          </div>
-                        )}
-
-                        <button
-                          type="submit"
-                          disabled={newPhotoSaving || newPhotoFiles.length === 0}
-                          className="w-full bg-orange-600 hover:bg-orange-700 text-white rounded-2xl py-3 font-extrabold text-xs uppercase tracking-widest shadow-md shadow-orange-500/20 active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-2"
-                        >
-                          {newPhotoSaving ? (
-                            <span>Enviando fotos...</span>
-                          ) : (
-                            <span>Adicionar {newPhotoFiles.length > 0 ? `${newPhotoFiles.length} fotos simultâneas` : 'Fotos'} ao álbum</span>
-                          )}
-                        </button>
-                      </form>
-                    </div>
-                  )}
-
-                  {/* Photos Gallery View Grid */}
-                  <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-xs">
-                    <div className="flex items-center gap-2.5 mb-5 pb-2 border-b border-orange-150">
-                      <div className="p-1 px-2.5 bg-orange-100 text-orange-600 rounded-lg text-xs font-black uppercase">
-                        Mural de Fotos
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-orange-950 text-sm uppercase">Momentos Registrados ({albumPhotosOnly.length})</h3>
-                      </div>
-                    </div>
-
-                    {albumPhotosOnly.length === 0 ? (
-                      <div className="text-center py-12 flex flex-col items-center gap-2">
-                        <Image className="w-10 h-10 text-orange-200 animate-pulse" />
-                        <p className="text-xs text-gray-400 italic">Nenhum momento registrado na galeria ainda.</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                        {albumPhotosOnly.map((photo, index) => (
-                          <div 
-                            key={photo.id}
-                            className="group border border-orange-100 rounded-2xl overflow-hidden bg-orange-50/10 shadow-xs relative aspect-square cursor-pointer"
-                            onClick={() => {
-                              setLightboxPhotos(albumPhotosOnly);
-                              setLightboxIndex(index);
-                            }}
-                          >
-                            <img 
-                              src={photo.url} 
-                              alt={photo.description || "Momento da Celebração"} 
-                              className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-350"
-                              referrerPolicy="no-referrer"
-                            />
-                            {photo.description && (
-                              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2.5 pt-6 flex flex-col justify-end">
-                                <p className="text-[10px] sm:text-[11px] font-black text-white leading-tight uppercase tracking-tight truncate group-hover:whitespace-normal group-hover:overflow-visible drop-shadow-xs">
-                                  {photo.description}
-                                </p>
-                              </div>
-                            )}
-                            {isMasterAdmin && (
-                              <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                {confirmingDeleteId === photo.id ? (
-                                  <>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeletePhoto(photo.id, photo.storagePath);
-                                      }}
-                                      className="px-2 py-1.5 bg-red-650 hover:bg-red-600 text-white font-extrabold text-[10px] rounded-lg tracking-wider uppercase shadow-md cursor-pointer select-none"
-                                    >
-                                      Sim
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setConfirmingDeleteId(null);
-                                      }}
-                                      className="px-2 py-1.5 bg-zinc-850 hover:bg-zinc-700 text-white font-extrabold text-[10px] rounded-lg tracking-wider uppercase shadow-md cursor-pointer select-none"
-                                    >
-                                      Não
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setConfirmingDeleteId(photo.id);
-                                    }}
-                                    className="p-1.5 bg-black/60 hover:bg-red-600 rounded-full text-white backdrop-blur-xs transition-colors cursor-pointer shadow-sm"
-                                    title="Excluir Foto"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
 
               {/* SUBMODE = BANNERS (SLIDESHOW) */}
               {photoSubMode === 'banners' && (
@@ -4376,7 +4038,13 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="flex-1 overflow-y-auto"
             >
-              <VoiceRecorder />
+              <VoiceRecorder 
+                currentUserDoc={currentUserDoc || undefined}
+                userRole={userRole}
+                isMasterAdmin={isMasterAdmin}
+                userId={userId}
+                userIdentifier={userIdentifier}
+              />
             </motion.div>
           )}
 
@@ -4581,8 +4249,8 @@ export default function App() {
            </motion.div>
          )}
 
-         {/* EVENTS MANAGEMENT TAB (Admin only) */}
-         {activeTab === 'events_panel' && isMasterAdmin && (
+
+         {false && (
             <motion.div 
               key="events_panel"
               initial={{ opacity: 0, y: 20 }}
@@ -4760,8 +4428,8 @@ export default function App() {
           }}
           className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'photos' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Camera className="w-5 h-5" />
-          <span className="text-[8px] font-extrabold uppercase tracking-tight">Fotos</span>
+          <Calendar className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
         </button>
 
 
@@ -4781,18 +4449,7 @@ export default function App() {
           </button>
         )}
 
-        {isMasterAdmin && (
-          <button 
-            onClick={() => {
-              setActiveTab('events_panel');
-              setViewMode('events_panel');
-            }}
-            className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'events_panel' ? 'text-white' : 'text-orange-200'}`}
-          >
-            <Calendar className="w-5 h-5" />
-            <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
-          </button>
-        )}
+
       </nav>
 
       {/* Modals Cleaned Up */}

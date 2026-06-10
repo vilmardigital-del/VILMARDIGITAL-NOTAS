@@ -120,9 +120,25 @@
         "location": { "type": "string" },
         "isOnline": { "type": "boolean" },
         "lastActive": { "type": "integer" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string" },
+        "id": { "type": "string" }
       },
       "required": ["userIdentifier", "location", "isOnline"]
+    },
+    "Recording": {
+      "title": "Recording",
+      "description": "A customized voice recording saved in Firestore/Cloud.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "duration": { "type": "number" },
+        "audioBase64": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByRole": { "type": "string" },
+        "createdByUsername": { "type": "string" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["name", "duration", "audioBase64", "createdBy"]
     }
   },
   "firestore": {
@@ -145,6 +161,10 @@
     "/visits/{visitId}": {
       "schema": "Visit",
       "description": "Collection of active and historic visits with geolocation parameters."
+    },
+    "/recordings/{recordingId}": {
+      "schema": "Recording",
+      "description": "Collection of cloud synchronized recordings."
     }
   }
 }

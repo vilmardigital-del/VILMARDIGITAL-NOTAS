@@ -17,13 +17,36 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  collection, 
+  query, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  where
+} from 'firebase/firestore';
+import { db } from './lib/firebase';
+import { AccessUser } from './types';
 
 interface LocalRecording {
   id: string;
   name: string;
-  blob: Blob;
+  blob?: Blob;
+  audioBase64?: string;
   duration: number; // in seconds
   createdAt: number;
+  createdBy?: string;
+  createdByRole?: string;
+  createdByUsername?: string;
+}
+
+interface VoiceRecorderProps {
+  currentUserDoc?: AccessUser;
+  userRole?: 'admin' | 'viewer' | null;
+  isMasterAdmin?: boolean;
+  userId?: string | null;
+  userIdentifier?: string | null;
 }
 
 // Simple IndexedDB wrapper for lightweight offline storage of binary Blobs
@@ -78,7 +101,24 @@ async function deleteRecordingFromDB(id: string): Promise<void> {
   });
 }
 
-export default function VoiceRecorder() {
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const base64Data = base64.split(',')[1] || base64;
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}
+
+export default function VoiceRecorder({
+  currentUserDoc,
+  userRole,
+  isMasterAdmin = false,
+  userId,
+  userIdentifier
+}: VoiceRecorderProps) {
   const [recordings, setRecordings] = useState<LocalRecording[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -97,24 +137,123 @@ export default function VoiceRecorder() {
   // Custom audio elements for playing back each item
   const audioElementsRef = useRef<{ [id: string]: HTMLAudioElement }>({});
 
-  // Load recordings on initialization
+  // Sync with Firestore collection dynamically
   useEffect(() => {
+    let isSubscribed = true;
+    let localRecs: LocalRecording[] = [];
+
+    // 1. Carrega gravações do banco local IndexedDB imediatamente de forma assíncrona
     getAllRecordingsFromDB().then((data) => {
-      // Sort newest first
-      const sorted = data.sort((a, b) => b.createdAt - a.createdAt);
-      setRecordings(sorted);
+      if (!isSubscribed) return;
+      localRecs = data;
+      setRecordings(prev => {
+        const map = new Map<string, LocalRecording>();
+        localRecs.forEach(r => map.set(r.createdAt.toString(), r));
+        prev.forEach(r => {
+          if (!map.has(r.createdAt.toString())) {
+            map.set(r.createdAt.toString(), r);
+          }
+        });
+        return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+      });
     }).catch(err => {
       console.error("Erro ao carregar gravações do banco local:", err);
     });
 
+    // Se o banco Firestore não estiver disponível, opera apenas localmente de forma resiliente
+    if (!db) {
+      console.warn("Base de dados Firebase não disponível. Operando no modo local offline.");
+      return () => {
+        isSubscribed = false;
+        Object.values(audioElementsRef.current).forEach(audio => {
+          audio.pause();
+        });
+        if (timerRef.current) clearInterval(timerRef.current);
+      };
+    }
+
+    let idFilter = 'master';
+    if (isMasterAdmin) {
+      idFilter = 'master';
+    } else if (userRole === 'admin') {
+      idFilter = userId || 'master';
+    } else if (userRole === 'viewer') {
+      idFilter = currentUserDoc?.createdBy || 'master';
+    }
+
+    console.log("Recorder snapshot loading for user identifier filter:", idFilter);
+
+    // 2. Sincronização em tempo real do Firestore se disponível
+    let unsubscribe = () => {};
+    try {
+      const recordingsRef = collection(db, 'recordings');
+      const q = query(
+        recordingsRef,
+        where('createdBy', '==', idFilter)
+      );
+
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!isSubscribed) return;
+        const cloudData: LocalRecording[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          cloudData.push({
+            id: doc.id,
+            name: data.name || 'Sem nome',
+            duration: data.duration || 0,
+            audioBase64: data.audioBase64,
+            createdAt: data.createdAt || 0,
+            createdBy: data.createdBy,
+            createdByRole: data.createdByRole,
+            createdByUsername: data.createdByUsername
+          });
+        });
+
+        setRecordings((prev) => {
+          const map = new Map<string, LocalRecording>();
+
+          // Preenche primeiro com os arquivos do IndexedDB físico local (para manter o Blob)
+          localRecs.forEach(r => {
+            map.set(r.createdAt.toString(), r);
+          });
+
+          // Sobrepõe os metadados e itens da Nuvem (mesclando ID do Firestore para deleções)
+          cloudData.forEach(c => {
+            const key = c.createdAt.toString();
+            const existingLoc = map.get(key);
+            if (existingLoc) {
+              map.set(key, {
+                ...existingLoc,
+                id: c.id, // Usa o ID do doc do Firestore para gerenciar deleções da nuvem
+                audioBase64: c.audioBase64,
+                createdBy: c.createdBy,
+                createdByRole: c.createdByRole,
+                createdByUsername: c.createdByUsername
+              });
+            } else {
+              map.set(key, c);
+            }
+          });
+
+          return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+        });
+      }, (err) => {
+        console.error("Erro ao escutar Firestore:", err);
+      });
+    } catch (conErr) {
+      console.error("Falha ao configurar conexão do Firestore para gravações:", conErr);
+    }
+
     return () => {
-      // Clean up playing audio elements
+      isSubscribed = false;
+      unsubscribe();
+      // Limpa os elementos de áudio ativos
       Object.values(audioElementsRef.current).forEach(audio => {
         audio.pause();
       });
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [userId, userRole, isMasterAdmin, currentUserDoc]);
 
   // Format record duration
   const formatTime = (seconds: number) => {
@@ -157,19 +296,58 @@ export default function VoiceRecorder() {
         const defaultName = `Gravação - ${new Date(timestamp).toLocaleDateString('pt-BR')} ${new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
         const finalName = recordingName.trim() || defaultName;
 
-        const newRec: LocalRecording = {
+        const creatorId = isMasterAdmin ? 'master' : (userId || 'master');
+        const creatorRole = isMasterAdmin ? 'master' : (userRole || 'admin');
+        const creatorUsername = currentUserDoc?.name || userIdentifier || 'Master';
+
+        // 1. Cria cópia local no IndexedDB
+        const newLocal: LocalRecording = {
           id: timestamp.toString(),
           name: finalName,
           blob: audioBlob,
           duration: durationSec,
-          createdAt: timestamp
+          createdAt: timestamp,
+          createdBy: creatorId,
+          createdByRole: creatorRole,
+          createdByUsername: creatorUsername
         };
 
         try {
-          await saveRecordingToDB(newRec);
-          setRecordings(prev => [newRec, ...prev]);
+          await saveRecordingToDB(newLocal);
+          // Atualiza a interface instantaneamente com o áudio local (gravação imediata)
+          setRecordings(prev => {
+            const hasRecord = prev.some(r => r.createdAt === timestamp);
+            if (hasRecord) return prev;
+            return [newLocal, ...prev];
+          });
+          console.log("Cópia local salva com sucesso no IndexedDB!");
         } catch (dbErr) {
-          console.error("Erro ao salvar no IndexedDB:", dbErr);
+          console.error("Erro ao salvar no IndexedDB local:", dbErr);
+        }
+
+        // 2. Publica em nuvem no Firestore se disponível
+        if (db) {
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            try {
+              const base64Audio = reader.result as string;
+              await addDoc(collection(db, 'recordings'), {
+                name: finalName,
+                duration: durationSec,
+                audioBase64: base64Audio,
+                createdBy: creatorId,
+                createdByRole: creatorRole,
+                createdByUsername: creatorUsername,
+                createdAt: timestamp
+              });
+              console.log("Enviado para nuvem com sucesso!");
+            } catch (cloudErr) {
+              console.error("Erro de persistência em nuvem (ex: excedeu limite de 1MB):", cloudErr);
+            }
+          };
+        } else {
+          console.warn("Base de dados indisponível, gravação salva apenas localmente.");
         }
 
         // Reset state
@@ -208,7 +386,7 @@ export default function VoiceRecorder() {
     }
   };
 
-  // Play/Pause local recording
+  // Play/Pause local/cloud recording
   const handlePlayPause = (rec: LocalRecording) => {
     // If playing another recording, pause it first
     if (playingId && playingId !== rec.id) {
@@ -221,8 +399,13 @@ export default function VoiceRecorder() {
 
     let audio = audioElementsRef.current[rec.id];
     if (!audio) {
-      const audioUrl = URL.createObjectURL(rec.blob);
-      audio = new Audio(audioUrl);
+      const audioSource = rec.blob ? URL.createObjectURL(rec.blob) : (rec.audioBase64 || '');
+      if (!audioSource) {
+        console.error("Sem fonte de áudio disponível.");
+        return;
+      }
+
+      audio = new Audio(audioSource);
       audioElementsRef.current[rec.id] = audio;
 
       audio.ontimeupdate = () => {
@@ -273,9 +456,7 @@ export default function VoiceRecorder() {
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-
-
-  // Delete recording
+  // Delete recording from local & cloud
   const handleDelete = async (id: string) => {
     // Pause if playing
     const audio = audioElementsRef.current[id];
@@ -289,7 +470,22 @@ export default function VoiceRecorder() {
     }
 
     try {
-      await deleteRecordingFromDB(id);
+      const recToDelete = recordings.find(r => r.id === id);
+
+      // 1. Deleta do IndexedDB local com rollback seguro
+      if (recToDelete) {
+        await deleteRecordingFromDB(recToDelete.createdAt.toString()).catch(() => {});
+      }
+      await deleteRecordingFromDB(id).catch(() => {});
+      
+      // 2. Deleta do Firestore se o ID for alfanumérico (ou seja, gerado pelo Firestore)
+      if (db && isNaN(Number(id))) {
+        await deleteDoc(doc(db, 'recordings', id)).catch((err) => {
+          console.warn("Erro ao deletar documento do Firestore:", err);
+        });
+      }
+
+      // Filtra na interface
       setRecordings(prev => prev.filter(r => r.id !== id));
     } catch (err) {
       console.error("Erro ao deletar gravação:", err);
@@ -297,18 +493,39 @@ export default function VoiceRecorder() {
     setDeleteConfirmId(null);
   };
 
-  // Download recording file
+  // Download recording file natively
   const handleDownload = (rec: LocalRecording) => {
-    const url = URL.createObjectURL(rec.blob);
+    let url = '';
+    let isCreatedUrl = false;
+
+    if (rec.audioBase64) {
+      try {
+        const mime = rec.audioBase64.match(/data:([^;]+);/)?.[1] || 'audio/webm';
+        const blob = base64ToBlob(rec.audioBase64, mime);
+        url = URL.createObjectURL(blob);
+        isCreatedUrl = true;
+      } catch (e) {
+        console.error("Erro ao decodificar áudio Base64 para download:", e);
+      }
+    } else if (rec.blob) {
+      url = URL.createObjectURL(rec.blob);
+      isCreatedUrl = true;
+    }
+
+    if (!url) return;
+
     const a = document.createElement('a');
     a.href = url;
-    // Guess file extension based on mimeType inside blob, default to webm or wav
-    const ext = rec.blob.type.includes('ogg') ? 'ogg' : rec.blob.type.includes('mp4') ? 'm4a' : 'webm';
+    const mimeType = rec.audioBase64 ? (rec.audioBase64.match(/data:([^;]+);/)?.[1] || '') : (rec.blob?.type || '');
+    const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
     a.download = `${rec.name.replace(/[^a-zA-Z0-9\s-_]/g, '')}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+
+    if (isCreatedUrl) {
+      URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -328,89 +545,91 @@ export default function VoiceRecorder() {
       <div className="mb-6 relative z-10">
         <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
           <Mic className="w-7 h-7 text-orange-600" />
-          Grave seus ensaios
+          {userRole === 'viewer' ? 'Gravações dos Ensaios' : 'Grave seus ensaios'}
         </h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
         
         {/* Painel do gravador (compacted layout) */}
-        <div className="lg:col-span-12 xl:col-span-4 bg-white border border-orange-100 rounded-3xl p-5 shadow-sm flex flex-col justify-between min-h-[240px]">
-          
-          <div className="flex-1 flex flex-col items-center justify-center py-3">
-            <div className="relative mb-3.5">
-              <AnimatePresence>
-                {isRecording && (
-                  <motion.span 
-                    initial={{ scale: 0.8, opacity: 0.5 }}
-                    animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0.1, 0.4] }}
-                    transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                    className="absolute inset-0 bg-red-600 rounded-full"
-                  />
-                )}
-              </AnimatePresence>
-              
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 relative z-10 ${
-                  isRecording 
-                    ? 'bg-red-600 text-white hover:bg-red-700 shadow-red-600/30' 
-                    : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-600/30'
-                }`}
-                title={isRecording ? "Parar Gravação" : "Iniciar Gravação"}
-              >
-                {isRecording ? (
-                  <Square className="w-6 h-6 fill-white text-white" />
-                ) : (
-                  <Mic className="w-7 h-7 text-white" />
-                )}
-              </button>
-            </div>
-
-            {/* Timer visual */}
-            <div className="text-center">
-              <div className={`text-2xl font-black tracking-wider transition-colors duration-300 ${isRecording ? 'text-red-600' : 'text-gray-900'}`}>
-                {formatTime(recordingTime)}
+        {userRole !== 'viewer' && (
+          <div className="lg:col-span-12 xl:col-span-4 bg-white border border-orange-100 rounded-3xl p-5 shadow-sm flex flex-col justify-between min-h-[240px]">
+            
+            <div className="flex-1 flex flex-col items-center justify-center py-3">
+              <div className="relative mb-3.5">
+                <AnimatePresence>
+                  {isRecording && (
+                    <motion.span 
+                      initial={{ scale: 0.8, opacity: 0.5 }}
+                      animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0.1, 0.4] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                      className="absolute inset-0 bg-red-600 rounded-full"
+                    />
+                  )}
+                </AnimatePresence>
+                
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 relative z-10 ${
+                    isRecording 
+                      ? 'bg-red-600 text-white hover:bg-red-700 shadow-red-600/30' 
+                      : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-600/30'
+                  }`}
+                  title={isRecording ? "Parar Gravação" : "Iniciar Gravação"}
+                >
+                  {isRecording ? (
+                    <Square className="w-6 h-6 fill-white text-white" />
+                  ) : (
+                    <Mic className="w-7 h-7 text-white" />
+                  )}
+                </button>
               </div>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mt-1 flex items-center justify-center gap-1">
-                {isRecording ? (
-                  <>
-                    <Radio className="w-3 h-3 text-red-500 animate-pulse" />
-                    Gravando...
-                  </>
-                ) : (
-                  'Pronto'
-                )}
-              </p>
-            </div>
-          </div>
 
-          {/* Campo opcional de Nome antes de gravar ou no processo */}
-          <div className="border-t border-gray-100 pt-3.5 mt-2">
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-              Nome da Gravação (Opcional)
-            </label>
-            <div className="relative">
-              <input 
-                type="text"
-                placeholder="Ex: Ensaio do Salmo..."
-                value={recordingName}
-                onChange={(e) => setRecordingName(e.target.value)}
-                disabled={isRecording}
-                className="w-full bg-orange-50/50 border border-orange-100 text-xs rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-orange-500 text-gray-700 font-medium placeholder-gray-400 disabled:opacity-50"
-              />
-              <Save className="absolute right-3 top-2.5 w-3.5 h-3.5 text-orange-400 pointer-events-none" />
+              {/* Timer visual */}
+              <div className="text-center">
+                <div className={`text-2xl font-black tracking-wider transition-colors duration-300 ${isRecording ? 'text-red-600' : 'text-gray-900'}`}>
+                  {formatTime(recordingTime)}
+                </div>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mt-1 flex items-center justify-center gap-1">
+                  {isRecording ? (
+                    <>
+                      <Radio className="w-3 h-3 text-red-500 animate-pulse" />
+                      Gravando...
+                    </>
+                  ) : (
+                    'Pronto'
+                  )}
+                </p>
+              </div>
             </div>
-          </div>
 
-        </div>
+            {/* Campo opcional de Nome antes de gravar ou no processo */}
+            <div className="border-t border-gray-100 pt-3.5 mt-2">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                Nome da Gravação (Opcional)
+              </label>
+              <div className="relative">
+                <input 
+                  type="text"
+                  placeholder="Ex: Ensaio do Salmo..."
+                  value={recordingName}
+                  onChange={(e) => setRecordingName(e.target.value)}
+                  disabled={isRecording}
+                  className="w-full bg-orange-50/50 border border-orange-100 text-xs rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-orange-500 text-gray-700 font-medium placeholder-gray-400 disabled:opacity-50"
+                />
+                <Save className="absolute right-3 top-2.5 w-3.5 h-3.5 text-orange-400 pointer-events-none" />
+              </div>
+            </div>
+
+          </div>
+        )}
 
         {/* Lista de gravações */}
-        <div className="lg:col-span-12 xl:col-span-8 flex flex-col">
+        <div className={`lg:col-span-12 ${userRole !== 'viewer' ? 'xl:col-span-8' : ''} flex flex-col`}>
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex-1 flex flex-col">
             <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
               <Disc className="w-5 h-5 text-orange-500" />
-              Minhas Gravações ({recordings.length})
+              {userRole === 'viewer' ? 'Gravações Disponíveis' : 'Minhas Gravações'} ({recordings.length})
             </h3>
 
             {recordings.length === 0 ? (
@@ -420,7 +639,9 @@ export default function VoiceRecorder() {
                 </div>
                 <h4 className="text-sm font-bold text-gray-700">Nenhuma gravação por enquanto</h4>
                 <p className="text-xs text-gray-500 max-w-xs mt-1">
-                  Pressione o botão vermelho à esquerda para gravar sua primeira faixa. Ela aparecerá aqui automaticamente.
+                  {userRole === 'viewer' 
+                    ? 'Nenhuma gravação do ensaio foi disponibilizada pelo seu administrador.' 
+                    : 'Pressione o botão vermelho à esquerda para gravar sua primeira faixa. Ela aparecerá aqui automaticamente.'}
                 </p>
               </div>
             ) : (
@@ -466,13 +687,15 @@ export default function VoiceRecorder() {
                           >
                             <Download className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(rec.id)}
-                            className="p-1.5 bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-red-600 hover:border-red-100 transition-colors cursor-pointer"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {userRole !== 'viewer' && (
+                            <button
+                              onClick={() => setDeleteConfirmId(rec.id)}
+                              className="p-1.5 bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-red-600 hover:border-red-100 transition-colors cursor-pointer"
+                              title="Excluir"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
 

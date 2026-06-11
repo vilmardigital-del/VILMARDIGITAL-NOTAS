@@ -58,6 +58,7 @@ import {
   Minus,
   FileText,
   Lock,
+  Tv,
   ArrowUpDown,
   ArrowLeftRight,
   AlignLeft,
@@ -87,6 +88,7 @@ import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import VoiceRecorder from './VoiceRecorder';
+import TvPlayer from './TvPlayer';
 import heic2any from 'heic2any';
 
 const CATEGORIES_MISSA: Category[] = [
@@ -1369,8 +1371,8 @@ export default function App() {
   };
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel' | 'photos'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel' | 'photos'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel' | 'photos' | 'tv'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel' | 'photos' | 'tv'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -4048,6 +4050,18 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* TV TAB */}
+          {activeTab === 'tv' && (
+            <motion.div
+              key="tv-tab"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex-1 overflow-y-auto"
+            >
+              <TvPlayer />
+            </motion.div>
+          )}
+
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
             <motion.div
@@ -4430,6 +4444,17 @@ export default function App() {
         >
           <Calendar className="w-5 h-5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('tv');
+            setViewMode('tv');
+          }}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'tv' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Tv className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">TV</span>
         </button>
 
 

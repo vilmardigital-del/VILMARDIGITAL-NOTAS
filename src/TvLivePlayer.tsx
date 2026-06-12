@@ -36,6 +36,12 @@ const CHANNELS_DATABASE: Channel[] = [
     description: 'Santo Terço, missas e novena dos filhos do Pai Eterno'
   },
   {
+    id: 'paieterno-alt',
+    name: 'Pai Eterno (Alt)',
+    url: 'http://udq.me/live/7SyrYN0fMy/3772288787/35899.m3u8',
+    description: 'Canal Divino Pai Eterno - Transmissão Alternativa'
+  },
+  {
     id: 'tv-aparecida',
     name: 'TV Aparecida',
     url: 'https://5c6528fc8de1e.streamlock.net/aparecida/Aparecida.stream_360p/playlist.m3u8',
@@ -401,46 +407,6 @@ export default function TvLivePlayer() {
           </div>
         </div>
       </div>
-
-      {/* Cartões Informativos sobre os Canais */}
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        <div className="bg-zinc-900/65 border border-zinc-800/65 rounded-2xl p-4 flex gap-3">
-          <div className="w-9 h-9 rounded-xl bg-orange-950/55 flex items-center justify-center shrink-0 border border-orange-900/40">
-            <Info className="w-4 h-4 text-orange-500" />
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-zinc-100 uppercase tracking-wide">Código Extensível</h3>
-            <p className="text-[10px] text-zinc-400 mt-1 uppercase leading-normal">
-              A lista de canais está estruturada em uma coleção de dados fácil de atualizar no arquivo do componente.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-zinc-900/65 border border-zinc-800/65 rounded-2xl p-4 flex gap-3">
-          <div className="w-9 h-9 rounded-xl bg-orange-950/55 flex items-center justify-center shrink-0 border border-orange-900/40">
-            <Maximize className="w-4 h-4 text-orange-500" />
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-zinc-100 uppercase tracking-wide">Vídeo Maximizado</h3>
-            <p className="text-[10px] text-zinc-400 mt-1 uppercase leading-normal">
-              O layout aspect-video aproveita o tamanho máximo da grade principal, ajustando-se a celulares e desktops.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-zinc-900/65 border border-zinc-800/65 rounded-2xl p-4 flex gap-3">
-          <div className="w-9 h-9 rounded-xl bg-orange-950/55 flex items-center justify-center shrink-0 border border-orange-900/40">
-            <Play className="w-4 h-4 text-orange-500" />
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-zinc-100 uppercase tracking-wide">HLS nativo & Hls.js</h3>
-            <p className="text-[10px] text-zinc-400 mt-1 uppercase leading-normal">
-              Sintonizador duplo que suporta streaming .m3u8 no Chrome, Safari, Edge, Android e iPhone.
-            </p>
-          </div>
-        </div>
-      </div>
-
     </div>
   );
 }

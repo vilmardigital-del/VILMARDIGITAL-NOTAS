@@ -142,15 +142,30 @@ export default function VoiceRecorder({
     let isSubscribed = true;
     let localRecs: LocalRecording[] = [];
 
+    let idFilter = 'master';
+    if (isMasterAdmin) {
+      idFilter = 'master';
+    } else if (userRole === 'admin') {
+      idFilter = userId || 'master';
+    } else if (userRole === 'viewer') {
+      idFilter = currentUserDoc?.createdBy || 'master';
+    }
+
+    const matchFilter = (createdByValue?: string) => {
+      return (createdByValue || 'master') === idFilter;
+    };
+
+    console.log("Recorder snapshot loading for user identifier filter:", idFilter);
+
     // 1. Carrega gravações do banco local IndexedDB imediatamente de forma assíncrona
     getAllRecordingsFromDB().then((data) => {
       if (!isSubscribed) return;
       localRecs = data;
       setRecordings(prev => {
         const map = new Map<string, LocalRecording>();
-        localRecs.forEach(r => map.set(r.createdAt.toString(), r));
+        localRecs.filter(r => matchFilter(r.createdBy)).forEach(r => map.set(r.createdAt.toString(), r));
         prev.forEach(r => {
-          if (!map.has(r.createdAt.toString())) {
+          if (matchFilter(r.createdBy) && !map.has(r.createdAt.toString())) {
             map.set(r.createdAt.toString(), r);
           }
         });
@@ -171,17 +186,6 @@ export default function VoiceRecorder({
         if (timerRef.current) clearInterval(timerRef.current);
       };
     }
-
-    let idFilter = 'master';
-    if (isMasterAdmin) {
-      idFilter = 'master';
-    } else if (userRole === 'admin') {
-      idFilter = userId || 'master';
-    } else if (userRole === 'viewer') {
-      idFilter = currentUserDoc?.createdBy || 'master';
-    }
-
-    console.log("Recorder snapshot loading for user identifier filter:", idFilter);
 
     // 2. Sincronização em tempo real do Firestore se disponível
     let unsubscribe = () => {};
@@ -213,12 +217,12 @@ export default function VoiceRecorder({
           const map = new Map<string, LocalRecording>();
 
           // Preenche primeiro com os arquivos do IndexedDB físico local (para manter o Blob)
-          localRecs.forEach(r => {
+          localRecs.filter(r => matchFilter(r.createdBy)).forEach(r => {
             map.set(r.createdAt.toString(), r);
           });
 
           // Sobrepõe os metadados e itens da Nuvem (mesclando ID do Firestore para deleções)
-          cloudData.forEach(c => {
+          cloudData.filter(c => matchFilter(c.createdBy)).forEach(c => {
             const key = c.createdAt.toString();
             const existingLoc = map.get(key);
             if (existingLoc) {
@@ -458,6 +462,7 @@ export default function VoiceRecorder({
 
   // Delete recording from local & cloud
   const handleDelete = async (id: string) => {
+    if (userRole === 'viewer') return;
     // Pause if playing
     const audio = audioElementsRef.current[id];
     if (audio) {

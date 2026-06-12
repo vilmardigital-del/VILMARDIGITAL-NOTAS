@@ -14,7 +14,8 @@ import {
   setDoc,
   serverTimestamp,
   orderBy,
-  where
+  where,
+  getDocs
 } from 'firebase/firestore';
 import { 
   ref,
@@ -88,7 +89,7 @@ import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import VoiceRecorder from './VoiceRecorder';
-import TvPlayer from './TvPlayer';
+import TvLivePlayer from './TvLivePlayer';
 import heic2any from 'heic2any';
 
 const CATEGORIES_MISSA: Category[] = [
@@ -1532,7 +1533,7 @@ export default function App() {
   // Editor State Deleted
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'master' | 'admin' | 'viewer'>('viewer');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
   
   // Song selection/editing
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -2240,7 +2241,20 @@ export default function App() {
     }
 
     try {
+      // 1. Deletar o usuário da coleção access_users
       await deleteDoc(doc(db, 'access_users', id));
+
+      // 2. Localizar e deletar todas as gravações cujo criador (createdBy) é este usuário sendo excluído
+      const recordingsRef = collection(db, 'recordings');
+      const q = query(recordingsRef, where('createdBy', '==', id));
+      const querySnapshot = await getDocs(q);
+      
+      const deletePromises = querySnapshot.docs.map((recordingDoc) => 
+        deleteDoc(doc(db, 'recordings', recordingDoc.id))
+      );
+      await Promise.all(deletePromises);
+      
+      console.log(`Gravações associadas ao usuário ${id} foram removidas com sucesso.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `access_users/${id}`);
     }
@@ -4058,9 +4072,11 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="flex-1 overflow-y-auto"
             >
-              <TvPlayer />
+              <TvLivePlayer />
             </motion.div>
           )}
+
+
 
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
@@ -4131,17 +4147,6 @@ export default function App() {
                           }`}
                         >
                           Administrador
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewUserRole('master')}
-                          className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all ${
-                            newUserRole === 'master' 
-                              ? 'bg-orange-600 text-white shadow-md font-black border-2 border-orange-300' 
-                              : 'bg-orange-50 text-orange-600'
-                          }`}
-                        >
-                          Master (Acesso Total)
                         </button>
                       </div>
                     </div>
@@ -4454,8 +4459,10 @@ export default function App() {
           className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'tv' ? 'text-white' : 'text-orange-200'}`}
         >
           <Tv className="w-5 h-5" />
-          <span className="text-[8px] font-extrabold uppercase tracking-tight">TV</span>
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Canais TV</span>
         </button>
+
+
 
 
 

@@ -82,7 +82,8 @@ import {
   Camera,
   Image,
   Download,
-  Instagram
+  Instagram,
+  Clipboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -665,6 +666,16 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             className="p-2 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full shrink-0"
           >
             <ChevronLeft className="w-6 h-6" />
+          </button>
+          <button 
+            onClick={() => {
+                const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+                navigator.clipboard.writeText(lyricsOnly);
+                alert('Letra copiada!');
+            }}
+            className="p-2 text-gray-400 hover:text-orange-600 rounded-full"
+          >
+            <Clipboard className="w-5 h-5" />
           </button>
           <div className="min-w-0">
             <h1 className="text-lg font-bold leading-tight truncate">{song.title}</h1>
@@ -1784,7 +1795,7 @@ export default function App() {
         title: editingSong.title || '',
         artist: editingSong.artist || '',
         content: (editingSong.content || '').toUpperCase(),
-        category: editingSong.category || selectedCategory || 'Comum',
+        category: (editingSong.category || selectedCategory || 'Comum').trim(),
         youtubeUrl: editingSong.youtubeUrl || '',
         lineHeight: editingSong.lineHeight || 1.5,
         letterSpacing: editingSong.letterSpacing || 0,
@@ -2199,6 +2210,13 @@ export default function App() {
       link.click();
       document.body.removeChild(link);
     }
+  };
+
+  const copyLyricsOnly = () => {
+    if (!viewingSong || !viewingSong.content) return;
+    const lyricsOnly = viewingSong.content.replace(CHORD_REGEX, '');
+    navigator.clipboard.writeText(lyricsOnly);
+    alert('Letra copiada sem cifras!');
   };
 
   const handleDeletePlaylist = async (id: string) => {

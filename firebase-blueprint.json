@@ -20,7 +20,7 @@
         "category": {
           "type": "string",
           "description": "The liturgical category (e.g., Entrada, Glória).",
-          "enum": ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Comum", "Ofertório", "Final"]
+          "enum": ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Salmos", "Cordeiro", "Comum", "Ofertório", "Comunhão", "Final", "Grupo de Oração", "Espírito Santo", "Louvor", "Mariana", "Entrega", "Adoração", "Amor de Deus", "Salvação", "Fé", "Senhorio de Jesus", "Cura interior", "Perseverança", "Promessa do Pai"]
         },
         "youtubeUrl": {
           "type": "string",

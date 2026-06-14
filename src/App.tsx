@@ -112,7 +112,14 @@ const CATEGORIES_GRUPO: Category[] = [
   'Perdão',
   'Mariana',
   'Entrega',
-  'Adoração'
+  'Adoração',
+  'Amor de Deus',
+  'Salvação',
+  'Fé',
+  'Senhorio de Jesus',
+  'Cura interior',
+  'Perseverança',
+  'Promessa do Pai'
 ];
 
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|maj|min|dim|aug|sus|add|alt|ø|°|\\+|\\-|7|9|11|13|5|6|2|4|Δ)*(?:\\([^)]+\\))?(?:\\/(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|7|9|11|13|5|6|2|4)?)?";
@@ -451,6 +458,13 @@ const getCategoryIcon = (category: Category, className: string = "w-6 h-6") => {
     case 'Mariana': return <Heart className={className} />;
     case 'Entrega': return <HandHeart className={className} />;
     case 'Adoração': return <Crown className={className} />;
+    case 'Amor de Deus': return <Heart className={className} />;
+    case 'Salvação': return <Sun className={className} />;
+    case 'Fé': return <Sparkles className={className} />;
+    case 'Senhorio de Jesus': return <Crown className={className} />;
+    case 'Cura interior': return <HandHeart className={className} />;
+    case 'Perseverança': return <Flag className={className} />;
+    case 'Promessa do Pai': return <Gift className={className} />;
     default: return <Music className={className} />;
   }
 };

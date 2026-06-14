@@ -30,16 +30,28 @@ const CHANNELS_DATABASE: Channel[] = [
     description: 'Programação ao vivo de evangelização e louvor'
   },
   {
-    id: 'paieterno',
-    name: 'Pai Eterno',
+    id: 'paieterno-hd',
+    name: 'Pai Eterno (Transmissão HD)',
     url: 'https://59dfb7d85c4dc.streamlock.net/paieterno/paieterno.stream_720p/playlist.m3u8',
-    description: 'Santo Terço, missas e novena dos filhos do Pai Eterno'
+    description: 'Santo Terço, missas e novena dos filhos do Pai Eterno - Qualidade HD'
   },
   {
-    id: 'paieterno-alt',
-    name: 'Pai Eterno (Alt)',
-    url: 'http://udq.me/live/7SyrYN0fMy/3772288787/35899.m3u8',
-    description: 'Canal Divino Pai Eterno - Transmissão Alternativa'
+    id: 'paieterno-oficial',
+    name: 'Pai Eterno (Canal Oficial)',
+    url: 'https://tv.paieterno.com.br/live/paieterno.stream_720p/playlist.m3u8',
+    description: 'Canal de TV Oficial Divino Pai Eterno - Link Direto HD'
+  },
+  {
+    id: 'paieterno-adaptativo',
+    name: 'Pai Eterno (Adaptativo)',
+    url: 'https://59dfb7d85c4dc.streamlock.net/paieterno/paieterno.stream/playlist.m3u8',
+    description: 'Transmissão com ajuste automático de qualidade conforme sua internet'
+  },
+  {
+    id: 'paieterno-sd',
+    name: 'Pai Eterno (SD / Baixa Banda)',
+    url: 'https://59dfb7d85c4dc.streamlock.net/paieterno/paieterno.stream_360p/playlist.m3u8',
+    description: 'Versão leve com consumo otimizado de dados'
   },
   {
     id: 'tv-aparecida',

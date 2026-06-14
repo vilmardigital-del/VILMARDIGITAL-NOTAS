@@ -1,4 +1,4 @@
-export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final' | 'Grupo de Oração' | 'Espírito Santo' | 'Louvor' | 'Mariana' | 'Entrega' | 'Adoração';
+export type Category = 'Entrada' | 'Perdão' | 'Glória' | 'Salmos' | 'Aleluia' | 'Santo' | 'Cordeiro' | 'Comum' | 'Ofertório' | 'Comunhão' | 'Final' | 'Grupo de Oração' | 'Espírito Santo' | 'Louvor' | 'Mariana' | 'Entrega' | 'Adoração' | 'Amor de Deus' | 'Salvação' | 'Fé' | 'Senhorio de Jesus' | 'Cura interior' | 'Perseverança' | 'Promessa do Pai';
 
 export const CATEGORIES: Category[] = [
   'Entrada',
@@ -17,7 +17,14 @@ export const CATEGORIES: Category[] = [
   'Louvor',
   'Mariana',
   'Entrega',
-  'Adoração'
+  'Adoração',
+  'Amor de Deus',
+  'Salvação',
+  'Fé',
+  'Senhorio de Jesus',
+  'Cura interior',
+  'Perseverança',
+  'Promessa do Pai'
 ];
 
 export interface Song {

@@ -34,7 +34,6 @@ import {
   Flag,
   Music, 
   Church,
-  Mic,
   Plus, 
   Search, 
   ChevronLeft, 
@@ -89,8 +88,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
-import VoiceRecorder from './VoiceRecorder';
 import TvLivePlayer from './TvLivePlayer';
+import AudioUploads from './AudioUploads';
 import heic2any from 'heic2any';
 
 const CATEGORIES_MISSA: Category[] = [
@@ -1397,8 +1396,8 @@ export default function App() {
   };
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'recorder' | 'users' | 'events_panel' | 'photos' | 'tv'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'recorder' | 'events_panel' | 'photos' | 'tv'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'audios' | 'users' | 'events_panel' | 'photos' | 'tv'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'audios' | 'events_panel' | 'photos' | 'tv'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -2275,18 +2274,6 @@ export default function App() {
     try {
       // 1. Deletar o usuário da coleção access_users
       await deleteDoc(doc(db, 'access_users', id));
-
-      // 2. Localizar e deletar todas as gravações cujo criador (createdBy) é este usuário sendo excluído
-      const recordingsRef = collection(db, 'recordings');
-      const q = query(recordingsRef, where('createdBy', '==', id));
-      const querySnapshot = await getDocs(q);
-      
-      const deletePromises = querySnapshot.docs.map((recordingDoc) => 
-        deleteDoc(doc(db, 'recordings', recordingDoc.id))
-      );
-      await Promise.all(deletePromises);
-      
-      console.log(`Gravações associadas ao usuário ${id} foram removidas com sucesso.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `access_users/${id}`);
     }
@@ -2438,7 +2425,7 @@ export default function App() {
         <div className="flex items-center justify-between px-4 py-2.5 min-h-[56px] relative w-full">
           {/* Left section: Back and Interactive Logo */}
           <div className="flex-1 flex items-center gap-2">
-            {((activeTab !== 'liturgia' && activeTab !== 'recorder' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
+            {((activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
               <button 
                 onClick={() => {
                   if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
@@ -4078,24 +4065,6 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* RECORDER TAB */}
-          {activeTab === 'recorder' && (
-            <motion.div
-              key="recorder-tab"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex-1 overflow-y-auto"
-            >
-              <VoiceRecorder 
-                currentUserDoc={currentUserDoc || undefined}
-                userRole={userRole}
-                isMasterAdmin={isMasterAdmin}
-                userId={userId}
-                userIdentifier={userIdentifier}
-              />
-            </motion.div>
-          )}
-
           {/* TV TAB */}
           {activeTab === 'tv' && (
             <motion.div
@@ -4105,6 +4074,23 @@ export default function App() {
               className="flex-1 overflow-y-auto"
             >
               <TvLivePlayer />
+            </motion.div>
+          )}
+
+          {/* AUDIOS UPLOAD TAB */}
+          {activeTab === 'audios' && (
+            <motion.div
+              key="audios-tab"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex-1 overflow-y-auto"
+            >
+              <AudioUploads 
+                currentUserDoc={currentUserDoc || undefined}
+                userRole={userRole}
+                userId={userId || 'public'}
+                userIdentifier={userIdentifier || 'Público'}
+              />
             </motion.div>
           )}
 
@@ -4463,17 +4449,6 @@ export default function App() {
 
         <button 
           onClick={() => {
-            setActiveTab('recorder');
-            setViewMode('recorder');
-          }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'recorder' ? 'text-white' : 'text-orange-200'}`}
-        >
-          <Mic className="w-5 h-5" />
-          <span className="text-[8px] font-extrabold uppercase tracking-tight">Gravador</span>
-        </button>
-
-        <button 
-          onClick={() => {
             setActiveTab('photos');
             setViewMode('photos');
           }}
@@ -4492,6 +4467,17 @@ export default function App() {
         >
           <Tv className="w-5 h-5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Canais TV</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('audios');
+            setViewMode('audios');
+          }}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'audios' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <Headphones className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Áudios</span>
         </button>
 
 

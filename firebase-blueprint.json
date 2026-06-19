@@ -132,13 +132,14 @@
       "properties": {
         "name": { "type": "string" },
         "duration": { "type": "number" },
+        "audioUrl": { "type": "string" },
         "audioBase64": { "type": "string" },
         "createdBy": { "type": "string" },
         "createdByRole": { "type": "string" },
         "createdByUsername": { "type": "string" },
         "createdAt": { "type": "integer" }
       },
-      "required": ["name", "duration", "audioBase64", "createdBy"]
+      "required": ["name", "createdBy"]
     }
   },
   "firestore": {

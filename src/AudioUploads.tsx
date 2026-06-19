@@ -32,10 +32,67 @@ import {
   VolumeX,
   Clock,
   User,
-  Disc
+  Disc,
+  HardDrive,
+  Database
 } from 'lucide-react';
 import { db, storage } from './lib/firebase';
 import { AccessUser } from './types';
+
+// --- IndexedDB Local Storage Helpers ---
+const initIndexedDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('SantosAudiosDB', 1);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as any).result;
+      if (!db.objectStoreNames.contains('local_recordings')) {
+        db.createObjectStore('local_recordings', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = (event) => {
+      resolve((event.target as any).result);
+    };
+    request.onerror = (event) => {
+      reject((event.target as any).error);
+    };
+  });
+};
+
+const saveLocalRecording = (recording: any): Promise<void> => {
+  return initIndexedDB().then((db) => {
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('local_recordings', 'readwrite');
+      const store = transaction.objectStore('local_recordings');
+      const request = store.put(recording);
+      request.onsuccess = () => resolve();
+      request.onerror = (event) => reject((event.target as any).error);
+    });
+  });
+};
+
+const getLocalRecordings = (): Promise<any[]> => {
+  return initIndexedDB().then((db) => {
+    return new Promise<any[]>((resolve, reject) => {
+      const transaction = db.transaction('local_recordings', 'readonly');
+      const store = transaction.objectStore('local_recordings');
+      const request = store.getAll();
+      request.onsuccess = (event) => resolve((event.target as any).result || []);
+      request.onerror = (event) => reject((event.target as any).error);
+    });
+  });
+};
+
+const deleteLocalRecording = (id: string): Promise<void> => {
+  return initIndexedDB().then((db) => {
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('local_recordings', 'readwrite');
+      const store = transaction.objectStore('local_recordings');
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = (event) => reject((event.target as any).error);
+    });
+  });
+};
 
 interface AudioUploadsProps {
   currentUserDoc: AccessUser | undefined;
@@ -55,6 +112,8 @@ interface RecordingItem {
   fileType?: string;
   fileSize?: string;
   duration?: number;
+  isLocal?: boolean;
+  blob?: Blob;
 }
 
 export default function AudioUploads({ 
@@ -65,8 +124,55 @@ export default function AudioUploads({
 }: AudioUploadsProps) {
   // Collection state
   const [recordings, setRecordings] = useState<RecordingItem[]>([]);
+  const [dbRecordings, setDbRecordings] = useState<RecordingItem[]>([]);
+  const [localRecordings, setLocalRecordings] = useState<RecordingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Local object URL references for memory hygiene
+  const localUrlsRef = React.useRef<string[]>([]);
+
+  // Function to load recordings stored offline in IndexedDB
+  const loadLocalRecordings = async () => {
+    try {
+      const list = await getLocalRecordings();
+      
+      // Clean up previous URLs to prevent memory leakage
+      localUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.warn("Error revoking object URL:", e);
+        }
+      });
+      localUrlsRef.current = [];
+
+      const newUrls: string[] = [];
+      const items: RecordingItem[] = list.map((item) => {
+        const url = URL.createObjectURL(item.blob);
+        newUrls.push(url);
+        return {
+          id: item.id,
+          name: item.name || 'Áudio Sem Nome',
+          audioUrl: url,
+          createdBy: item.createdBy || '',
+          createdByRole: item.createdByRole || 'viewer',
+          createdByUsername: item.createdByUsername || 'Anônimo',
+          createdAt: item.createdAt ? new Date(item.createdAt) : new Date(),
+          fileType: item.fileType || 'MP3',
+          fileSize: item.fileSize || '---',
+          duration: item.duration || 0,
+          isLocal: true,
+          blob: item.blob
+        };
+      });
+
+      localUrlsRef.current = newUrls;
+      setLocalRecordings(items);
+    } catch (e) {
+      console.error("Failed to load local recordings from IndexedDB:", e);
+    }
+  };
 
   // Upload form state
   const [customName, setCustomName] = useState('');
@@ -87,6 +193,40 @@ export default function AudioUploads({
 
   // Drag and drop state
   const [isDragActive, setIsDragActive] = useState(false);
+
+  // Load IndexedDB on mount and clean up on unmount
+  useEffect(() => {
+    loadLocalRecordings();
+    
+    return () => {
+      // Cleanup Object URLs on unmount
+      localUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          // ignore
+        }
+      });
+    };
+  }, []);
+
+  // Combine firestore and local recordings
+  useEffect(() => {
+    const getTime = (val: any) => {
+      if (!val) return 0;
+      if (typeof val === 'number') return val;
+      if (val.seconds) return val.seconds * 1000;
+      if (val.toDate && typeof val.toDate === 'function') return val.toDate().getTime();
+      if (val instanceof Date) return val.getTime();
+      const parsed = Date.parse(val);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    const sorted = [...dbRecordings, ...localRecordings].sort((a, b) => {
+      return getTime(b.createdAt) - getTime(a.createdAt);
+    });
+    setRecordings(sorted);
+  }, [dbRecordings, localRecordings]);
 
   // Listen to Firestore recordings
   useEffect(() => {
@@ -110,7 +250,7 @@ export default function AudioUploads({
           duration: data.duration || 0
         });
       });
-      setRecordings(items);
+      setDbRecordings(items);
       setLoading(false);
     }, (err) => {
       console.error("Error fetching recordings:", err);
@@ -252,7 +392,16 @@ export default function AudioUploads({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   };
 
-  // Upload handler
+  const convertFileToBase64 = (file: File | Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // Upload handler which saves the file locally in IndexedDB as requested by the user
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) {
@@ -265,95 +414,63 @@ export default function AudioUploads({
       return;
     }
 
-    if (!storage) {
-      setErrorStatus("Erro: O Firebase Storage não está disponível no momento. Verifique as credenciais ou permissões do projeto.");
-      return;
-    }
-
     setIsUploading(true);
     setErrorStatus(null);
     setSuccessStatus(null);
-    setUploadProgress(5);
-
-    let progressInterval: any = null;
+    setUploadProgress(10);
 
     try {
-      // 1. Storage Reference path
-      const fileExt = selectedFile.name.split('.').pop() || 'mp3';
-      const storagePath = `recordings/${Date.now()}_upload.${fileExt}`;
-      const recordingRef = ref(storage, storagePath);
-
-      // Start a smooth fake progress simulation so the user gets instant visual responsive feedback
-      let currentProgress = 5;
-      progressInterval = setInterval(() => {
-        if (currentProgress < 85) {
-          currentProgress += Math.floor(Math.random() * 15) + 5;
-          if (currentProgress > 85) currentProgress = 85;
-          setUploadProgress(currentProgress);
-        }
-      }, 150);
-
-      // 2. Perform direct upload (extremely robust and handles proxy/sandboxes perfectly)
-      const uploadResult = await uploadBytes(recordingRef, selectedFile);
-      
-      clearInterval(progressInterval);
-      setUploadProgress(90);
-
-      // 3. Get the public file URL
-      const downloadUrl = await getDownloadURL(uploadResult.ref);
-      setUploadProgress(95);
-
-      // Get duration of the selected file if possible
+      // 1. Get the dynamic, accurate duration of the selected file
       let audioDur = 0;
       try {
         audioDur = await new Promise<number>((resolve) => {
-          const tempAudio = new Audio(URL.createObjectURL(selectedFile));
+          const u = URL.createObjectURL(selectedFile);
+          const tempAudio = new Audio(u);
           tempAudio.addEventListener('loadedmetadata', () => {
             resolve(tempAudio.duration || 0);
           });
           // safety timeout
-          setTimeout(() => resolve(0), 1200);
+          setTimeout(() => resolve(0), 1500);
         });
       } catch {
         audioDur = 0;
       }
 
-      // 4. Store record item in firestore
-      await addDoc(collection(db, 'recordings'), {
+      setUploadProgress(50);
+
+      // 2. Create the offline recording package with original uncompressed file
+      const newRecord = {
+        id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
         name: customName.trim(),
-        audioUrl: downloadUrl,
-        storagePath: storagePath, // save path for later deletion
+        blob: selectedFile, // Save the complete original uncompressed and unedited Blob in browser storage!
         createdBy: userId,
         createdByRole: userRole,
         createdByUsername: userIdentifier,
         fileType: getFormatLabel(selectedFile.name),
         fileSize: getFriendlySize(selectedFile.size),
         duration: audioDur,
-        createdAt: serverTimestamp()
-      });
+        createdAt: Date.now()
+      };
+
+      setUploadProgress(80);
+
+      // 3. Save into local IndexedDB
+      await saveLocalRecording(newRecord);
 
       setUploadProgress(100);
-      setSuccessStatus("Áudio enviado e disponibilizado com sucesso!");
+
+      // Refresh recordings list to make the new audio visible at once
+      await loadLocalRecordings();
+
+      setSuccessStatus("Áudio completo carregado e salvo com sucesso localmente (sem cortes ou editores)!");
       setSelectedFile(null);
       setCustomName('');
       setUploadProgress(null);
       setIsUploading(false);
 
     } catch (err: any) {
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-      console.error("Error uploading recording:", err);
-      
-      // Handle typical permission or CORS errors friendly
-      let userFriendlyError = err?.message || "Ocorreu um erro ao processar o upload.";
-      if (err?.code === 'storage/unauthorized' || userFriendlyError.includes('unauthorized') || userFriendlyError.includes('permission-denied')) {
-        userFriendlyError = "Permissão negada pelo Firebase Storage. Ative as regras públicas de leitura/escrita de Storage no Console do Firebase ou certifique-se de que o bucket está configurado.";
-      } else if (err?.code === 'storage/cannot-slice-blob' || userFriendlyError.includes('slice')) {
-        userFriendlyError = "Erro ao processar o arquivo de áudio. Experimente reenviar ou converter para um formato padrão.";
-      }
-      
-      setErrorStatus(userFriendlyError);
+      console.error("Error saving recording:", err);
+      setErrorStatus(err?.message || "Ocorreu um erro ao processar e salvar o áudio.");
       setIsUploading(false);
       setUploadProgress(null);
     }
@@ -368,14 +485,23 @@ export default function AudioUploads({
         setPlayingId(null);
       }
 
-      // Delete firestore document
+      // If the recording is local (stored in IndexedDB)
+      if (recording.isLocal) {
+        await deleteLocalRecording(recording.id);
+        await loadLocalRecordings();
+        setSuccessStatus("Áudio local removido com sucesso!");
+        setConfirmDeleteId(null);
+        return;
+      }
+
+      // If the recording is remote (stored in Firestore)
       await deleteDoc(doc(db, 'recordings', recording.id));
 
-      // Attempt to delete associated Storage object if present
-      const docSnap = recordings.find(r => r.id === recording.id);
+      // Attempt to delete associated Storage object if present and not a Base64 local fallback template
+      const docSnap = dbRecordings.find(r => r.id === recording.id);
       const storagePath = (docSnap as any)?.storagePath;
       
-      if (storagePath && storage) {
+      if (storagePath && storage && !recording.audioUrl.startsWith('data:')) {
         const fileRef = ref(storage, storagePath);
         await deleteObject(fileRef).catch(storageErr => {
           console.warn("Storage item delete skipped or not found:", storageErr);
@@ -546,7 +672,7 @@ export default function AudioUploads({
                   <div className="flex items-center justify-between text-xs font-bold text-orange-700">
                     <span className="flex items-center gap-1.5">
                       <Disc className="w-4 h-4 animate-spin text-orange-600" />
-                      Enviando para nuvem...
+                      Armazenando no dispositivo...
                     </span>
                     <span>{uploadProgress}%</span>
                   </div>
@@ -659,11 +785,11 @@ export default function AudioUploads({
                             {recording.name}
                           </h3>
                           
-                          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 flex-wrap mt-0.5">
+                          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 flex-wrap mt-1">
                             <span className="flex items-center gap-1 font-semibold text-gray-600">
-                              <User className="w-3 height-3 shrink-0" />
+                              <User className="w-3 h-3 shrink-0" />
                               {recording.createdByUsername} 
-                              <span className="text-gray-300">({recording.createdByRole})</span>
+                              <span className="text-gray-300 font-normal">({recording.createdByRole})</span>
                             </span>
                             <span>•</span>
                             <span className="bg-gray-100 text-gray-500 font-bold px-1.5 py-0.5 rounded uppercase">
@@ -671,6 +797,16 @@ export default function AudioUploads({
                             </span>
                             <span>•</span>
                             <span>{recording.fileSize}</span>
+                            <span>•</span>
+                            {recording.isLocal ? (
+                              <span className="bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded text-[9px] uppercase flex items-center gap-1" title="Este áudio está totalmente armazenado e processado de forma local no seu aparelho sem alterações de qualidade.">
+                                <HardDrive className="w-2.5 h-2.5" /> Local / Sem cortes
+                              </span>
+                            ) : (
+                              <span className="bg-orange-100 text-orange-800 font-extrabold px-1.5 py-0.5 rounded text-[9px] uppercase flex items-center gap-1" title="Este áudio está armazenado na nuvem.">
+                                <Database className="w-2.5 h-2.5" /> Nuvem
+                              </span>
+                            )}
                           </div>
                         </div>
 

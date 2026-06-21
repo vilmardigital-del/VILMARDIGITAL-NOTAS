@@ -89,7 +89,6 @@ import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import TvLivePlayer from './TvLivePlayer';
-import AudioUploads from './AudioUploads';
 import heic2any from 'heic2any';
 
 const CATEGORIES_MISSA: Category[] = [
@@ -744,7 +743,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         [&_.text-orange-500]:!text-chord-orange [&_.text-orange-500]:!font-bold
         [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold"
       >
-        <div className="max-w-2xl mx-auto p-6 md:p-10 pb-32">
+        <div className={`max-w-4xl mx-auto p-6 md:p-10 pb-32 gap-8 ${song.content && song.content.length > 800 ? 'columns-1 md:columns-2' : 'columns-1'}`}>
           {isHtml ? (
             <div 
               style={{ 
@@ -1396,8 +1395,8 @@ export default function App() {
   };
 
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'audios' | 'users' | 'events_panel' | 'photos' | 'tv'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'audios' | 'events_panel' | 'photos' | 'tv'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'users' | 'events_panel' | 'photos' | 'tv'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'events_panel' | 'photos' | 'tv'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -4077,24 +4076,6 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* AUDIOS UPLOAD TAB */}
-          {activeTab === 'audios' && (
-            <motion.div
-              key="audios-tab"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex-1 overflow-y-auto"
-            >
-              <AudioUploads 
-                currentUserDoc={currentUserDoc || undefined}
-                userRole={userRole}
-                userId={userId || 'public'}
-                userIdentifier={userIdentifier || 'Público'}
-              />
-            </motion.div>
-          )}
-
-
 
           {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
@@ -4467,17 +4448,6 @@ export default function App() {
         >
           <Tv className="w-5 h-5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Canais TV</span>
-        </button>
-
-        <button 
-          onClick={() => {
-            setActiveTab('audios');
-            setViewMode('audios');
-          }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'audios' ? 'text-white' : 'text-orange-200'}`}
-        >
-          <Headphones className="w-5 h-5" />
-          <span className="text-[8px] font-extrabold uppercase tracking-tight">Áudios</span>
         </button>
 
 

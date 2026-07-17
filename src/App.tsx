@@ -555,6 +555,37 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [transpose, setTranspose] = useState(initialTranspose);
   const [fontSize, setFontSize] = useState(16); // Default font size in px
   const [showControls, setShowControls] = useState(true);
+  const [isAppFullScreen, setIsAppFullScreen] = useState(false);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!isAppFullScreen) {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.info("Native fullscreen request blocked or not supported:", err);
+    }
+    setIsAppFullScreen(!isAppFullScreen);
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyNativeFull = !!document.fullscreenElement;
+      if (!isCurrentlyNativeFull && isAppFullScreen) {
+        setIsAppFullScreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [isAppFullScreen]);
 
   useEffect(() => {
     setTranspose(initialTranspose);
@@ -656,82 +687,112 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       className="fixed inset-0 z-50 bg-white text-gray-900 flex flex-col"
     >
 
-      {/* Header Fixo */}
-      <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
-        <div className="flex items-center gap-3 overflow-hidden mr-2">
-          <button 
-            onClick={onClose}
-            className="p-2 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full shrink-0"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <button 
-            onClick={() => {
-                const lyricsOnly = song.content.replace(CHORD_REGEX, '');
-                navigator.clipboard.writeText(lyricsOnly);
-                alert('Letra copiada!');
-            }}
-            className="p-2 text-gray-400 hover:text-orange-600 rounded-full"
-          >
-            <Clipboard className="w-5 h-5" />
-          </button>
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold leading-tight truncate">{song.title}</h1>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-orange-600">{getCategoryIcon(song.category, "w-3 h-3")}</span>
-              <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{song.category}</span>
-              {song.ownerId && (
-                <>
-                  <span className="text-gray-300 text-[10px]">•</span>
-                  <span className="text-[10px] text-gray-400 font-medium">Por: {song.ownerId}</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-          {song.youtubeUrl && (
-            <button 
-              onClick={() => setShowPlayer(!showPlayer)}
-              className={`p-2 rounded-lg transition-all ${showPlayer ? 'bg-orange-600 text-white shadow-lg' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
-              title="YouTube"
-            >
-              <Youtube className="w-5 h-5" />
-            </button>
-          )}
-          
-          <div className="h-6 w-[1px] bg-gray-100 mx-1"></div>
-
-          <div className="flex items-center bg-gray-50 rounded-lg p-0.5">
-            <button 
-              onClick={() => handleTranspose(-1)}
-              className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
-              title="Diminuir tom"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-[11px] font-black w-7 text-center text-orange-700">
-              {transpose > 0 ? `+${transpose}` : transpose}
-            </span>
-            <button 
-              onClick={() => handleTranspose(1)}
-              className="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all"
-              title="Aumentar tom"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          
-          <button 
-            onClick={onClose}
-            className="p-2 ml-1 text-gray-400 hover:bg-gray-100 rounded-full"
-            title="Fechar"
+      {/* Floating Exit for Full Screen mode */}
+      {isAppFullScreen && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+          <button
+            onClick={toggleFullscreen}
+            className="w-10 h-10 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-full shadow-lg transition-all"
+            title="Sair do Modo Tela Cheia"
           >
             <Minimize2 className="w-5 h-5" />
           </button>
         </div>
-      </div>
+      )}
+
+      {/* Header Fixo */}
+      {!isAppFullScreen && (
+        <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
+          <div className="flex items-center gap-3 overflow-hidden mr-2">
+            <button 
+              onClick={onClose}
+              className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 border border-transparent hover:border-orange-100/50 rounded-xl shrink-0 transition-all cursor-pointer"
+              title="Voltar"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
+                  {getCategoryIcon(song.category, "w-3 h-3 text-orange-600")}
+                  {song.category}
+                </span>
+                {song.ownerId && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
+                    Por: {song.ownerId}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Tom / Transposição */}
+            <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-xl p-0.5">
+              <button 
+                onClick={() => handleTranspose(-1)}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
+                title="Diminuir Tom"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <div className="px-1.5 text-center select-none flex flex-col justify-center min-w-[2.5rem]">
+                <span className="text-[8px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Tom</span>
+                <span className="text-[10px] font-black text-orange-700 leading-tight">
+                  {transpose > 0 ? `+${transpose}` : transpose === 0 ? 'Orig.' : transpose}
+                </span>
+              </div>
+              <button 
+                onClick={() => handleTranspose(1)}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
+                title="Aumentar Tom"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="h-6 w-[1px] bg-gray-200 mx-0.5"></div>
+
+            {/* Copiar Letra */}
+            <button 
+              onClick={() => {
+                  const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+                  navigator.clipboard.writeText(lyricsOnly);
+                  alert('Letra da música copiada com sucesso!');
+              }}
+              className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 hover:border-orange-100/50 border border-transparent rounded-xl transition-all cursor-pointer"
+              title="Copiar Letra (Sem Cifras)"
+            >
+              <Clipboard className="w-4.5 h-4.5" />
+            </button>
+
+            {/* YouTube Player */}
+            {song.youtubeUrl && (
+              <button 
+                onClick={() => setShowPlayer(!showPlayer)}
+                className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all cursor-pointer border ${
+                  showPlayer 
+                    ? 'bg-orange-600 text-white border-orange-600 shadow-sm' 
+                    : 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 border-transparent hover:border-orange-100/50'
+                }`}
+                title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
+              >
+                <Youtube className="w-4.5 h-4.5" />
+              </button>
+            )}
+
+            {/* Botão de Tela Cheia */}
+            <button 
+              onClick={toggleFullscreen}
+              className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 hover:border-orange-100/50 border border-transparent rounded-xl transition-all cursor-pointer"
+              title="Modo Tela Cheia"
+            >
+              <Maximize2 className="w-4.5 h-4.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Área de Conteúdo */}
       <div 
@@ -849,6 +910,22 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               A+
             </button>
           </div>
+
+          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
+
+          {/* Botão de Tela Cheia */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
+              isAppFullScreen 
+                ? 'bg-orange-600 text-white shadow-md animate-pulse' 
+                : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
+            }`}
+            title={isAppFullScreen ? "Sair da Tela Cheia" : "Modo Tela Cheia"}
+          >
+            {isAppFullScreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          </button>
 
           <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
 
@@ -1605,7 +1682,8 @@ export default function App() {
       onAuthStateChanged(auth, (user) => {
         if (!user) {
           signInAnonymously(auth).catch((error) => {
-            console.error("Firebase Auth anonymous error:", error);
+            // Log as info/warn since standard Firestore operations do not mandate auth on this project
+            console.info("Firebase Anonymous Auth restricted or disabled. Proceeding unauthenticated:", error.message || error);
           });
         }
       });
@@ -2652,25 +2730,34 @@ export default function App() {
                                   setLightboxIndex(index);
                                 }}
                               >
-                                {/* Imagem de fundo desfocada para preencher as laterais e evitar cortes brutos */}
-                                <img 
-                                  src={photo.url} 
-                                  alt="" 
-                                  className="absolute inset-0 w-full h-full object-cover blur-lg opacity-45 scale-110 select-none pointer-events-none"
-                                  referrerPolicy="no-referrer"
-                                />
-                                {/* Imagem principal centralizada sem nenhum tipo de corte */}
-                                <img 
-                                  src={photo.url} 
-                                  className="relative w-full h-full object-contain z-10 transition-transform duration-500 group-hover:scale-101" 
-                                  alt={photo.description || "Foto da Celebração"} 
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="absolute inset-0 bg-black/15 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-15">
-                                  <div className="bg-orange-600/90 text-white p-2.5 rounded-full shadow-lg scale-90 group-hover:scale-100 transition-all duration-300">
-                                    <Download className="w-5 h-5 animate-pulse" />
+                                {photo.url ? (
+                                  <>
+                                    {/* Imagem de fundo desfocada para preencher as laterais e evitar cortes brutos */}
+                                    <img 
+                                      src={photo.url} 
+                                      alt="" 
+                                      className="absolute inset-0 w-full h-full object-cover blur-lg opacity-45 scale-110 select-none pointer-events-none"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    {/* Imagem principal centralizada sem nenhum tipo de corte */}
+                                    <img 
+                                      src={photo.url} 
+                                      className="relative w-full h-full object-contain z-10 transition-transform duration-500 group-hover:scale-101" 
+                                      alt={photo.description || "Foto da Celebração"} 
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="absolute inset-0 bg-black/15 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-15">
+                                      <div className="bg-orange-600/90 text-white p-2.5 rounded-full shadow-lg scale-90 group-hover:scale-100 transition-all duration-300">
+                                        <Download className="w-5 h-5 animate-pulse" />
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="absolute inset-0 bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-500 flex flex-col justify-center items-center p-6 text-center select-none">
+                                    <Music className="w-14 h-14 text-white/90 animate-pulse mb-3" />
+                                    <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">Cifras Digitais</span>
                                   </div>
-                                </div>
+                                )}
                                 {photo.description && (
                                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-10 flex flex-col justify-end z-20">
                                     <p className="font-extrabold text-xs sm:text-sm text-white leading-tight uppercase tracking-tight max-w-[90%] drop-shadow-xs">
@@ -4555,7 +4642,7 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 1.05 }}
                   transition={{ duration: 0.25, ease: 'easeOut' }}
-                  src={lightboxPhotos[lightboxIndex].url}
+                  src={lightboxPhotos[lightboxIndex].url || undefined}
                   alt={lightboxPhotos[lightboxIndex].description || "Visualização da Foto"}
                   className="max-h-[70vh] max-w-full object-contain rounded-2xl shadow-2xl border border-white/5"
                   referrerPolicy="no-referrer"

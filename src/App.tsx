@@ -553,7 +553,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
-  const [fontSize, setFontSize] = useState(16); // Default font size in px
+  const [fontSize, setFontSize] = useState(14); // Default font size in px
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
 

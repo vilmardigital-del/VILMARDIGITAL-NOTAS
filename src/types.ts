@@ -40,6 +40,7 @@ export interface Song {
   textAlign?: 'left' | 'center' | 'right';
   createdAt: any;
   updatedAt: any;
+  timings?: Array<{ id: number; startTime: number; endTime: number }>;
 }
 
 export interface Playlist {

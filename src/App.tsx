@@ -38,6 +38,7 @@ import {
   Search, 
   ChevronLeft, 
   ChevronDown,
+  Clock,
   ChevronUp,
   Maximize2, 
   Minimize2, 
@@ -582,13 +583,15 @@ const isChordLine = (line: string) => {
   return chordsCount / wordsCount >= 0.4;
 };
 
-const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange }: { 
+const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, userRole, isMasterAdmin }: { 
   song: Song, 
   onClose: () => void,
   onPrev?: () => void,
   onNext?: () => void,
   initialTranspose?: number,
-  onTransposeChange?: (val: number) => void
+  onTransposeChange?: (val: number) => void,
+  userRole?: 'admin' | 'viewer' | null,
+  isMasterAdmin?: boolean
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
@@ -596,30 +599,90 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
 
-  // Karaokê States & Refs
-  const [isKaraokeMode, setIsKaraokeMode] = useState(false);
-  const [karaokePlaying, setKaraokePlaying] = useState(false);
-  const [karaokeTime, setKaraokeTime] = useState(0);
-  const [karaokeDuration, setKaraokeDuration] = useState(180); // Default total duration
-  const [startOffset, setStartOffset] = useState(0); // Offset for when lyrics start
-  const [showChordsInKaraoke, setShowChordsInKaraoke] = useState(true);
-  const [playerReady, setPlayerReady] = useState(false);
-  
-  const playerRef = useRef<any>(null);
-  const activeLineRef = useRef<HTMLDivElement | null>(null);
+  // States for Rolagem Colorida
+  const [isColorScrollActive, setIsColorScrollActive] = useState(false);
+  const [isScrollPlaying, setIsScrollPlaying] = useState(true);
+  const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
 
-  const extractYoutubeId = (url: string) => {
-    if (!url) return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
-  };
+  useEffect(() => {
+    if (!isColorScrollActive || !isScrollPlaying) return;
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
+    let animationFrameId: number;
+    const scrollSpeed = 16; // comfortable speed of 16px per second
+
+    const scrollLoop = (time: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = time;
+      const deltaTime = (time - lastTimeRef.current) / 1000;
+      lastTimeRef.current = time;
+
+      const container = document.getElementById('song-content-area');
+      if (container) {
+        container.scrollTop += scrollSpeed * deltaTime;
+      }
+
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+
+    lastTimeRef.current = 0;
+    animationFrameId = requestAnimationFrame(scrollLoop);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isColorScrollActive, isScrollPlaying]);
+
+  useEffect(() => {
+    const container = document.getElementById('song-content-area');
+    if (!container) return;
+
+    const handleScroll = () => {
+      if (!isColorScrollActive) {
+        setActiveLineIndex(null);
+        return;
+      }
+      const lines = container.getElementsByClassName('lyric-line-item');
+      if (lines.length === 0) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const focusZoneY = containerRect.height * 0.25; // Focus zone at 25% from top
+      const ratio = Math.min(container.scrollTop / (focusZoneY || 1), 1);
+      const targetY = containerRect.top + focusZoneY * ratio;
+
+      let closestIndex = null;
+      let minDiff = Infinity;
+
+      for (let idx = 0; idx < lines.length; idx++) {
+        const el = lines[idx];
+        const rect = el.getBoundingClientRect();
+        const elCenter = rect.top + rect.height / 2;
+        const diff = Math.abs(elCenter - targetY);
+        if (diff < minDiff) {
+          minDiff = diff;
+          const lineIdxStr = el.getAttribute('data-line-index');
+          if (lineIdxStr !== null) {
+            closestIndex = parseInt(lineIdxStr, 10);
+          }
+        }
+      }
+
+      if (closestIndex !== null) {
+        setActiveLineIndex(closestIndex);
+      }
+    };
+
+    if (isColorScrollActive) {
+      container.addEventListener('scroll', handleScroll);
+      // Run initially to capture current line
+      const timer = setTimeout(handleScroll, 100);
+      return () => {
+        container.removeEventListener('scroll', handleScroll);
+        clearTimeout(timer);
+      };
+    } else {
+      setActiveLineIndex(null);
+    }
+  }, [isColorScrollActive]);
 
   const toggleFullscreen = async () => {
     try {
@@ -662,8 +725,12 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       if ('wakeLock' in navigator) {
         try {
           wakeLock = await (navigator as any).wakeLock.request('screen');
-        } catch (err) {
-          console.error('Wake Lock failed:', err);
+        } catch (err: any) {
+          if (err?.name === 'NotAllowedError' || err?.message?.includes('permissions policy') || err?.message?.includes('disallowed')) {
+            console.info('Wake Lock desabilitado por política de permissões neste ambiente.');
+          } else {
+            console.warn('Wake Lock falhou:', err);
+          }
         }
       }
     };
@@ -684,213 +751,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     setTranspose(newVal);
     onTransposeChange?.(newVal);
   };
-
-  // YouTube Iframe API Integration
-  useEffect(() => {
-    if (!isKaraokeMode || !song.youtubeUrl) return;
-
-    const videoId = extractYoutubeId(song.youtubeUrl);
-    if (!videoId) return;
-
-    let ytPlayer: any = null;
-
-    const initPlayer = () => {
-      if ((window as any).YT && (window as any).YT.Player) {
-        try {
-          ytPlayer = new (window as any).YT.Player('karaoke-yt-player-element', {
-            height: '100%',
-            width: '100%',
-            videoId: videoId,
-            playerVars: {
-              autoplay: 0,
-              controls: 1,
-              modestbranding: 1,
-              rel: 0,
-              fs: 1
-            },
-            events: {
-              onReady: (event: any) => {
-                playerRef.current = event.target;
-                setPlayerReady(true);
-                const duration = event.target.getDuration();
-                if (duration > 0) {
-                  setKaraokeDuration(duration);
-                }
-              },
-              onStateChange: (event: any) => {
-                // YT.PlayerState.PLAYING = 1, PAUSED = 2, ENDED = 0
-                if (event.data === 1) {
-                  setKaraokePlaying(true);
-                } else if (event.data === 2 || event.data === 0) {
-                  setKaraokePlaying(false);
-                }
-              }
-            }
-          });
-        } catch (e) {
-          console.error("Error creating YouTube player:", e);
-        }
-      }
-    };
-
-    if (!(window as any).YT) {
-      const tag = document.createElement('script');
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-      
-      const prevCallback = (window as any).onYouTubeIframeAPIReady;
-      (window as any).onYouTubeIframeAPIReady = () => {
-        if (prevCallback) prevCallback();
-        initPlayer();
-      };
-    } else {
-      initPlayer();
-    }
-
-    return () => {
-      if (ytPlayer && typeof ytPlayer.destroy === 'function') {
-        try {
-          ytPlayer.destroy();
-        } catch (err) {
-          console.warn("YouTube player destroy failed:", err);
-        }
-      }
-      playerRef.current = null;
-      setPlayerReady(false);
-    };
-  }, [isKaraokeMode, song.youtubeUrl, song.id]);
-
-  // Sync Timer for Karaoke Mode
-  useEffect(() => {
-    if (!karaokePlaying) return;
-
-    const interval = setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-        const currentTime = playerRef.current.getCurrentTime();
-        setKaraokeTime(currentTime);
-      } else {
-        setKaraokeTime(prev => {
-          const next = prev + 0.1;
-          if (next >= karaokeDuration) {
-            setKaraokePlaying(false);
-            return karaokeDuration;
-          }
-          return next;
-        });
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [karaokePlaying, karaokeDuration]);
-
-  // Handle Play/Pause
-  const handlePlayPause = () => {
-    if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-      if (karaokePlaying) {
-        playerRef.current.pauseVideo();
-      } else {
-        playerRef.current.playVideo();
-      }
-    } else {
-      setKaraokePlaying(!karaokePlaying);
-    }
-  };
-
-  // Handle Reset
-  const handleReset = () => {
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-      playerRef.current.seekTo(0, true);
-      playerRef.current.pauseVideo();
-    }
-    setKaraokeTime(0);
-    setKaraokePlaying(false);
-  };
-
-  // Jump to specific line time
-  const handleLineClick = (startTime: number) => {
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-      playerRef.current.seekTo(startTime, true);
-    }
-    setKaraokeTime(startTime);
-  };
-
-  // Group and timing parsing logic for Karaoke mode
-  const karaokeGroups = useMemo(() => {
-    const lines = (song.content || "").split('\n');
-    const parsed: Array<{ chords?: string; lyrics?: string; header?: string; rawLineIndex: number }> = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      
-      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        parsed.push({ header: trimmed, rawLineIndex: i });
-      } else if (isChordLine(line)) {
-        const nextLine = lines[i + 1];
-        if (nextLine && !isChordLine(nextLine) && nextLine.trim() && !nextLine.trim().startsWith('[')) {
-          parsed.push({ chords: line, lyrics: nextLine, rawLineIndex: i });
-          i++;
-        } else {
-          parsed.push({ chords: line, rawLineIndex: i });
-        }
-      } else {
-        parsed.push({ lyrics: line, rawLineIndex: i });
-      }
-    }
-
-    // Calculate character weights
-    let totalChars = 0;
-    parsed.forEach(g => {
-      if (g.lyrics) {
-        totalChars += g.lyrics.trim().length;
-      } else if (g.chords) {
-        totalChars += g.chords.trim().length * 0.5;
-      } else if (g.header) {
-        totalChars += 10;
-      }
-    });
-    if (totalChars === 0) totalChars = 1;
-
-    const activeDuration = Math.max(10, karaokeDuration - startOffset);
-    const N = parsed.length;
-    const baseline = N > 0 ? Math.min(1.5, activeDuration / N) : 1.5;
-    const remainingDuration = activeDuration - (N * baseline);
-
-    let currentPlayhead = startOffset;
-    return parsed.map((g, index) => {
-      const charWeight = g.lyrics 
-        ? g.lyrics.trim().length 
-        : (g.chords ? g.chords.trim().length * 0.5 : 10);
-      const groupDuration = baseline + (charWeight / totalChars) * remainingDuration;
-      const start = currentPlayhead;
-      const end = currentPlayhead + groupDuration;
-      currentPlayhead = end;
-      return {
-        ...g,
-        id: index,
-        startTime: start,
-        endTime: end
-      };
-    });
-  }, [song.content, karaokeDuration, startOffset]);
-
-  // Find active group ID
-  const activeId = useMemo(() => {
-    const active = karaokeGroups.find(g => karaokeTime >= g.startTime && karaokeTime <= g.endTime);
-    return active ? active.id : -1;
-  }, [karaokeGroups, karaokeTime]);
-
-  // Center active line ref
-  useEffect(() => {
-    if (activeId !== -1 && activeLineRef.current) {
-      activeLineRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
-    }
-  }, [activeId]);
 
   const transposeHtml = (html: string, semitones: number) => {
     // Clean existing spans to avoid doubling up
@@ -914,13 +774,11 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       animate={{ opacity: 0.99, y: 0 }}
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className={`fixed inset-0 z-50 flex flex-col transition-colors duration-300 ${
-        isKaraokeMode ? 'bg-slate-950 text-white' : 'bg-white text-gray-900'
-      }`}
+      className="fixed inset-0 z-50 flex flex-col bg-white text-gray-900 selection:bg-orange-500/30"
     >
 
       {/* Floating Exit for Full Screen mode */}
-      {isAppFullScreen && !isKaraokeMode && (
+      {isAppFullScreen && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
           <button
             onClick={toggleFullscreen}
@@ -933,522 +791,307 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       )}
 
       {/* Header Fixo */}
-      {isKaraokeMode ? (
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-sm z-20 text-white shrink-0">
+      {!isAppFullScreen && (
+        <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
           <div className="flex items-center gap-3 overflow-hidden mr-2">
             <button 
-              onClick={() => setIsKaraokeMode(false)}
-              className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-orange-500 hover:bg-slate-800 border border-transparent rounded-xl shrink-0 transition-all cursor-pointer"
-              title="Voltar para Modo Cifra"
+              onClick={onClose}
+              className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 border border-transparent hover:border-orange-100/50 rounded-xl shrink-0 transition-all cursor-pointer"
+              title="Voltar"
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-base sm:text-lg font-black leading-tight truncate text-slate-100 tracking-tight flex items-center gap-2">
-                <Mic2 className="w-5 h-5 text-orange-500 animate-bounce shrink-0" />
-                <span className="truncate">{song.title}</span>
-                <span className="hidden sm:inline-block text-[9px] font-black text-orange-500 px-1.5 py-0.5 rounded bg-orange-950/50 uppercase tracking-widest border border-orange-900/50">Karaokê</span>
-              </h1>
+              <h1 className="text-base sm:text-lg font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
+                  {getCategoryIcon(song.category, "w-3 h-3 text-orange-600")}
+                  {song.category}
+                </span>
+                {song.ownerId && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
+                    Por: {song.ownerId}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-          
-          <button
-            onClick={() => setIsKaraokeMode(false)}
-            className="px-3 sm:px-4 h-9 flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border border-slate-700"
-          >
-            <X className="w-4 h-4 text-orange-500" />
-            <span className="hidden sm:inline">Modo Cifra</span>
-            <span className="sm:hidden">Sair</span>
-          </button>
-        </div>
-      ) : (
-        !isAppFullScreen && (
-          <div className="bg-white border-b border-orange-100 px-4 py-3 flex items-center justify-between shadow-sm z-20">
-            <div className="flex items-center gap-3 overflow-hidden mr-2">
+
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* 1. Tom / Transposição */}
+            <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-xl p-0.5">
               <button 
-                onClick={onClose}
-                className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 border border-transparent hover:border-orange-100/50 rounded-xl shrink-0 transition-all cursor-pointer"
-                title="Voltar"
+                onClick={() => handleTranspose(-1)}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
+                title="Diminuir Tom"
               >
-                <ChevronLeft className="w-6 h-6" />
+                <Minus className="w-3.5 h-3.5" />
               </button>
-              <div className="min-w-0">
-                <h1 className="text-base sm:text-lg font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
-                <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
-                    {getCategoryIcon(song.category, "w-3 h-3 text-orange-600")}
-                    {song.category}
-                  </span>
-                  {song.ownerId && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
-                      Por: {song.ownerId}
-                    </span>
-                  )}
-                </div>
+              <div className="px-1.5 text-center select-none flex flex-col justify-center min-w-[2.2rem]">
+                <span className="text-[7.5px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Tom</span>
+                <span className="text-[10px] font-black text-orange-700 leading-tight">
+                  {transpose > 0 ? `+${transpose}` : transpose === 0 ? 'Orig.' : transpose}
+                </span>
               </div>
+              <button 
+                onClick={() => handleTranspose(1)}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
+                title="Aumentar Tom"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Tom / Transposição */}
-              <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-xl p-0.5">
-                <button 
-                  onClick={() => handleTranspose(-1)}
-                  className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
-                  title="Diminuir Tom"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-                <div className="px-1.5 text-center select-none flex flex-col justify-center min-w-[2.5rem]">
-                  <span className="text-[8px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Tom</span>
-                  <span className="text-[10px] font-black text-orange-700 leading-tight">
-                    {transpose > 0 ? `+${transpose}` : transpose === 0 ? 'Orig.' : transpose}
-                  </span>
-                </div>
-                <button 
-                  onClick={() => handleTranspose(1)}
-                  className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all cursor-pointer"
-                  title="Aumentar Tom"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
+            {/* 2. Botão Modo Show (Compacto) */}
+            <button 
+              onClick={() => {
+                const targetState = !isColorScrollActive;
+                setIsColorScrollActive(targetState);
+                if (targetState) {
+                  setIsScrollPlaying(true);
+                  const container = document.getElementById('song-content-area');
+                  if (container) container.scrollTop = 0;
+                  setActiveLineIndex(0);
+                } else {
+                  setActiveLineIndex(null);
+                }
+              }}
+              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                isColorScrollActive 
+                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white border-transparent shadow-sm' 
+                  : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 hover:shadow-sm'
+              }`}
+              title="Iniciar Rolagem Colorida"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isColorScrollActive ? 'text-white animate-spin' : 'text-orange-500 animate-pulse'}`} />
+              <span>Show</span>
+            </button>
 
-              <div className="h-6 w-[1px] bg-gray-200 mx-0.5"></div>
+            <div className="h-6 w-[1px] bg-gray-200 mx-0.5"></div>
 
-              {/* Copiar Letra */}
+            {/* 3. Copiar Letra */}
+            <button 
+              onClick={() => {
+                const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+                navigator.clipboard.writeText(lyricsOnly);
+                alert('Letra da música copiada com sucesso!');
+              }}
+              className="w-8 h-8 flex items-center justify-center border border-transparent hover:border-orange-100/50 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all cursor-pointer"
+              title="Copiar Letra (Sem Cifras)"
+            >
+              <Clipboard className="w-4 h-4" />
+            </button>
+
+            {/* 4. YouTube Player */}
+            {song.youtubeUrl && (
               <button 
-                onClick={() => {
-                    const lyricsOnly = song.content.replace(CHORD_REGEX, '');
-                    navigator.clipboard.writeText(lyricsOnly);
-                    alert('Letra da música copiada com sucesso!');
-                }}
-                className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 hover:border-orange-100/50 border border-transparent rounded-xl transition-all cursor-pointer"
-                title="Copiar Letra (Sem Cifras)"
-              >
-                <Clipboard className="w-4.5 h-4.5" />
-              </button>
-
-              {/* YouTube Player */}
-              {song.youtubeUrl && (
-                <button 
-                  onClick={() => setShowPlayer(!showPlayer)}
-                  className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all cursor-pointer border ${
-                    showPlayer 
-                      ? 'bg-orange-600 text-white border-orange-600 shadow-sm' 
-                      : 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 border-transparent hover:border-orange-100/50'
-                  }`}
-                  title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
-                >
-                  <Youtube className="w-4.5 h-4.5" />
-                </button>
-              )}
-
-              {/* Botão de Karaokê */}
-              <button 
-                onClick={() => {
-                  setIsKaraokeMode(true);
-                  setShowPlayer(false);
-                }}
-                className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all cursor-pointer border ${
-                  isKaraokeMode 
+                onClick={() => setShowPlayer(!showPlayer)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl transition-all cursor-pointer border ${
+                  showPlayer 
                     ? 'bg-orange-600 text-white border-orange-600 shadow-sm' 
                     : 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 border-transparent hover:border-orange-100/50'
                 }`}
-                title="Modo Karaokê"
+                title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
               >
-                <Mic2 className="w-4.5 h-4.5" />
+                <Youtube className="w-4 h-4" />
               </button>
+            )}
 
-              {/* Botão de Tela Cheia */}
-              <button 
-                onClick={toggleFullscreen}
-                className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 hover:border-orange-100/50 border border-transparent rounded-xl transition-all cursor-pointer"
-                title="Modo Tela Cheia"
-              >
-                <Maximize2 className="w-4.5 h-4.5" />
-              </button>
-            </div>
+            {/* 5. Botão de Tela Cheia */}
+            <button 
+              onClick={toggleFullscreen}
+              className="w-8 h-8 flex items-center justify-center border border-transparent hover:border-orange-100/50 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all cursor-pointer"
+              title="Modo Tela Cheia"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
           </div>
-        )
+        </div>
       )}
 
       {/* Área de Conteúdo */}
-      {isKaraokeMode ? (
-        <div className="flex-1 flex flex-col lg:flex-row bg-slate-950 text-white overflow-hidden select-none">
-          {/* Painel Lateral / Superior: Player de Vídeo e Configurações de Sync */}
-          <div className="w-full lg:w-[400px] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800 bg-slate-900/50 backdrop-blur-md flex flex-col z-10 overflow-y-auto">
-            
-            {/* Elemento Iframe do Player do YouTube */}
-            <div className="w-full aspect-video bg-black relative border-b border-slate-800">
-              {song.youtubeUrl ? (
-                <div id="karaoke-yt-player-element" className="w-full h-full" />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center gap-2">
-                  <Youtube className="w-8 h-8 text-slate-600" />
-                  <span className="text-xs font-semibold">Sem vídeo do YouTube vinculado</span>
-                  <span className="text-[10px] text-slate-500 max-w-xs">Adicione um link do YouTube para ter a sincronização automática de áudio!</span>
-                </div>
-              )}
-            </div>
-
-            {/* Painel de Controle de Karaoke */}
-            <div className="p-4 flex-1 flex flex-col gap-4">
-              {/* Botões Centrais */}
-              <div className="flex items-center justify-between gap-3 bg-slate-800/40 p-2 rounded-xl border border-slate-700/50">
-                <button
-                  onClick={handlePlayPause}
-                  className="flex-1 h-10 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-wider rounded-lg transition-all active:scale-98 cursor-pointer shadow-lg shadow-orange-950/30"
-                >
-                  {karaokePlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  {karaokePlaying ? "Pausar" : "Iniciar"}
-                </button>
+      <div 
+        id="song-content-area"
+        className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500"
+      >
+        <div className={`max-w-4xl mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
+          isColorScrollActive 
+            ? 'pb-[60vh] columns-1' 
+            : (song.content && song.content.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1')
+        }`}>
+          {isHtml ? (
+            <div 
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: song.lineHeight || 1.5,
+                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
+                textAlign: song.textAlign || 'left'
+              }}
+              className={`font-mono transition-all rich-text-song whitespace-pre-wrap text-black font-bold ${
+                isColorScrollActive 
+                  ? '[&_.text-chord-orange]:!text-rose-600 [&_.text-chord-orange]:!font-black [&_.text-chord-orange]:scale-105 [&_.text-chord-orange]:inline-block' 
+                  : '[&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold'
+              }`}
+              dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
+            />
+          ) : (
+            <div 
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: song.lineHeight || 1.5,
+                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
+                textAlign: song.textAlign || 'left'
+              }}
+              className="whitespace-pre-wrap font-mono transition-all text-black"
+            >
+              {processedContent.split('\n').map((line, i) => {
+                const isChords = isChordLine(line);
+                const isLyricLine = !isChords && line.trim().length > 0;
+                const parts = line.split(/(\s+)/);
                 
-                <button
-                  onClick={handleReset}
-                  className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-300 hover:text-white transition-all cursor-pointer"
-                  title="Reiniciar"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Barra de Progresso de Tempo */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-[10px] uppercase font-extrabold text-slate-400 tracking-wider">
-                  <span>Tempo decorrido</span>
-                  <span className="font-mono text-orange-400">
-                    {formatTime(karaokeTime)} / {formatTime(karaokeDuration)}
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden relative">
-                  <div 
-                    className="h-full bg-orange-600 rounded-full transition-all duration-100 ease-out" 
-                    style={{ width: `${Math.min(100, (karaokeTime / (karaokeDuration || 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Configurações de sincronização */}
-              <div className="space-y-4 pt-3 border-t border-slate-800">
-                <h3 className="text-[10px] uppercase font-black text-orange-500 tracking-widest">Sincronia do Ritmo</h3>
+                // A lyric line is active if activeLineIndex matches i
+                const isLyricActive = isColorScrollActive && isLyricLine && activeLineIndex === i;
                 
-                {/* Intro Delay Offset */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                    <span>Atraso Inicial (Intro):</span>
-                    <span className="font-mono text-slate-300">{startOffset.toFixed(1)}s</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setStartOffset(prev => Math.max(0, prev - 1))}
-                      className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-md text-xs font-black text-slate-300 cursor-pointer"
-                    >
-                      -1s
-                    </button>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="60" 
-                      step="0.5"
-                      value={startOffset}
-                      onChange={(e) => setStartOffset(parseFloat(e.target.value))}
-                      className="flex-1 accent-orange-600 bg-slate-800 h-1 rounded-lg cursor-pointer"
-                    />
-                    <button 
-                      onClick={() => setStartOffset(prev => Math.min(120, prev + 1))}
-                      className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-md text-xs font-black text-slate-300 cursor-pointer"
-                    >
-                      +1s
-                    </button>
-                  </div>
-                  <p className="text-[9px] text-slate-500">Ajuste o tempo que as letras levam para iniciar.</p>
-                </div>
-
-                {/* Duration Override */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                    <span>Duração Ajustada:</span>
-                    <span className="font-mono text-slate-300">{formatTime(karaokeDuration)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setKaraokeDuration(prev => Math.max(30, prev - 5))}
-                      className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-md text-xs font-black text-slate-300 cursor-pointer"
-                    >
-                      -5s
-                    </button>
-                    <input 
-                      type="range" 
-                      min="30" 
-                      max="600" 
-                      step="5"
-                      value={karaokeDuration}
-                      onChange={(e) => setKaraokeDuration(parseFloat(e.target.value))}
-                      className="flex-1 accent-orange-600 bg-slate-800 h-1 rounded-lg cursor-pointer"
-                    />
-                    <button 
-                      onClick={() => setKaraokeDuration(prev => Math.min(1200, prev + 5))}
-                      className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-md text-xs font-black text-slate-300 cursor-pointer"
-                    >
-                      +5s
-                    </button>
-                  </div>
-                  <p className="text-[9px] text-slate-500">Acelere ou desacelere a velocidade geral de subida das linhas.</p>
-                </div>
-              </div>
-
-              {/* Chords toggle inside Karaoke */}
-              <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
-                <label className="flex items-center gap-2.5 cursor-pointer text-[11px] text-slate-300 hover:text-white font-semibold">
-                  <input 
-                    type="checkbox" 
-                    checked={showChordsInKaraoke}
-                    onChange={(e) => setShowChordsInKaraoke(e.target.checked)}
-                    className="accent-orange-600 w-4 h-4 rounded border-slate-700 bg-slate-850"
-                  />
-                  <span>Mostrar cifras acima da letra</span>
-                </label>
-              </div>
-              
-              {/* Help Tip */}
-              <div className="mt-auto bg-orange-950/20 border border-orange-900/30 p-2.5 rounded-xl text-[9px] text-orange-300/80 leading-relaxed">
-                💡 <strong>Dica Karaokê:</strong> Toque/clique diretamente em qualquer frase do lado direito para saltar para aquele momento da música!
-              </div>
-            </div>
-          </div>
-
-          {/* Área Principal de Rolagem das Letras */}
-          <div 
-            className="flex-1 overflow-y-auto px-4 sm:px-8 py-24 md:py-36 flex flex-col items-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 scrollbar-none relative"
-            id="karaoke-lyrics-viewport"
-          >
-            <div className="max-w-xl w-full space-y-6 sm:space-y-8 select-none text-center">
-              {karaokeGroups.map((g) => {
-                const isCurrent = g.id === activeId;
-                const isPassed = g.id < activeId;
-                const progress = isCurrent 
-                  ? Math.min(100, Math.max(0, ((karaokeTime - g.startTime) / (g.endTime - g.startTime || 1)) * 100))
-                  : isPassed ? 100 : 0;
+                // A chord line is active if the lyric line immediately below it (i + 1) is active
+                const isChordActive = isColorScrollActive && isChords && activeLineIndex === i + 1;
 
                 return (
-                  <div
-                    key={g.id}
-                    ref={isCurrent ? activeLineRef : null}
-                    onClick={() => handleLineClick(g.startTime)}
-                    className={`p-3 sm:p-5 rounded-2xl transition-all duration-300 cursor-pointer border ${
-                      isCurrent 
-                        ? 'bg-orange-600/10 border-orange-500/30 shadow-xl shadow-orange-950/20 scale-103' 
-                        : 'border-transparent opacity-30 hover:opacity-75 hover:bg-slate-800/10'
+                  <div 
+                    key={i} 
+                    data-line-index={isLyricLine ? i : undefined}
+                    className={`min-h-[1.2em] relative transition-all duration-300 ${isLyricLine ? 'lyric-line-item' : ''} ${
+                      isColorScrollActive 
+                        ? (isChords 
+                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.15em] scale-105 origin-left pb-1 mt-3.5' : 'text-chord-orange font-bold opacity-80 scale-95 origin-left pb-1 mt-2') 
+                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.25)] font-black text-xl md:text-2xl scale-105 origin-left py-1.5' : 'text-gray-400 font-bold opacity-35 scale-95 origin-left py-1')
+                          )
+                        : (isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold')
                     }`}
                   >
-                    {/* Header de Seção */}
-                    {g.header && (
-                      <div className="text-[10px] font-black uppercase tracking-widest text-orange-500/80 mb-1">
-                        {g.header}
-                      </div>
-                    )}
-
-                    {/* Linha de Cifras */}
-                    {showChordsInKaraoke && g.chords && (
-                      <div 
-                        className={`font-mono font-bold text-sm sm:text-base tracking-wide whitespace-pre-wrap select-none ${
-                          isCurrent ? 'text-orange-400' : 'text-slate-500'
-                        }`}
-                      >
-                        {transpose !== 0 ? transposeHtml(g.chords, transpose).replace(/<[^>]*>/g, '') : g.chords}
-                      </div>
-                    )}
-
-                    {/* Linha de Letra */}
-                    {g.lyrics && (
-                      <div className="mt-1 leading-snug">
-                        <span 
-                          className={`font-black tracking-tight leading-snug break-words transition-all duration-200 ${
-                            isCurrent 
-                              ? 'text-lg sm:text-xl md:text-2xl text-orange-500 font-extrabold' 
-                              : 'text-base sm:text-lg text-slate-300'
-                          }`}
-                          style={isCurrent ? {
-                            background: `linear-gradient(to right, #f97316 ${progress}%, #e2e8f0 ${progress}%)`,
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            display: 'inline-block'
-                          } : undefined}
-                        >
-                          {g.lyrics}
-                        </span>
-                      </div>
-                    )}
+                    {parts.map((part, j) => {
+                      const trimmedPart = part.trim();
+                      const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
+                      if (isChord && trimmedPart.length > 0) {
+                        const transposed = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
+                        return (
+                           <span 
+                            key={j} 
+                            className={`transition-all duration-300 ${
+                              isColorScrollActive 
+                                ? (isChordActive ? 'font-black scale-105 inline-block text-chord-orange' : 'font-bold text-chord-orange') 
+                                : 'font-bold text-chord-orange !text-chord-orange'
+                            }`}
+                          >
+                            {part.replace(trimmedPart, transposed)}
+                          </span>
+                        );
+                      }
+                      return <span key={j}>{part}</span>;
+                    })}
                   </div>
                 );
               })}
             </div>
-          </div>
+          )}
         </div>
-      ) : (
-        <div 
-          id="song-content-area"
-          className="flex-1 overflow-auto bg-gray-50/30 
-          [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold
-          [&_.text-orange-655]:!text-chord-orange [&_.text-orange-655]:!font-bold
-          [&_.text-orange-600]:!text-chord-orange [&_.text-orange-600]:!font-bold
-          [&_.text-orange-500]:!text-chord-orange [&_.text-orange-500]:!font-bold
-          [&_p]:text-black [&_p]:font-bold [&_div]:text-black [&_div]:font-bold"
-        >
-          <div className={`max-w-4xl mx-auto p-6 md:p-10 pb-32 gap-8 ${song.content && song.content.length > 800 ? 'columns-1 md:columns-2' : 'columns-1'}`}>
-            {isHtml ? (
-              <div 
-                style={{ 
-                  fontSize: `${fontSize}px`,
-                  lineHeight: song.lineHeight || 1.5,
-                  letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
-                  textAlign: song.textAlign || 'left'
-                }}
-                className="font-mono transition-all rich-text-song whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
-              />
-            ) : (
-              <div 
-                style={{ 
-                  fontSize: `${fontSize}px`,
-                  lineHeight: song.lineHeight || 1.5,
-                  letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
-                  textAlign: song.textAlign || 'left'
-                }}
-                className="whitespace-pre-wrap font-mono transition-all text-black"
-              >
-                {processedContent.split('\n').map((line, i) => {
-                  const isChords = isChordLine(line);
-                  
-                  const parts = line.split(/(\s+)/);
-                  return (
-                    <div 
-                      key={i} 
-                      className={`min-h-[1.2em] relative font-bold ${isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2' : 'text-black mb-2'}`}
-                    >
-                      {parts.map((part, j) => {
-                        const trimmed = part.trim();
-                        const isChord = isChords && CHORD_REGEX_EXACT.test(trimmed);
-                        if (isChord && trimmed.length > 0) {
-                          const transposed = transpose !== 0 ? transposeChord(trimmed, transpose) : trimmed;
-                          return (
-                            <span 
-                              key={j} 
-                              className="font-bold text-chord-orange !text-chord-orange"
-                            >
-                              {part.replace(trimmed, transposed)}
-                            </span>
-                          );
-                        }
-                        return <span key={j}>{part}</span>;
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Floating Controls Bar (Navigation, Font Size & Hide) on the Bottom Right */}
-      {!isKaraokeMode && (
-        showControls ? (
-          <div className="fixed bottom-6 right-6 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)]">
-            {/* Playlist Navigation Controls */}
-            {(onPrev || onNext) && (
-              <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5 shadow-sm">
-                <button 
-                  disabled={!onPrev}
-                  onClick={onPrev} 
-                  className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                  title="Música anterior"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <div className="w-[1px] h-5 bg-orange-400"></div>
-                <button 
-                  disabled={!onNext}
-                  onClick={onNext} 
-                  className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                  title="Próxima música"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            )}
-
-            {/* Divider between Navigation and Font Size */}
-            {(onPrev || onNext) && <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>}
-
-            {/* Font Size Adjusters */}
-            <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
+      {showControls ? (
+        <div className="fixed bottom-6 right-6 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-orange-200 p-2 rounded-2xl shadow-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)]">
+          {/* Playlist Navigation Controls */}
+          {(onPrev || onNext) && (
+            <div className="flex items-center gap-1 bg-orange-600 rounded-xl p-0.5 shadow-sm">
               <button 
-                type="button"
-                onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
-                className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
-                title="Diminuir letra"
+                disabled={!onPrev}
+                onClick={onPrev} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Música anterior"
               >
-                A-
+                <ChevronLeft className="w-5 h-5" />
               </button>
-              <span className="text-[11px] font-black w-10 text-center text-orange-700 select-none">
-                {fontSize}px
-              </span>
+              <div className="w-[1px] h-5 bg-orange-400"></div>
               <button 
-                type="button"
-                onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
-                className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
-                title="Aumentar letra"
+                disabled={!onNext}
+                onClick={onNext} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Próxima música"
               >
-                A+
+                <ChevronRight className="w-5 h-5" />
               </button>
             </div>
+          )}
 
-            <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
+          {/* Divider between Navigation and Font Size */}
+          {(onPrev || onNext) && <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>}
 
-            {/* Botão de Tela Cheia */}
-            <button
+          {/* Font Size Adjusters */}
+          <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
+            <button 
               type="button"
-              onClick={toggleFullscreen}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
-                isAppFullScreen 
-                  ? 'bg-orange-600 text-white shadow-md animate-pulse' 
-                  : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
-              }`}
-              title={isAppFullScreen ? "Sair da Tela Cheia" : "Modo Tela Cheia"}
+              onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
+              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              title="Diminuir letra"
             >
-              {isAppFullScreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              A-
             </button>
-
-            <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
-
-            {/* Hide Button */}
-            <button
+            <span className="text-[11px] font-black w-10 text-center text-orange-700 select-none">
+              {fontSize}px
+            </span>
+            <button 
               type="button"
-              onClick={() => setShowControls(false)}
-              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all cursor-pointer"
-              title="Ocultar botões"
+              onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
+              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              title="Aumentar letra"
             >
-              <EyeOff className="w-5 h-5" />
+              A+
             </button>
           </div>
-        ) : (
-          <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
-            <button
-              type="button"
-              onClick={() => setShowControls(true)}
-              className="w-12 h-12 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-600 hover:text-white rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95"
-              title="Exibir ferramentas de visualização (Tamanho / Músicas)"
-            >
-              <Eye className="w-6 h-6" />
-            </button>
-          </div>
-        )
+
+          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
+
+          {/* Botão de Tela Cheia */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
+              isAppFullScreen 
+                ? 'bg-orange-600 text-white shadow-md animate-pulse' 
+                : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
+            }`}
+            title={isAppFullScreen ? "Sair da Tela Cheia" : "Modo Tela Cheia"}
+          >
+            {isAppFullScreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          </button>
+
+          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
+
+          {/* Hide Button */}
+          <button
+            type="button"
+            onClick={() => setShowControls(false)}
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all cursor-pointer"
+            title="Ocultar botões"
+          >
+            <EyeOff className="w-5 h-5" />
+          </button>
+        </div>
+      ) : (
+        <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
+          <button
+            type="button"
+            onClick={() => setShowControls(true)}
+            className="w-12 h-12 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-600 hover:text-white rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95"
+            title="Exibir ferramentas de visualização (Tamanho / Músicas)"
+          >
+            <Eye className="w-6 h-6" />
+          </button>
+        </div>
       )}
 
       {/* Floating Player */}
       <AnimatePresence>
-        {!isKaraokeMode && showPlayer && song.youtubeUrl && (
+        {showPlayer && song.youtubeUrl && (
           <>
             {/* Backdrop */}
             <motion.div 
@@ -1488,6 +1131,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           </>
         )}
       </AnimatePresence>
+
+
     </motion.div>
   );
 };
@@ -5037,6 +4682,8 @@ export default function App() {
           <FullScreenSong 
             song={viewingSong} 
             onClose={() => setViewingSong(null)} 
+            userRole={userRole}
+            isMasterAdmin={isMasterAdmin}
             initialTranspose={viewMode === 'view-playlist' && selectedPlaylist ? (selectedPlaylist.transpositions?.[viewingSong.id] || 0) : 0}
             onTransposeChange={(val) => handleTransposeChange(viewingSong.id, val)}
             onPrev={currentPlaylistSongIndex > 0 && viewMode === 'view-playlist' ? () => {

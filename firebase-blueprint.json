@@ -26,6 +26,18 @@
           "type": "string",
           "description": "YouTube link for the song."
         },
+        "timings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "number" },
+              "startTime": { "type": "number" },
+              "endTime": { "type": "number" }
+            }
+          },
+          "description": "Sincronia de tempo em segundos para cada linha de letra da música."
+        },
         "ownerId": {
           "type": "string",
           "description": "The user ID of the owner."

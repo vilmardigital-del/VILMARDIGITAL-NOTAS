@@ -19,7 +19,8 @@ service cloud.firestore {
              data.title is string && data.title.size() <= 200 &&
              data.content is string && data.content.size() <= 10000 &&
              data.category in ["Entrada", "Perdão", "Glória", "Santo", "Aleluia", "Salmos", "Cordeiro", "Comum", "Ofertório", "Comunhão", "Final", "Grupo de Oração", "Espírito Santo", "Louvor", "Mariana", "Entrega", "Adoração", "Amor de Deus", "Salvação", "Fé", "Senhorio de Jesus", "Cura interior", "Perseverança", "Promessa do Pai"] &&
-             (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500));
+             (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500)) &&
+             (!('timings' in data) || data.timings is list);
     }
 
     function isValidPlaylist(data) {

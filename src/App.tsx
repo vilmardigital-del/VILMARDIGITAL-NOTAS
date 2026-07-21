@@ -595,30 +595,41 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
-  const [fontSize, setFontSize] = useState(14); // Default font size in px
+  const [fontSize, setFontSize] = useState(14); // Default font size set to 14px
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
 
   // States for Rolagem Colorida
   const [isColorScrollActive, setIsColorScrollActive] = useState(false);
   const [isScrollPlaying, setIsScrollPlaying] = useState(true);
+  const [scrollSpeed, setScrollSpeed] = useState(11); // comfortable default rhythm speed of 11px per second
   const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
   const lastTimeRef = useRef<number>(0);
+  const scrollPosRef = useRef<number>(0);
 
+  // Standard constant scroll behavior with subpixel float accuracy
   useEffect(() => {
     if (!isColorScrollActive || !isScrollPlaying) return;
 
     let animationFrameId: number;
-    const scrollSpeed = 16; // comfortable speed of 16px per second
+    const container = document.getElementById('song-content-area');
+    if (container) {
+      scrollPosRef.current = container.scrollTop;
+    }
 
     const scrollLoop = (time: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = time;
       const deltaTime = (time - lastTimeRef.current) / 1000;
       lastTimeRef.current = time;
 
-      const container = document.getElementById('song-content-area');
-      if (container) {
-        container.scrollTop += scrollSpeed * deltaTime;
+      const containerEl = document.getElementById('song-content-area');
+      if (containerEl) {
+        // Synchronize scrollPosRef if user manually scrolled
+        if (Math.abs(containerEl.scrollTop - scrollPosRef.current) > 30) {
+          scrollPosRef.current = containerEl.scrollTop;
+        }
+        scrollPosRef.current += scrollSpeed * deltaTime;
+        containerEl.scrollTop = scrollPosRef.current;
       }
 
       animationFrameId = requestAnimationFrame(scrollLoop);
@@ -630,8 +641,33 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isColorScrollActive, isScrollPlaying]);
+  }, [isColorScrollActive, isScrollPlaying, scrollSpeed]);
 
+  // Keyboard shortcuts for Show Mode (Space to Play/Pause scroll, ArrowUp/ArrowDown for rhythm speed)
+  useEffect(() => {
+    if (!isColorScrollActive) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsScrollPlaying(prev => !prev);
+      } else if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)));
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isColorScrollActive]);
+
+  // Manual scroll listener to update highlight when scrolling manually
   useEffect(() => {
     const container = document.getElementById('song-content-area');
     if (!container) return;
@@ -641,6 +677,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         setActiveLineIndex(null);
         return;
       }
+
       const lines = container.getElementsByClassName('lyric-line-item');
       if (lines.length === 0) return;
 
@@ -716,6 +753,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
   useEffect(() => {
     setTranspose(initialTranspose);
+    setScrollSpeed(11);
+    setFontSize(14);
   }, [initialTranspose, song.id]);
 
   useEffect(() => {
@@ -849,6 +888,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 setIsColorScrollActive(targetState);
                 if (targetState) {
                   setIsScrollPlaying(true);
+                  setScrollSpeed(11);
                   const container = document.getElementById('song-content-area');
                   if (container) container.scrollTop = 0;
                   setActiveLineIndex(0);
@@ -912,7 +952,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       {/* Área de Conteúdo */}
       <div 
         id="song-content-area"
-        className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500"
+        className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
       >
         <div className={`max-w-4xl mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
           isColorScrollActive 
@@ -962,8 +1002,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                     className={`min-h-[1.2em] relative transition-all duration-300 ${isLyricLine ? 'lyric-line-item' : ''} ${
                       isColorScrollActive 
                         ? (isChords 
-                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.15em] scale-105 origin-left pb-1 mt-3.5' : 'text-chord-orange font-bold opacity-80 scale-95 origin-left pb-1 mt-2') 
-                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.25)] font-black text-xl md:text-2xl scale-105 origin-left py-1.5' : 'text-gray-400 font-bold opacity-35 scale-95 origin-left py-1')
+                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.05em] origin-left pb-0.5 mt-2' : 'text-chord-orange font-bold opacity-60 text-[0.9em] origin-left pb-0.5 mt-1.5') 
+                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.20)] font-black text-[1.05em] origin-left py-1' : 'text-gray-400 font-semibold opacity-40 text-[0.9em] origin-left py-0.5')
                           )
                         : (isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold')
                     }`}
@@ -978,7 +1018,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                             key={j} 
                             className={`transition-all duration-300 ${
                               isColorScrollActive 
-                                ? (isChordActive ? 'font-black scale-105 inline-block text-chord-orange' : 'font-bold text-chord-orange') 
+                                ? (isChordActive ? 'font-black scale-100 inline-block text-chord-orange' : 'font-bold text-chord-orange') 
                                 : 'font-bold text-chord-orange !text-chord-orange'
                             }`}
                           >
@@ -1025,23 +1065,106 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           {/* Divider between Navigation and Font Size */}
           {(onPrev || onNext) && <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>}
 
+          {/* Scroll Controls (Show mode only) */}
+          {isColorScrollActive && (
+            <>
+              <div className="flex items-center gap-1 bg-orange-50/90 rounded-xl p-0.5 border border-orange-100 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setIsScrollPlaying(!isScrollPlaying)}
+                  className={`w-6.5 h-6.5 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
+                    isScrollPlaying 
+                      ? 'bg-orange-600 text-white shadow-xs' 
+                      : 'bg-white border border-orange-200 text-orange-600 hover:bg-orange-50'
+                  }`}
+                  title={isScrollPlaying ? "Pausar Rolagem (Espaço)" : "Retomar Rolagem (Espaço)"}
+                >
+                  {isScrollPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                </button>
+                
+                <div className="flex items-center gap-1 px-1">
+                  <span className="text-[8px] font-black text-orange-800 uppercase tracking-widest select-none pr-0.5">Ritmo</span>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)))}
+                    className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 font-bold hover:bg-orange-100 text-[10px] cursor-pointer select-none transition-colors"
+                    title="Diminuir ritmo (Seta para baixo)"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+
+                  <input 
+                    type="range"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={scrollSpeed}
+                    onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
+                    className="w-14 sm:w-20 h-1 bg-orange-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                    title="Ajustar velocidade de rolagem (ritmo da música)"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)))}
+                    className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 font-bold hover:bg-orange-100 text-[10px] cursor-pointer select-none transition-colors"
+                    title="Aumentar ritmo (Seta para cima)"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+
+                  <span className="text-[9px] font-black text-orange-700 min-w-[24px] text-right select-none font-mono">
+                    {scrollSpeed}
+                  </span>
+                </div>
+
+                {/* Presets de Velocidade do Ritmo */}
+                <div className="hidden sm:flex items-center gap-0.5 pl-1 border-l border-orange-200/60">
+                  {[
+                    { label: 'Lento', speed: 8 },
+                    { label: 'Padrão', speed: 11 },
+                    { label: 'Médio', speed: 18 },
+                    { label: 'Rápido', speed: 35 },
+                    { label: 'Veloz', speed: 60 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setScrollSpeed(preset.speed)}
+                      className={`px-1 py-0.5 text-[8px] font-black rounded cursor-pointer transition-all ${
+                        scrollSpeed === preset.speed
+                          ? 'bg-orange-600 text-white shadow-xs'
+                          : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
+                      }`}
+                      title={`Definir ritmo para ${preset.label} (${preset.speed} px/s)`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="w-[1px] h-5 bg-orange-200 mx-0.5"></div>
+            </>
+          )}
+
           {/* Font Size Adjusters */}
           <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
             <button 
               type="button"
               onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
-              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:shadow-xs rounded text-gray-500 transition-all font-black text-[10px] cursor-pointer"
               title="Diminuir letra"
             >
               A-
             </button>
-            <span className="text-[11px] font-black w-10 text-center text-orange-700 select-none">
+            <span className="text-[10px] font-black w-8 text-center text-orange-700 select-none font-mono">
               {fontSize}px
             </span>
             <button 
               type="button"
               onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
-              className="w-8 h-8 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md text-gray-500 transition-all font-black text-xs cursor-pointer"
+              className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:shadow-xs rounded text-gray-500 transition-all font-black text-[10px] cursor-pointer"
               title="Aumentar letra"
             >
               A+
@@ -1092,43 +1215,36 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       {/* Floating Player */}
       <AnimatePresence>
         {showPlayer && song.youtubeUrl && (
-          <>
-            {/* Backdrop */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowPlayer(false)}
-              className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.8, x: '-50%', y: '-40%' }}
-              animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
-              exit={{ opacity: 0, scale: 0.8, x: '-50%', y: '-40%' }}
-              className="fixed top-1/2 left-1/2 w-[90%] md:w-[640px] z-50 group transition-all"
-            >
-              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-orange-500 aspect-video relative">
-                <button 
-                  onClick={() => setShowPlayer(false)}
-                  className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full hover:bg-black/80 z-10 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-                {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                  <iframe 
-                    src={getYoutubeEmbedUrl(song.youtubeUrl)!}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center">
-                    Link do YouTube inválido
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8, y: 30 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 30 }}
+            className="fixed bottom-24 right-4 w-[280px] sm:w-[350px] md:w-[420px] z-40 group shadow-2xl transition-all"
+          >
+            <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-orange-500 aspect-video relative">
+              <button 
+                type="button"
+                onClick={() => setShowPlayer(false)}
+                className="absolute top-2 right-2 bg-black/75 text-white p-1.5 rounded-full hover:bg-black/90 z-10 transition-colors border border-white/10 cursor-pointer"
+                title="Fechar Player"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
+                <iframe 
+                  src={getYoutubeEmbedUrl(song.youtubeUrl) || ''} 
+                  title="YouTube video player" 
+                  className="w-full h-full border-0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                  allowFullScreen
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center bg-zinc-900">
+                  Link do YouTube inválido
+                </div>
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

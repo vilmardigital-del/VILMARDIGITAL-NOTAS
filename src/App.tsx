@@ -628,8 +628,17 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         if (Math.abs(containerEl.scrollTop - scrollPosRef.current) > 30) {
           scrollPosRef.current = containerEl.scrollTop;
         }
-        scrollPosRef.current += scrollSpeed * deltaTime;
-        containerEl.scrollTop = scrollPosRef.current;
+
+        const maxScroll = containerEl.scrollHeight - containerEl.clientHeight;
+
+        // If reached the end of the content, loop back to the top
+        if (maxScroll > 10 && (containerEl.scrollTop >= maxScroll - 4 || scrollPosRef.current >= maxScroll - 4)) {
+          scrollPosRef.current = 0;
+          containerEl.scrollTop = 0;
+        } else {
+          scrollPosRef.current += scrollSpeed * deltaTime;
+          containerEl.scrollTop = scrollPosRef.current;
+        }
       }
 
       animationFrameId = requestAnimationFrame(scrollLoop);
@@ -1074,12 +1083,15 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                   setIsColorScrollActive(true);
                   setIsScrollPlaying(true);
                   setScrollSpeed(11);
+                  if (!isAppFullScreen) {
+                    toggleFullscreen();
+                  }
                   const container = document.getElementById('song-content-area');
                   if (container) container.scrollTop = 0;
                   setActiveLineIndex(0);
                 }}
                 className="h-6.5 px-2.5 rounded-lg border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 hover:shadow-xs flex items-center gap-1 text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                title="Iniciar Modo Show / Rolagem"
+                title="Iniciar Modo Show / Rolagem em Tela Cheia"
               >
                 <Sparkles className="w-3 h-3 text-orange-500 animate-pulse" />
                 <span>Show</span>

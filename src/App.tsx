@@ -881,31 +881,31 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               </button>
             </div>
 
-            {/* 2. Botão Modo Show (Compacto) */}
-            <button 
-              onClick={() => {
-                const targetState = !isColorScrollActive;
-                setIsColorScrollActive(targetState);
-                if (targetState) {
-                  setIsScrollPlaying(true);
-                  setScrollSpeed(11);
-                  const container = document.getElementById('song-content-area');
-                  if (container) container.scrollTop = 0;
-                  setActiveLineIndex(0);
-                } else {
-                  setActiveLineIndex(null);
-                }
-              }}
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                isColorScrollActive 
-                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white border-transparent shadow-sm' 
-                  : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 hover:shadow-sm'
-              }`}
-              title="Iniciar Rolagem Colorida"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${isColorScrollActive ? 'text-white animate-spin' : 'text-orange-500 animate-pulse'}`} />
-              <span>Show</span>
-            </button>
+            {/* 2. Tamanho da Fonte */}
+            <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-xl p-0.5">
+              <button 
+                type="button"
+                onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all font-black text-xs cursor-pointer"
+                title="Diminuir Fonte"
+              >
+                A-
+              </button>
+              <div className="px-1 text-center select-none flex flex-col justify-center min-w-[2rem]">
+                <span className="text-[7.5px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Letra</span>
+                <span className="text-[10px] font-black text-orange-700 leading-tight font-mono">
+                  {fontSize}px
+                </span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-sm rounded-lg text-gray-500 transition-all font-black text-xs cursor-pointer"
+                title="Aumentar Fonte"
+              >
+                A+
+              </button>
+            </div>
 
             <div className="h-6 w-[1px] bg-gray-200 mx-0.5"></div>
 
@@ -1002,8 +1002,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                     className={`min-h-[1.2em] relative transition-all duration-300 ${isLyricLine ? 'lyric-line-item' : ''} ${
                       isColorScrollActive 
                         ? (isChords 
-                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.05em] origin-left pb-0.5 mt-2' : 'text-chord-orange font-bold opacity-60 text-[0.9em] origin-left pb-0.5 mt-1.5') 
-                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.20)] font-black text-[1.05em] origin-left py-1' : 'text-gray-400 font-semibold opacity-40 text-[0.9em] origin-left py-0.5')
+                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.05em] origin-left pb-1 mt-2' : 'text-chord-orange font-bold pb-1 mt-2') 
+                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.20)] font-black text-[1.05em] origin-left mb-2' : 'text-black font-bold mb-2')
                           )
                         : (isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold')
                     }`}
@@ -1065,21 +1065,42 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           {/* Divider between Navigation and Font Size */}
           {(onPrev || onNext) && <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>}
 
-          {/* Scroll Controls (Show mode only) */}
-          {isColorScrollActive && (
+          {/* Scroll Controls / Show Mode Toggle */}
+          {!isColorScrollActive ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsColorScrollActive(true);
+                  setIsScrollPlaying(true);
+                  setScrollSpeed(11);
+                  const container = document.getElementById('song-content-area');
+                  if (container) container.scrollTop = 0;
+                  setActiveLineIndex(0);
+                }}
+                className="h-6.5 px-2.5 rounded-lg border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 hover:shadow-xs flex items-center gap-1 text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                title="Iniciar Modo Show / Rolagem"
+              >
+                <Sparkles className="w-3 h-3 text-orange-500 animate-pulse" />
+                <span>Show</span>
+              </button>
+              <div className="w-[1px] h-5 bg-orange-200 mx-0.5"></div>
+            </>
+          ) : (
             <>
               <div className="flex items-center gap-1 bg-orange-50/90 rounded-xl p-0.5 border border-orange-100 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setIsScrollPlaying(!isScrollPlaying)}
-                  className={`w-6.5 h-6.5 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
+                  className={`h-6.5 px-2 flex items-center gap-1 rounded-lg transition-all cursor-pointer font-black text-[9px] uppercase tracking-wider ${
                     isScrollPlaying 
                       ? 'bg-orange-600 text-white shadow-xs' 
                       : 'bg-white border border-orange-200 text-orange-600 hover:bg-orange-50'
                   }`}
                   title={isScrollPlaying ? "Pausar Rolagem (Espaço)" : "Retomar Rolagem (Espaço)"}
                 >
-                  {isScrollPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                  {isScrollPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                  <span>Show</span>
                 </button>
                 
                 <div className="flex items-center gap-1 px-1">
@@ -1143,51 +1164,24 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                     </button>
                   ))}
                 </div>
+
+                {/* Botão de Fechar Modo Show */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsColorScrollActive(false);
+                    setIsScrollPlaying(false);
+                    setActiveLineIndex(null);
+                  }}
+                  className="w-5 h-5 flex items-center justify-center hover:bg-orange-200/60 rounded text-orange-700 transition-all cursor-pointer ml-0.5"
+                  title="Encerrar Modo Show"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
               <div className="w-[1px] h-5 bg-orange-200 mx-0.5"></div>
             </>
           )}
-
-          {/* Font Size Adjusters */}
-          <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-orange-100/50">
-            <button 
-              type="button"
-              onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
-              className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:shadow-xs rounded text-gray-500 transition-all font-black text-[10px] cursor-pointer"
-              title="Diminuir letra"
-            >
-              A-
-            </button>
-            <span className="text-[10px] font-black w-8 text-center text-orange-700 select-none font-mono">
-              {fontSize}px
-            </span>
-            <button 
-              type="button"
-              onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
-              className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:shadow-xs rounded text-gray-500 transition-all font-black text-[10px] cursor-pointer"
-              title="Aumentar letra"
-            >
-              A+
-            </button>
-          </div>
-
-          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
-
-          {/* Botão de Tela Cheia */}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
-              isAppFullScreen 
-                ? 'bg-orange-600 text-white shadow-md animate-pulse' 
-                : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
-            }`}
-            title={isAppFullScreen ? "Sair da Tela Cheia" : "Modo Tela Cheia"}
-          >
-            {isAppFullScreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-          </button>
-
-          <div className="w-[1px] h-6 bg-orange-200 mx-0.5"></div>
 
           {/* Hide Button */}
           <button

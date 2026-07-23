@@ -134,6 +134,48 @@ const getYoutubeId = (url: string) => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
+// Auto-ajusta e limpa a formatação da cifra ao colar ou clicar no botão
+export const formatSongContent = (raw: string): string => {
+  if (!raw) return '';
+  
+  let text = raw;
+
+  // 1. Converter quebras e tags de bloco HTML para novas linhas, removendo tags HTML
+  if (/<[a-z][\s\S]*>/i.test(text)) {
+    text = text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|h[1-6]|pre|blockquote)>/gi, '\n')
+      .replace(/<(p|div|li|tr|h[1-6]|pre|blockquote)[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, '');
+  }
+
+  // 2. Decodificar entidades HTML comuns
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/g, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/gi, "'");
+
+  // 3. Normalizar espaços não-convencionais e tabs (4 espaços para manter alinhamento de acordes)
+  text = text
+    .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, ' ')
+    .replace(/\t/g, '    ');
+
+  // 4. Normalizar quebras de linha
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 5. Remover espaços no final de cada linha e colapsar linhas vazias excessivas
+  const lines = text.split('\n').map(line => line.replace(/\s+$/, ''));
+  text = lines.join('\n').replace(/\n{3,}/g, '\n\n');
+
+  // 6. Retornar em MAIÚSCULAS para garantir uniformidade total no tamanho e estilo da fonte
+  return text.toUpperCase();
+};
+
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   <div className={`relative flex items-center justify-center ${className}`}>
@@ -3530,6 +3572,26 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Botão de Auto-Ajuste de Formatação e Tamanho */}
+                    <div className="ml-auto flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editingSong?.content) {
+                            setEditingSong({
+                              ...editingSong,
+                              content: formatSongContent(editingSong.content)
+                            });
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-realorange-600 text-white rounded-lg hover:bg-realorange-700 flex items-center gap-1.5 text-xs font-bold shadow-sm cursor-pointer transition-all active:scale-95"
+                        title="Auto-ajustar a formatação da cifra e igualar o tamanho de todas as letras"
+                      >
+                        <Wand2 className="w-3.5 h-3.5 text-orange-200 animate-pulse" />
+                        <span>Auto-Ajustar Cifra</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -3538,7 +3600,27 @@ export default function App() {
                       rows={15}
                       value={editingSong?.content || ''}
                       onChange={e => setEditingSong({...editingSong, content: e.target.value.toUpperCase()})}
-                      placeholder="Cole aqui a cifra..."
+                      onPaste={(e) => {
+                        const htmlData = e.clipboardData.getData('text/html');
+                        const plainData = e.clipboardData.getData('text/plain');
+                        
+                        e.preventDefault();
+                        const pastedRaw = (htmlData && /<[a-z][\s\S]*>/i.test(htmlData)) ? htmlData : plainData;
+                        const formattedText = formatSongContent(pastedRaw);
+
+                        const target = e.currentTarget;
+                        const start = target.selectionStart || 0;
+                        const end = target.selectionEnd || 0;
+                        const val = target.value;
+
+                        const updatedVal = val.substring(0, start) + formattedText + val.substring(end);
+                        setEditingSong(prev => prev ? ({ ...prev, content: updatedVal }) : { content: updatedVal });
+
+                        setTimeout(() => {
+                          target.selectionStart = target.selectionEnd = start + formattedText.length;
+                        }, 0);
+                      }}
+                      placeholder="Cole aqui a cifra... (a formatação e tamanho das letras serão ajustados automaticamente ao colar)"
                       className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm uppercase text-realorange-600 font-extrabold shadow-inner"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 

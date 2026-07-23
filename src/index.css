@@ -67,6 +67,10 @@
   .rich-text-song div {
     min-height: 1.2em;
   }
+  .rich-text-song, .rich-text-song * {
+    font-size: inherit !important;
+    font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New" !important;
+  }
   .text-3d-title {
     color: #10b981; /* Primary bright emerald */
     text-shadow: 

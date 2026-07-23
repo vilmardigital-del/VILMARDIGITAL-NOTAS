@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   onAuthStateChanged,
   signInAnonymously
@@ -82,7 +82,9 @@ import {
   Image,
   Download,
   Instagram,
-  Clipboard
+  Clipboard,
+  GripHorizontal,
+  Move
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -121,8 +123,8 @@ const CATEGORIES_GRUPO: Category[] = [
 ];
 
 const CHORD_REGEX_STR = "(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|maj|min|dim|aug|sus|add|alt|ø|°|\\+|\\-|7|9|11|13|5|6|2|4|Δ)*(?:\\([^)]+\\))?(?:\\/(?:[A-G]|Do|Dó|Re|Ré|Mi|Fa|Fá|Sol|La|Lá|Si)[b#♯♭]?(?:m|M|7|9|11|13|5|6|2|4)?)?";
-const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'g');
-const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`);
+const CHORD_REGEX = new RegExp(`(?<![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])(${CHORD_REGEX_STR})(?![a-zA-ZáàãâéêíóôõúÁÀÃÂÉÊÍÓÔÕÚ])`, 'gi');
+const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`, 'i');
 
 // Palavras comuns que podem ser confundidas com acordes (ex: "e", "Do")
 // Se a linha tiver outras palavras, evitamos classificar estas palavras curtas individuais como acordes
@@ -134,7 +136,55 @@ const getYoutubeId = (url: string) => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// Auto-ajusta e limpa a formatação da cifra ao colar ou clicar no botão
+// Formata uma cifra/nota individual no padrão musical universal (Ex: C#m, F#m7, G/B, Bb)
+export const formatChordNotation = (chordStr: string): string => {
+  if (!chordStr) return chordStr;
+
+  const normalizeSingleChord = (c: string): string => {
+    if (c.includes('/')) {
+      const parts = c.split('/');
+      return normalizeSingleChord(parts[0]) + '/' + normalizeSingleChord(parts[1]);
+    }
+
+    const match = c.match(/^([a-gA-G]|dó|do|ré|re|mi|fá|fa|sol|lá|la|si)[b#♯♭]?(.*)$/i);
+    if (!match) return c;
+
+    let root = match[1];
+    if (root.length === 1) {
+      root = root.toUpperCase();
+    } else {
+      root = root.charAt(0).toUpperCase() + root.slice(1).toLowerCase();
+    }
+
+    const accidentalMatch = c.slice(match[1].length).match(/^[b#♯♭]/i);
+    let accidental = accidentalMatch ? accidentalMatch[0] : '';
+    if (accidental.toUpperCase() === 'B') accidental = 'b';
+
+    let suffix = c.slice(match[1].length + accidental.length);
+
+    if (suffix) {
+      if (/^maj/i.test(suffix)) {
+        suffix = 'maj' + suffix.slice(3);
+      } else if (/^min/i.test(suffix)) {
+        suffix = 'm' + suffix.slice(3);
+      } else if (/^dim/i.test(suffix)) {
+        suffix = 'dim' + suffix.slice(3);
+      } else if (/^sus/i.test(suffix)) {
+        suffix = 'sus' + suffix.slice(3);
+      } else if (/^add/i.test(suffix)) {
+        suffix = 'add' + suffix.slice(3);
+      } else if (/^m/i.test(suffix)) {
+        suffix = 'm' + suffix.slice(1);
+      }
+    }
+
+    return root + accidental + suffix;
+  };
+
+  return normalizeSingleChord(chordStr);
+};
+
+// Auto-ajusta e limpa a formatação da cifra e texto ao colar ou clicar no botão
 export const formatSongContent = (raw: string): string => {
   if (!raw) return '';
   
@@ -168,12 +218,23 @@ export const formatSongContent = (raw: string): string => {
   // 4. Normalizar quebras de linha
   text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  // 5. Remover espaços no final de cada linha e colapsar linhas vazias excessivas
-  const lines = text.split('\n').map(line => line.replace(/\s+$/, ''));
-  text = lines.join('\n').replace(/\n{3,}/g, '\n\n');
+  // 5. Normalizar linhas e cifras no padrão musical universal
+  const lines = text.split('\n').map(line => {
+    const trimmedLine = line.replace(/\s+$/, '');
+    if (isChordLine(trimmedLine)) {
+      const parts = trimmedLine.split(/(\s+)/);
+      return parts.map(part => {
+        const trimmedPart = part.trim();
+        if (CHORD_REGEX_EXACT.test(trimmedPart)) {
+          return formatChordNotation(trimmedPart);
+        }
+        return part;
+      }).join('');
+    }
+    return trimmedLine;
+  });
 
-  // 6. Retornar em MAIÚSCULAS para garantir uniformidade total no tamanho e estilo da fonte
-  return text.toUpperCase();
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
 };
 
 // Components
@@ -576,11 +637,14 @@ const highlightChords = (html: string) => {
   // Clean existing spans to avoid duplicates
   const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
                           .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                          .replace(/<span className="text-chord-orange font-bold font-mono">([^<]+)<\/span>/g, '$1')
+                          .replace(/<span class="text-chord-orange font-bold font-mono">([^<]+)<\/span>/g, '$1')
                           .replace(/<span className="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1')
                           .replace(/<span class="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1');
                           
   return cleanedHtml.replace(CHORD_REGEX, (match) => {
-    return `<span class="text-chord-orange font-bold">${match}</span>`;
+    const formatted = formatChordNotation(match);
+    return `<span class="text-chord-orange font-bold font-mono">${formatted}</span>`;
   });
 };
 
@@ -637,7 +701,63 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
-  const [fontSize, setFontSize] = useState(14); // Default font size set to 14px
+  const [fontSize, setFontSize] = useState<number>(() => {
+    try {
+      if (song?.id) {
+        const savedSongFont = localStorage.getItem(`cifras_font_size_${song.id}`);
+        if (savedSongFont) {
+          const parsed = parseInt(savedSongFont, 10);
+          if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) return parsed;
+        }
+      }
+      const savedGlobalFont = localStorage.getItem('cifras_font_size');
+      if (savedGlobalFont) {
+        const parsed = parseInt(savedGlobalFont, 10);
+        if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return (song as any)?.fontSize || 14;
+  });
+
+  // Salvar preferência de tamanho de fonte no localStorage ao alterar
+  useEffect(() => {
+    try {
+      if (song?.id) {
+        localStorage.setItem(`cifras_font_size_${song.id}`, String(fontSize));
+      }
+      localStorage.setItem('cifras_font_size', String(fontSize));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [fontSize, song?.id]);
+
+  // Carregar o tamanho salvo ao trocar de música na navegação
+  useEffect(() => {
+    try {
+      if (song?.id) {
+        const savedSongFont = localStorage.getItem(`cifras_font_size_${song.id}`);
+        if (savedSongFont) {
+          const parsed = parseInt(savedSongFont, 10);
+          if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
+            setFontSize(parsed);
+            return;
+          }
+        }
+      }
+      const savedGlobalFont = localStorage.getItem('cifras_font_size');
+      if (savedGlobalFont) {
+        const parsed = parseInt(savedGlobalFont, 10);
+        if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
+          setFontSize(parsed);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [song?.id]);
+
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
 
@@ -646,6 +766,41 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [isScrollPlaying, setIsScrollPlaying] = useState(true);
   const [scrollSpeed, setScrollSpeed] = useState(11); // comfortable default rhythm speed of 11px per second
   const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
+
+  // Auto-ajuste de fonte para ajustar perfeitamente à tela sem quebrar linhas ou causar bugs de visualização
+  const handleAutoFitFontSize = useCallback(() => {
+    if (!song?.content) return;
+
+    // Limpa tags HTML para calcular apenas os caracteres visíveis
+    const cleanContent = song.content.replace(/<[^>]+>/g, '');
+    const lines = cleanContent.split('\n');
+
+    let maxLineLength = 0;
+    for (const line of lines) {
+      const trimmedLen = line.trimEnd().length;
+      if (trimmedLen > maxLineLength) {
+        maxLineLength = trimmedLen;
+      }
+    }
+
+    if (maxLineLength === 0) {
+      setFontSize(14);
+      return;
+    }
+
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 800;
+    const isTwoColumns = !isColorScrollActive && (song.content.length > 800) && screenWidth >= 768;
+    const availableWidth = isTwoColumns 
+      ? Math.min((screenWidth - 96) / 2, 420)
+      : Math.min(screenWidth - 48, 800);
+
+    // Em fonte monospace, 1 caractere tem largura relativa ~0.58 x fontSize
+    const calculated = Math.floor(availableWidth / (maxLineLength * 0.58));
+
+    // Define um limite agradável e legível entre 11px e 22px
+    const optimalSize = Math.min(Math.max(calculated, 11), 22);
+    setFontSize(optimalSize);
+  }, [song?.content, isColorScrollActive]);
   const [isBarHoveredOrTouched, setIsBarHoveredOrTouched] = useState(false);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -861,12 +1016,15 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     // Clean existing spans to avoid doubling up
     const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
                             .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
+                            .replace(/<span className="text-chord-orange font-bold font-mono">([^<]+)<\/span>/g, '$1')
+                            .replace(/<span class="text-chord-orange font-bold font-mono">([^<]+)<\/span>/g, '$1')
                             .replace(/<span className="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1')
                             .replace(/<span class="text-chord-orange font-bold">([^<]+)<\/span>/g, '$1');
 
     return cleanedHtml.replace(CHORD_REGEX, (match) => {
-      const transposed = semitones !== 0 ? transposeChord(match, semitones) : match;
-      return `<span class="text-chord-orange font-bold">${transposed}</span>`;
+      let chord = semitones !== 0 ? transposeChord(match, semitones) : match;
+      chord = formatChordNotation(chord);
+      return `<span class="text-chord-orange font-bold font-mono">${chord}</span>`;
     });
   };
 
@@ -907,22 +1065,30 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               <ChevronLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
-              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
-                  {getCategoryIcon(song.category, "w-2.5 h-2.5 text-orange-600")}
-                  {song.category}
-                </span>
-                {song.ownerId && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
-                    Por: {song.ownerId}
-                  </span>
-                )}
-              </div>
+              {(!isColorScrollActive || !isScrollPlaying) ? (
+                <>
+                  <h1 className="text-sm sm:text-base font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
+                      {getCategoryIcon(song.category, "w-2.5 h-2.5 text-orange-600")}
+                      {song.category}
+                    </span>
+                    {song.ownerId && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
+                        Por: {song.ownerId}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5 text-xs font-black text-orange-600 uppercase tracking-wider animate-pulse">
+                  <span>• Rolagem Ativa</span>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-wrap justify-end">
             {/* 1. Tom / Transposição */}
             <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-lg p-0.5">
               <button 
@@ -947,70 +1113,134 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               </button>
             </div>
 
-            {/* 2. Tamanho da Fonte */}
-            <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-lg p-0.5">
-              <button 
-                type="button"
-                onClick={() => setFontSize(prev => Math.max(10, prev - 1))}
-                className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-xs rounded-md text-gray-500 transition-all font-black text-[11px] cursor-pointer"
-                title="Diminuir Fonte"
-              >
-                A-
-              </button>
-              <div className="px-0.5 text-center select-none flex flex-col justify-center min-w-[1.8rem]">
-                <span className="text-[7px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Letra</span>
-                <span className="text-[9.5px] font-black text-orange-700 leading-tight font-mono">
+            {/* 2. Botão de Auto Ajuste de Fonte (Compacto) */}
+            <button 
+              type="button"
+              onClick={handleAutoFitFontSize}
+              className="h-6.5 px-1.5 sm:px-2 flex items-center gap-1 bg-orange-50/80 hover:bg-orange-100 border border-orange-200/80 text-orange-700 hover:text-orange-800 rounded-lg transition-all cursor-pointer shadow-2xs group shrink-0"
+              title="Auto-Ajustar tamanho da fonte para a tela sem quebrar linhas ou cifragem"
+            >
+              <Wand2 className="w-3 h-3 text-orange-600 group-hover:rotate-12 transition-transform shrink-0" />
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <span className="text-[9px] font-black uppercase tracking-wider">
+                  Auto
+                </span>
+                <span className="text-[8.5px] font-extrabold text-orange-700 font-mono bg-white/90 px-1 py-0.2 rounded border border-orange-200/60">
                   {fontSize}px
                 </span>
               </div>
-              <button 
+            </button>
+
+            {/* 3. Controle de Velocidade / Ritmo (Movido para o Cabeçalho) */}
+            <div className="flex items-center bg-orange-50/70 border border-orange-200/80 rounded-lg p-0.5 gap-1">
+              <button
                 type="button"
-                onClick={() => setFontSize(prev => Math.min(36, prev + 1))}
-                className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-xs rounded-md text-gray-500 transition-all font-black text-[11px] cursor-pointer"
-                title="Aumentar Fonte"
-              >
-                A+
-              </button>
-            </div>
-
-            <div className="h-5 w-[1px] bg-gray-200 mx-0.5"></div>
-
-            {/* 3. Copiar Letra */}
-            <button 
-              onClick={() => {
-                const lyricsOnly = song.content.replace(CHORD_REGEX, '');
-                navigator.clipboard.writeText(lyricsOnly);
-                alert('Letra da música copiada com sucesso!');
-              }}
-              className="w-7 h-7 flex items-center justify-center border border-transparent hover:border-orange-100/50 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all cursor-pointer"
-              title="Copiar Letra (Sem Cifras)"
-            >
-              <Clipboard className="w-3.5 h-3.5" />
-            </button>
-
-            {/* 4. YouTube Player */}
-            {song.youtubeUrl && (
-              <button 
-                onClick={() => setShowPlayer(!showPlayer)}
-                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
-                  showPlayer 
-                    ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
-                    : 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 border-transparent hover:border-orange-100/50'
+                onClick={() => {
+                  if (!isColorScrollActive) {
+                    setIsColorScrollActive(true);
+                    setIsScrollPlaying(true);
+                    setScrollSpeed(11);
+                    const container = document.getElementById('song-content-area');
+                    if (container) container.scrollTop = 0;
+                    setActiveLineIndex(0);
+                  } else {
+                    setIsScrollPlaying(!isScrollPlaying);
+                  }
+                }}
+                className={`h-6.5 px-2 flex items-center gap-1 rounded-md transition-all cursor-pointer font-black text-[9px] uppercase tracking-wider ${
+                  isColorScrollActive && isScrollPlaying 
+                    ? 'bg-orange-600 text-white shadow-xs' 
+                    : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
                 }`}
-                title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
+                title={!isColorScrollActive ? "Iniciar Modo Show / Rolagem" : isScrollPlaying ? "Pausar Rolagem (Espaço)" : "Retomar Rolagem (Espaço)"}
               >
-                <Youtube className="w-3.5 h-3.5" />
+                {isColorScrollActive && isScrollPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                <span className="hidden xs:inline">Show</span>
               </button>
-            )}
 
-            {/* 5. Botão de Tela Cheia */}
-            <button 
-              onClick={toggleFullscreen}
-              className="w-7 h-7 flex items-center justify-center border border-transparent hover:border-orange-100/50 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all cursor-pointer"
-              title="Modo Tela Cheia"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
+              <div className="flex items-center gap-1 px-0.5">
+                <span className="text-[7px] text-orange-500 font-extrabold uppercase tracking-widest leading-none hidden sm:inline">Ritmo</span>
+                
+                <button
+                  type="button"
+                  onClick={() => setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)))}
+                  className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 hover:bg-orange-100 text-[10px] font-bold cursor-pointer transition-colors"
+                  title="Diminuir velocidade"
+                >
+                  <Minus className="w-2.5 h-2.5" />
+                </button>
+
+                <input 
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="0.5"
+                  value={scrollSpeed}
+                  onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
+                  className="w-10 xs:w-14 sm:w-16 h-1 bg-orange-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                  title="Ajustar velocidade de rolagem (ritmo)"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)))}
+                  className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 hover:bg-orange-100 text-[10px] font-bold cursor-pointer transition-colors"
+                  title="Aumentar velocidade"
+                >
+                  <Plus className="w-2.5 h-2.5" />
+                </button>
+
+                <span className="text-[9.5px] font-black text-orange-700 leading-tight font-mono min-w-[1.4rem] text-right">
+                  {scrollSpeed}
+                </span>
+              </div>
+
+              {/* Presets de Velocidade em telas maiores */}
+              <div className="hidden lg:flex items-center gap-0.5 pl-1 border-l border-orange-200/60">
+                {[
+                  { label: 'Lento', speed: 8 },
+                  { label: 'Padrão', speed: 11 },
+                  { label: 'Médio', speed: 18 },
+                  { label: 'Rápido', speed: 35 },
+                  { label: 'Veloz', speed: 60 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setScrollSpeed(preset.speed);
+                      if (!isColorScrollActive) {
+                        setIsColorScrollActive(true);
+                        setIsScrollPlaying(true);
+                      }
+                    }}
+                    className={`px-1 py-0.5 text-[8px] font-black rounded cursor-pointer transition-all ${
+                      scrollSpeed === preset.speed
+                        ? 'bg-orange-600 text-white shadow-xs'
+                        : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
+                    }`}
+                    title={`Ritmo ${preset.label} (${preset.speed})`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              {isColorScrollActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsColorScrollActive(false);
+                    setIsScrollPlaying(false);
+                    setActiveLineIndex(null);
+                  }}
+                  className="w-5 h-5 flex items-center justify-center hover:bg-orange-200/60 rounded text-orange-800 transition-all cursor-pointer ml-0.5"
+                  title="Encerrar Modo Show"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1025,6 +1255,30 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             ? 'pb-[60vh] columns-1' 
             : (song.content && song.content.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1')
         }`}>
+          {/* Nome da música exibido junto com a letra quando pausado; ocultado ao reproduzir */}
+          {(!isColorScrollActive || !isScrollPlaying) && (
+            <div className="mb-6 pb-3 border-b border-orange-200/50 break-inside-avoid animate-in fade-in duration-300">
+              <h1 className="text-xl sm:text-2xl font-black text-gray-950 tracking-tight leading-tight">
+                {song.title}
+              </h1>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-orange-100/80 text-orange-800 border border-orange-200/60">
+                  {getCategoryIcon(song.category, "w-3 h-3 text-orange-600")}
+                  {song.category}
+                </span>
+                {song.artist && (
+                  <span className="text-xs font-bold text-gray-600">
+                    • {song.artist}
+                  </span>
+                )}
+                {song.ownerId && (
+                  <span className="text-xs text-gray-400 font-medium">
+                    • Por: {song.ownerId}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {isHtml ? (
             <div 
               style={{ 
@@ -1078,17 +1332,18 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                       const trimmedPart = part.trim();
                       const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
                       if (isChord && trimmedPart.length > 0) {
-                        const transposed = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
+                        let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
+                        chordToDisplay = formatChordNotation(chordToDisplay);
                         return (
                            <span 
                             key={j} 
-                            className={`transition-all duration-300 ${
+                            className={`transition-all duration-300 font-mono ${
                               isColorScrollActive && isScrollPlaying 
                                 ? (isChordActive ? 'font-black scale-100 inline-block text-chord-orange' : 'font-bold text-chord-orange') 
                                 : 'font-bold text-chord-orange !text-chord-orange'
                             }`}
                           >
-                            {part.replace(trimmedPart, transposed)}
+                            {part.replace(trimmedPart, chordToDisplay)}
                           </span>
                         );
                       }
@@ -1147,143 +1402,54 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               {/* Divider between Navigation and Font Size */}
               {(onPrev || onNext) && <div className={`w-[1px] h-6 mx-0.5 ${isWatermark ? 'bg-orange-300/30' : 'bg-orange-200'}`}></div>}
 
-              {/* Scroll Controls / Show Mode Toggle */}
-              {!isColorScrollActive ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsColorScrollActive(true);
-                      setIsScrollPlaying(true);
-                      setScrollSpeed(11);
-                      const container = document.getElementById('song-content-area');
-                      if (container) container.scrollTop = 0;
-                      setActiveLineIndex(0);
-                    }}
-                    className="h-6.5 px-2.5 rounded-lg border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 hover:shadow-xs flex items-center gap-1 text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                    title="Iniciar Modo Show / Rolagem"
-                  >
-                    <Sparkles className="w-3 h-3 text-orange-500 animate-pulse" />
-                    <span>Show</span>
-                  </button>
-                  <div className="w-[1px] h-5 bg-orange-200 mx-0.5"></div>
-                </>
-              ) : (
-                <>
-                  <div className={`flex items-center gap-1 rounded-xl p-0.5 border transition-all ${
-                    isWatermark 
-                      ? 'bg-orange-50/20 border-orange-200/30 shadow-xs backdrop-blur-xs' 
-                      : 'bg-orange-50/90 border-orange-200/80 shadow-sm'
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={() => setIsScrollPlaying(!isScrollPlaying)}
-                      className={`h-6.5 px-2 flex items-center gap-1 rounded-lg transition-all cursor-pointer font-black text-[9px] uppercase tracking-wider ${
-                        isScrollPlaying 
-                          ? (isWatermark ? 'bg-orange-600/80 text-white shadow-xs' : 'bg-orange-600 text-white shadow-xs') 
-                          : (isWatermark ? 'bg-white/60 border border-orange-200/50 text-orange-700 hover:bg-orange-50' : 'bg-white border border-orange-200 text-orange-600 hover:bg-orange-50')
-                      }`}
-                      title={isScrollPlaying ? "Pausar Rolagem (Espaço)" : "Retomar Rolagem (Espaço)"}
-                    >
-                      {isScrollPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
-                      <span>Show</span>
-                    </button>
-                    
-                    <div className="flex items-center gap-1 px-1">
-                      <span className={`text-[8px] font-black uppercase tracking-widest select-none pr-0.5 ${
-                        isWatermark ? 'text-orange-900/80' : 'text-orange-800'
-                      }`}>Ritmo</span>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)))}
-                        className={`w-5 h-5 flex items-center justify-center rounded font-bold text-[10px] cursor-pointer select-none transition-colors ${
-                          isWatermark 
-                            ? 'bg-white/40 border border-orange-200/40 text-orange-800' 
-                            : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
-                        }`}
-                        title="Diminuir ritmo (Seta para baixo)"
-                      >
-                        <Minus className="w-2.5 h-2.5" />
-                      </button>
+              {/* 1. Copiar Letra */}
+              <button 
+                onClick={() => {
+                  const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+                  navigator.clipboard.writeText(lyricsOnly);
+                  alert('Letra da música copiada com sucesso!');
+                }}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
+                  isWatermark
+                    ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
+                    : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
+                }`}
+                title="Copiar Letra (Sem Cifras)"
+              >
+                <Clipboard className="w-4 h-4" />
+              </button>
 
-                      <input 
-                        type="range"
-                        min="1"
-                        max="100"
-                        step="0.5"
-                        value={scrollSpeed}
-                        onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
-                        className={`w-14 sm:w-20 h-1 rounded-lg appearance-none cursor-pointer accent-orange-600 ${
-                          isWatermark ? 'bg-orange-300/40' : 'bg-orange-200'
-                        }`}
-                        title="Ajustar velocidade de rolagem (ritmo da música)"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)))}
-                        className={`w-5 h-5 flex items-center justify-center rounded font-bold text-[10px] cursor-pointer select-none transition-colors ${
-                          isWatermark 
-                            ? 'bg-white/40 border border-orange-200/40 text-orange-800' 
-                            : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
-                        }`}
-                        title="Aumentar ritmo (Seta para cima)"
-                      >
-                        <Plus className="w-2.5 h-2.5" />
-                      </button>
-
-                      <span className={`text-[9px] font-black min-w-[24px] text-right select-none font-mono ${
-                        isWatermark ? 'text-orange-900/80' : 'text-orange-800'
-                      }`}>
-                        {scrollSpeed}
-                      </span>
-                    </div>
-
-                    {/* Presets de Velocidade do Ritmo */}
-                    <div className={`hidden sm:flex items-center gap-0.5 pl-1 border-l ${
-                      isWatermark ? 'border-orange-200/40' : 'border-orange-200/60'
-                    }`}>
-                      {[
-                        { label: 'Lento', speed: 8 },
-                        { label: 'Padrão', speed: 11 },
-                        { label: 'Médio', speed: 18 },
-                        { label: 'Rápido', speed: 35 },
-                        { label: 'Veloz', speed: 60 },
-                      ].map((preset) => (
-                        <button
-                          key={preset.label}
-                          type="button"
-                          onClick={() => setScrollSpeed(preset.speed)}
-                          className={`px-1 py-0.5 text-[8px] font-black rounded cursor-pointer transition-all ${
-                            scrollSpeed === preset.speed
-                              ? 'bg-orange-600 text-white shadow-xs'
-                              : (isWatermark ? 'bg-white/40 border border-orange-200/40 text-orange-800' : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100')
-                          }`}
-                          title={`Definir ritmo para ${preset.label} (${preset.speed} px/s)`}
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Botão de Fechar Modo Show */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsColorScrollActive(false);
-                        setIsScrollPlaying(false);
-                        setActiveLineIndex(null);
-                      }}
-                      className="w-5 h-5 flex items-center justify-center hover:bg-orange-200/60 rounded text-orange-800 transition-all cursor-pointer ml-0.5"
-                      title="Encerrar Modo Show"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className={`w-[1px] h-5 mx-0.5 ${isWatermark ? 'bg-orange-300/30' : 'bg-orange-200'}`}></div>
-                </>
+              {/* 2. Play do YouTube */}
+              {song.youtubeUrl && (
+                <button 
+                  onClick={() => setShowPlayer(!showPlayer)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
+                    showPlayer 
+                      ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
+                      : isWatermark
+                        ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
+                        : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
+                  }`}
+                  title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
+                >
+                  <Youtube className="w-4 h-4" />
+                </button>
               )}
+
+              {/* 3. Tela Cheia */}
+              <button 
+                onClick={toggleFullscreen}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
+                  isWatermark
+                    ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
+                    : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
+                }`}
+                title="Modo Tela Cheia"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
+
+              <div className={`w-[1px] h-6 mx-0.5 ${isWatermark ? 'bg-orange-300/30' : 'bg-orange-200'}`}></div>
 
               {/* Hide Button */}
               <button
@@ -1314,37 +1480,60 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
       )}
 
-      {/* Floating Player */}
+      {/* Floating Draggable Player */}
       <AnimatePresence>
         {showPlayer && song.youtubeUrl && (
           <motion.div 
+            drag
+            dragMomentum={false}
+            dragElastic={0.05}
+            whileDrag={{ scale: 1.02 }}
             initial={{ opacity: 0, scale: 0.8, y: 30 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 30 }}
-            className="fixed bottom-24 right-4 w-[280px] sm:w-[350px] md:w-[420px] z-40 group shadow-2xl transition-all"
+            className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 w-[280px] sm:w-[360px] md:w-[420px] z-50 group shadow-2xl touch-none select-none"
           >
-            <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-orange-500 aspect-video relative">
-              <button 
-                type="button"
-                onClick={() => setShowPlayer(false)}
-                className="absolute top-2 right-2 bg-black/75 text-white p-1.5 rounded-full hover:bg-black/90 z-10 transition-colors border border-white/10 cursor-pointer"
-                title="Fechar Player"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-              {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                <iframe 
-                  src={getYoutubeEmbedUrl(song.youtubeUrl) || ''} 
-                  title="YouTube video player" 
-                  className="w-full h-full border-0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                  allowFullScreen
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center bg-zinc-900">
-                  Link do YouTube inválido
+            <div className="bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl border-2 border-orange-500/90 flex flex-col">
+              {/* Barra de Arraste (Cabeçalho do Player) */}
+              <div className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-950 border-b border-zinc-800/80 px-3 py-2 flex items-center justify-between cursor-move select-none active:bg-zinc-800/90 transition-colors">
+                <div className="flex items-center gap-2 text-orange-400 font-bold text-xs min-w-0 pr-2">
+                  <GripHorizontal className="w-4 h-4 text-orange-500 shrink-0 animate-pulse" />
+                  <span className="truncate text-[11px] font-black uppercase tracking-wider text-zinc-200">
+                    {song.title}
+                  </span>
                 </div>
-              )}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[9px] font-extrabold text-orange-400/90 bg-orange-950/60 border border-orange-800/50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                    <Move className="w-2.5 h-2.5" />
+                    <span>Mover</span>
+                  </span>
+                  <button 
+                    type="button"
+                    onClick={() => setShowPlayer(false)}
+                    className="bg-zinc-800/80 text-zinc-300 hover:text-white p-1 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
+                    title="Fechar Player"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Player Iframe */}
+              <div className="aspect-video relative w-full bg-black select-auto">
+                {getYoutubeEmbedUrl(song.youtubeUrl) ? (
+                  <iframe 
+                    src={getYoutubeEmbedUrl(song.youtubeUrl) || ''} 
+                    title="YouTube video player" 
+                    className="w-full h-full border-0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center bg-zinc-900">
+                    Link do YouTube inválido
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

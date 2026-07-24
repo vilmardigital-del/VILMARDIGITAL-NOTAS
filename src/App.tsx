@@ -91,6 +91,7 @@ import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import heic2any from 'heic2any';
+import ourLadyImg from './assets/images/our_lady_icon_1784928887101.jpg';
 
 const CATEGORIES_MISSA: Category[] = [
   'Entrada',
@@ -386,14 +387,28 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           </div>
         </motion.div>
 
-        <motion.h1 
+        <motion.div 
           initial={{ y: 5, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.05 }}
-          className="text-2xl sm:text-3xl md:text-4xl font-black tracking-wider font-outfit text-center text-3d-title select-none"
+          className="flex items-center justify-center gap-2 sm:gap-2.5"
         >
-          catoliCifras
-        </motion.h1>
+          <img 
+            src={ourLadyImg} 
+            alt="Nossa Senhora" 
+            className="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-amber-300/80 shadow-xs shrink-0" 
+            referrerPolicy="no-referrer"
+          />
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-wider font-outfit text-center text-3d-title select-none">
+            catoliCifras
+          </h1>
+          <img 
+            src={ourLadyImg} 
+            alt="Nossa Senhora" 
+            className="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-amber-300/80 shadow-xs shrink-0" 
+            referrerPolicy="no-referrer"
+          />
+        </motion.div>
       </div>
 
       {/* EVENT BANNERS CAROUSEL SLIDE (SIGNIFICANTLY LARGER & HIGHLIGHTED) */}
@@ -3033,11 +3048,25 @@ export default function App() {
           </div>
 
           {/* Centered Sophisticated Title with Lines (listras sofisticadas) */}
-          <div className="flex-grow flex items-center justify-center gap-2 max-w-[60%]">
+          <div className="flex-grow flex items-center justify-center gap-1.5 sm:gap-2 max-w-[65%]">
             <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-300 to-orange-500 opacity-60" />
-            <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest px-2 whitespace-nowrap text-center">
-              catoliCifras
-            </h1>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <img 
+                src={ourLadyImg} 
+                alt="Nossa Senhora" 
+                className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-amber-300/80 shadow-xs shrink-0" 
+                referrerPolicy="no-referrer"
+              />
+              <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest whitespace-nowrap text-center">
+                catoliCifras
+              </h1>
+              <img 
+                src={ourLadyImg} 
+                alt="Nossa Senhora" 
+                className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-amber-300/80 shadow-xs shrink-0" 
+                referrerPolicy="no-referrer"
+              />
+            </div>
             <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-300 to-orange-500 opacity-60" />
           </div>
 

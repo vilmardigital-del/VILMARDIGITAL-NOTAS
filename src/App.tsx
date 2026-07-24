@@ -290,7 +290,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
       {
         id: 'default1',
         url: '',
-        description: 'Bem-vindo ao Cifras Digitais! Faça login para acesso total.',
+        description: 'Bem-vindo ao catoliCifras! Faça login para acesso total.',
         date: 'EVENTOS E FOTOS'
       },
       {
@@ -392,7 +392,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           transition={{ delay: 0.05 }}
           className="text-2xl sm:text-3xl md:text-4xl font-black tracking-wider font-outfit text-center text-3d-title select-none"
         >
-          Cifras Digitais
+          catoliCifras
         </motion.h1>
       </div>
 
@@ -534,7 +534,7 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
       </motion.div>
  
       <div className="flex flex-col items-center gap-1 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
-        <div>© 2026 Cifras Digitais • Versão 2.4</div>
+        <div>© 2026 catoliCifras • Versão 2.4</div>
       </div>
     </div>
   );
@@ -1680,16 +1680,6 @@ export default function App() {
   });
 
   const handleLogout = async () => {
-    if (deviceId) {
-      try {
-        await setDoc(doc(db, 'visits', deviceId), {
-          isOnline: false,
-          lastActive: Date.now()
-        }, { merge: true });
-      } catch (err) {
-        console.error("Error setting visit offline on logout:", err);
-      }
-    }
     if (userId) {
       try {
         await updateDoc(doc(db, 'access_users', userId), {
@@ -1697,7 +1687,7 @@ export default function App() {
           currentSessionId: null
         });
       } catch (err) {
-        console.error("Error setting presence on logout:", err);
+        console.error("Error setting offline state on logout:", err);
       }
     }
     setUserRole(null);
@@ -1759,10 +1749,9 @@ export default function App() {
 
   // Visitor list and detailed geolocation tracking
   const [visits, setVisits] = useState<any[]>([]);
-  const [showVisitorModal, setShowVisitorModal] = useState(false);
 
   useEffect(() => {
-    // Escuta em tempo real todas as visitas salvadas no Firestore
+    // Escuta em tempo real todas as visitas salvas no Firestore
     const unsubVisits = onSnapshot(collection(db, 'visits'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setVisits(docs);
@@ -1774,14 +1763,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId || !userIdentifier) return;
+    if (!deviceId) return;
 
     let isCompMounted = true;
     let heartbeatInterval: any;
-    let cleanupFn = () => {};
 
     const registerVisit = async () => {
-      // Robust client-side device category resolution
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       let detectedDeviceType = isMobile ? 'Smartphone / Tablet' : 'Computador / Notebook';
       
@@ -1802,78 +1789,41 @@ export default function App() {
       const updateVisitState = async (online: boolean) => {
         try {
           await setDoc(visitRef, {
-            userIdentifier: userIdentifier,
+            userIdentifier: userIdentifier || 'Visitante',
             location: detectedDeviceType,
             isOnline: online,
             lastActive: Date.now(),
             createdAt: serverTimestamp()
           }, { merge: true });
         } catch (err) {
-          // Silently ignore write failures
+          // Ignore transient errors
         }
       };
 
-      // Register initially as online
       await updateVisitState(true);
 
-      // Setup Heartbeat every 15 seconds
       heartbeatInterval = setInterval(() => {
         updateVisitState(true);
       }, 15000);
-
-      const handleUnloadState = () => {
-        try {
-          setDoc(visitRef, { isOnline: false, lastActive: Date.now() }, { merge: true });
-        } catch (e) {}
-      };
-      window.addEventListener('beforeunload', handleUnloadState);
-
-      cleanupFn = () => {
-        clearInterval(heartbeatInterval);
-        window.removeEventListener('beforeunload', handleUnloadState);
-        try {
-          setDoc(visitRef, { isOnline: false, lastActive: Date.now() }, { merge: true });
-        } catch (e) {}
-      };
     };
 
     registerVisit();
 
     return () => {
       isCompMounted = false;
-      cleanupFn();
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      try {
+        const visitRef = doc(db, 'visits', deviceId);
+        setDoc(visitRef, { isOnline: false, lastActive: Date.now() }, { merge: true });
+      } catch (e) {}
     };
-  }, [sessionId, userIdentifier, deviceId]);
+  }, [deviceId, userIdentifier]);
 
   // Derive real-time active (online) visitors
-  const onlineVisits = useMemo(() => {
+  const onlineCount = useMemo(() => {
     const now = Date.now();
-    // Consider online if "isOnline" is true and last heart beat is within 45 seconds (handling tab closes/sleep)
-    return visits.filter(v => v.isOnline === true && v.lastActive && (now - v.lastActive) < 45000);
-  }, [visits]);
-
-  // Create formatted helper to show device presence
-  const formatActiveTime = (timestamp?: number) => {
-    if (!timestamp) return 'Fora do ar';
-    const diff = Date.now() - timestamp;
-    if (diff < 45000) return 'Online';
-    if (diff < 60000) return 'Agora mesmo';
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `Há ${mins} min${mins > 1 ? 's' : ''}`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `Há ${hours} h${hours > 1 ? 's' : ''}`;
-    const days = Math.floor(hours / 24);
-    return `Há ${days} dia${days > 1 ? 's' : ''}`;
-  };
-
-  const sortedDevices = useMemo(() => {
-    return [...visits].sort((a, b) => {
-      const aOnline = a.isOnline && (Date.now() - (a.lastActive || 0) < 45000);
-      const bOnline = b.isOnline && (Date.now() - (b.lastActive || 0) < 45000);
-      if (aOnline && !bOnline) return -1;
-      if (!aOnline && bOnline) return 1;
-      return (b.lastActive || 0) - (a.lastActive || 0);
-    });
+    const active = visits.filter(v => v.isOnline === true && v.lastActive && (now - v.lastActive) < 45000);
+    return Math.max(1, active.length);
   }, [visits]);
 
   const [loading, setLoading] = useState(true);
@@ -1987,7 +1937,7 @@ export default function App() {
       {
         id: 'default1',
         url: '',
-        description: 'Bem-vindo ao Cifras Digitais!',
+        description: 'Bem-vindo ao catoliCifras!',
         date: 'AVISOS E DIVULGAÇÕES',
         createdAt: null
       }
@@ -3086,7 +3036,7 @@ export default function App() {
           <div className="flex-grow flex items-center justify-center gap-2 max-w-[60%]">
             <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-300 to-orange-500 opacity-60" />
             <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest px-2 whitespace-nowrap text-center">
-              Cifras Digitais
+              catoliCifras
             </h1>
             <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-300 to-orange-500 opacity-60" />
           </div>
@@ -3142,26 +3092,13 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               {/* Nome */}
               <span className={`font-extrabold text-[11px] sm:text-xs tracking-tight truncate max-w-[125px] uppercase ${userIdentifier === 'Público' ? 'text-emerald-700' : 'text-zinc-800'}`}>
-                {userIdentifier || 'Cifras Digitais'}
+                {userIdentifier || 'catoliCifras'}
               </span>
               {userIdentifier === 'Público' && (
                 <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/55 shrink-0 uppercase tracking-widest hidden xs:inline-block">
                   Visitante
                 </span>
               )}
-
-              {/* Contador de Visitantes (Aparelhos Únicos de Login) */}
-              <div
-                className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-extrabold text-pink-750 bg-pink-100/35 border border-pink-200/60 rounded-md px-1.5 py-0.5 shrink-0 shadow-xs"
-                title="Aparelhos que já acessaram o sistema (cada aparelho conta apenas uma vez)"
-              >
-                <div className="relative flex h-1 w-1">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1 w-1 bg-pink-600"></span>
-                </div>
-                <Smartphone className="w-3 h-3 text-pink-755 shrink-0" />
-                <span>{visits.length} {visits.length === 1 ? 'Acesso' : 'Acessos'}</span>
-              </div>
 
               {/* Bullet divider */}
               <span className="text-orange-300 text-[10px] font-black shrink-0">•</span>
@@ -3244,6 +3181,42 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* Visitor Counter Widget (Contador de Visitantes - Compacto) */}
+                  <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-xl px-3 py-2 text-white shadow-xs border border-orange-400/40">
+                    <div className="flex items-center justify-between gap-2">
+                      {/* Left side: Icon + Title */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="p-1.5 bg-white/20 backdrop-blur-md rounded-lg text-white shrink-0">
+                          <Eye className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="font-extrabold text-xs uppercase tracking-wide text-white truncate">
+                            Visitantes
+                          </span>
+                          <span className="flex h-1.5 w-1.5 relative shrink-0" title="Tempo real">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-300"></span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right side: Stats */}
+                      <div className="flex items-center gap-1.5 shrink-0 text-[10px]">
+                        {/* Total Acessos */}
+                        <div className="bg-white/15 backdrop-blur-md px-2 py-0.5 rounded-lg border border-white/20 flex items-center gap-1">
+                          <span className="text-orange-100 font-bold uppercase text-[9px]">Acessos:</span>
+                          <span className="font-black text-xs text-white font-mono">{visits.length || 1}</span>
+                        </div>
+
+                        {/* Online Agora */}
+                        <div className="bg-emerald-900/40 backdrop-blur-md px-2 py-0.5 rounded-lg border border-emerald-400/30 flex items-center gap-1">
+                          <span className="text-emerald-200 font-bold uppercase text-[9px]">Online:</span>
+                          <span className="font-black text-xs text-emerald-300 font-mono">{onlineCount}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Dynamic Slide Carousel on Main Page */}
                   <div className="bg-white border border-orange-100 rounded-3xl p-2 sm:p-3 shadow-xs">
                     <div className="flex items-center justify-between gap-2 mb-2 px-2 pb-2 border-b border-orange-50">
@@ -3301,7 +3274,7 @@ export default function App() {
                                 ) : (
                                   <div className="absolute inset-0 bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-500 flex flex-col justify-center items-center p-6 text-center select-none">
                                     <Music className="w-14 h-14 text-white/90 animate-pulse mb-3" />
-                                    <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">Cifras Digitais</span>
+                                    <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">catoliCifras</span>
                                   </div>
                                 )}
                                 {photo.description && (
@@ -5024,7 +4997,7 @@ export default function App() {
 
         {/* Rodapé compartilhado em outras telas */}
         <div className="w-full text-center py-6 border-t border-orange-100/60 mt-8 select-none flex flex-col items-center justify-center gap-1.5 shrink-0 text-zinc-400 text-[10px] font-bold">
-          <div>© 2026 Cifras Digitais • Versão 2.4</div>
+          <div>© 2026 catoliCifras • Versão 2.4</div>
         </div>
       </main>
 

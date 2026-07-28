@@ -59,6 +59,7 @@ import {
   Minus,
   FileText,
   Lock,
+  Type,
   ArrowUpDown,
   ArrowLeftRight,
   AlignLeft,
@@ -236,6 +237,108 @@ export const formatSongContent = (raw: string): string => {
   });
 
   return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+};
+
+/**
+ * Ajusta o texto de uma cifra dividindo as frases por linhas (ex: pontuações como vírgulas, pontos)
+ * mantendo as cifras/notas exatamente nas suas posições relativas originais acima das palavras.
+ */
+export const adjustPhrasesWithChords = (rawContent: string): string => {
+  if (!rawContent) return '';
+
+  let text = rawContent;
+  if (/<[a-z][\s\S]*>/i.test(text)) {
+    text = text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|h[1-6]|pre|blockquote)>/gi, '\n')
+      .replace(/<[^>]+>/g, '');
+  }
+
+  const rawLines = text.split('\n');
+  const resultLines: string[] = [];
+
+  let i = 0;
+  while (i < rawLines.length) {
+    const currentLine = rawLines[i];
+    const nextLine = i + 1 < rawLines.length ? rawLines[i + 1] : null;
+
+    if (isChordLine(currentLine) && nextLine !== null && !isChordLine(nextLine) && nextLine.trim().length > 0) {
+      const chordLine = currentLine;
+      const lyricLine = nextLine;
+
+      const chordMatches: { chord: string; index: number }[] = [];
+      const parts = chordLine.split(/(\s+)/);
+      let currPos = 0;
+      for (const p of parts) {
+        const trimmedP = p.trim();
+        if (trimmedP.length > 0 && CHORD_REGEX_EXACT.test(trimmedP)) {
+          const foundIdx = chordLine.indexOf(trimmedP, currPos);
+          if (foundIdx !== -1) {
+            chordMatches.push({ chord: trimmedP, index: foundIdx });
+            currPos = foundIdx + trimmedP.length;
+          } else {
+            currPos += p.length;
+          }
+        } else {
+          currPos += p.length;
+        }
+      }
+
+      const phraseMatches = lyricLine.match(/[^,.:;!?—\n]+[,.:;!?—]?/g) || [lyricLine];
+
+      let lyricSearchPos = 0;
+      let processedAny = false;
+
+      for (const pText of phraseMatches) {
+        const trimmedPhrase = pText.trim();
+        if (!trimmedPhrase) continue;
+
+        const pStart = lyricLine.indexOf(pText, lyricSearchPos);
+        const pEnd = pStart !== -1 ? pStart + pText.length : lyricSearchPos + pText.length;
+        lyricSearchPos = pEnd;
+
+        const chordsInPhrase = chordMatches.filter(c => c.index >= pStart && c.index < pEnd);
+
+        if (chordsInPhrase.length > 0) {
+          let newChordLine = '';
+          for (const cMatch of chordsInPhrase) {
+            const relIndex = Math.max(0, cMatch.index - pStart);
+            if (newChordLine.length < relIndex) {
+              newChordLine += ' '.repeat(relIndex - newChordLine.length);
+            } else if (newChordLine.length > relIndex) {
+              newChordLine += ' ';
+            }
+            newChordLine += cMatch.chord;
+          }
+          resultLines.push(newChordLine);
+        }
+
+        resultLines.push(trimmedPhrase);
+        processedAny = true;
+      }
+
+      if (!processedAny) {
+        resultLines.push(chordLine);
+        resultLines.push(lyricLine);
+      }
+
+      i += 2;
+    } else if (!isChordLine(currentLine) && currentLine.trim().length > 0) {
+      const phraseMatches = currentLine.match(/[^,.:;!?—\n]+[,.:;!?—]?/g) || [currentLine];
+      for (const pText of phraseMatches) {
+        const trimmed = pText.trim();
+        if (trimmed) {
+          resultLines.push(trimmed);
+        }
+      }
+      i++;
+    } else {
+      resultLines.push(currentLine);
+      i++;
+    }
+  }
+
+  return resultLines.join('\n').replace(/\n{3,}/g, '\n\n');
 };
 
 // Components
@@ -748,7 +851,10 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     }
   }, [fontSize, song?.id]);
 
-  // Carregar o tamanho salvo ao trocar de música na navegação
+  // Carregar o tamanho, espessamento vertical e horizontal salvos ao trocar de música na navegação
+  const [lineHeight, setLineHeight] = useState<number>(() => (song as any)?.lineHeight || 1.5);
+  const [letterSpacing, setLetterSpacing] = useState<number>(() => (song as any)?.letterSpacing || 0);
+
   useEffect(() => {
     try {
       if (song?.id) {
@@ -757,6 +863,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           const parsed = parseInt(savedSongFont, 10);
           if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
             setFontSize(parsed);
+            setLineHeight((song as any)?.lineHeight || 1.5);
+            setLetterSpacing((song as any)?.letterSpacing || 0);
             return;
           }
         }
@@ -771,51 +879,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     } catch (e) {
       console.error(e);
     }
-  }, [song?.id]);
+    setLineHeight((song as any)?.lineHeight || 1.5);
+    setLetterSpacing((song as any)?.letterSpacing || 0);
+  }, [song?.id, song?.lineHeight, song?.letterSpacing]);
 
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
 
-  // States for Rolagem Colorida
-  const [isColorScrollActive, setIsColorScrollActive] = useState(false);
-  const [isScrollPlaying, setIsScrollPlaying] = useState(true);
-  const [scrollSpeed, setScrollSpeed] = useState(11); // comfortable default rhythm speed of 11px per second
-  const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
-
-  // Auto-ajuste de fonte para ajustar perfeitamente à tela sem quebrar linhas ou causar bugs de visualização
-  const handleAutoFitFontSize = useCallback(() => {
-    if (!song?.content) return;
-
-    // Limpa tags HTML para calcular apenas os caracteres visíveis
-    const cleanContent = song.content.replace(/<[^>]+>/g, '');
-    const lines = cleanContent.split('\n');
-
-    let maxLineLength = 0;
-    for (const line of lines) {
-      const trimmedLen = line.trimEnd().length;
-      if (trimmedLen > maxLineLength) {
-        maxLineLength = trimmedLen;
-      }
-    }
-
-    if (maxLineLength === 0) {
-      setFontSize(14);
-      return;
-    }
-
-    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 800;
-    const isTwoColumns = !isColorScrollActive && (song.content.length > 800) && screenWidth >= 768;
-    const availableWidth = isTwoColumns 
-      ? Math.min((screenWidth - 96) / 2, 420)
-      : Math.min(screenWidth - 48, 800);
-
-    // Em fonte monospace, 1 caractere tem largura relativa ~0.58 x fontSize
-    const calculated = Math.floor(availableWidth / (maxLineLength * 0.58));
-
-    // Define um limite agradável e legível entre 11px e 22px
-    const optimalSize = Math.min(Math.max(calculated, 11), 22);
-    setFontSize(optimalSize);
-  }, [song?.content, isColorScrollActive]);
   const [isBarHoveredOrTouched, setIsBarHoveredOrTouched] = useState(false);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -830,132 +900,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       setIsBarHoveredOrTouched(false);
     }, 3000);
   };
-
-  const lastTimeRef = useRef<number>(0);
-  const scrollPosRef = useRef<number>(0);
-
-  // Standard constant scroll behavior with subpixel float accuracy
-  useEffect(() => {
-    if (!isColorScrollActive || !isScrollPlaying) return;
-
-    let animationFrameId: number;
-    const container = document.getElementById('song-content-area');
-    if (container) {
-      scrollPosRef.current = container.scrollTop;
-    }
-
-    const scrollLoop = (time: number) => {
-      if (!lastTimeRef.current) lastTimeRef.current = time;
-      const deltaTime = (time - lastTimeRef.current) / 1000;
-      lastTimeRef.current = time;
-
-      const containerEl = document.getElementById('song-content-area');
-      if (containerEl) {
-        // Synchronize scrollPosRef if user manually scrolled
-        if (Math.abs(containerEl.scrollTop - scrollPosRef.current) > 30) {
-          scrollPosRef.current = containerEl.scrollTop;
-        }
-
-        const maxScroll = containerEl.scrollHeight - containerEl.clientHeight;
-
-        // If reached the end of the content, loop back to the top
-        if (maxScroll > 10 && (containerEl.scrollTop >= maxScroll - 4 || scrollPosRef.current >= maxScroll - 4)) {
-          scrollPosRef.current = 0;
-          containerEl.scrollTop = 0;
-        } else {
-          scrollPosRef.current += scrollSpeed * deltaTime;
-          containerEl.scrollTop = scrollPosRef.current;
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(scrollLoop);
-    };
-
-    lastTimeRef.current = 0;
-    animationFrameId = requestAnimationFrame(scrollLoop);
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [isColorScrollActive, isScrollPlaying, scrollSpeed]);
-
-  // Keyboard shortcuts for Show Mode (Space to Play/Pause scroll, ArrowUp/ArrowDown for rhythm speed)
-  useEffect(() => {
-    if (!isColorScrollActive) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        setIsScrollPlaying(prev => !prev);
-      } else if (e.code === 'ArrowUp') {
-        e.preventDefault();
-        setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)));
-      } else if (e.code === 'ArrowDown') {
-        e.preventDefault();
-        setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)));
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isColorScrollActive]);
-
-  // Manual scroll listener to update highlight when scrolling manually
-  useEffect(() => {
-    const container = document.getElementById('song-content-area');
-    if (!container) return;
-
-    const handleScroll = () => {
-      if (!isColorScrollActive) {
-        setActiveLineIndex(null);
-        return;
-      }
-
-      const lines = container.getElementsByClassName('lyric-line-item');
-      if (lines.length === 0) return;
-
-      const containerRect = container.getBoundingClientRect();
-      const focusZoneY = containerRect.height * 0.25; // Focus zone at 25% from top
-      const ratio = Math.min(container.scrollTop / (focusZoneY || 1), 1);
-      const targetY = containerRect.top + focusZoneY * ratio;
-
-      let closestIndex = null;
-      let minDiff = Infinity;
-
-      for (let idx = 0; idx < lines.length; idx++) {
-        const el = lines[idx];
-        const rect = el.getBoundingClientRect();
-        const elCenter = rect.top + rect.height / 2;
-        const diff = Math.abs(elCenter - targetY);
-        if (diff < minDiff) {
-          minDiff = diff;
-          const lineIdxStr = el.getAttribute('data-line-index');
-          if (lineIdxStr !== null) {
-            closestIndex = parseInt(lineIdxStr, 10);
-          }
-        }
-      }
-
-      if (closestIndex !== null) {
-        setActiveLineIndex(closestIndex);
-      }
-    };
-
-    if (isColorScrollActive) {
-      container.addEventListener('scroll', handleScroll);
-      // Run initially to capture current line
-      const timer = setTimeout(handleScroll, 100);
-      return () => {
-        container.removeEventListener('scroll', handleScroll);
-        clearTimeout(timer);
-      };
-    } else {
-      setActiveLineIndex(null);
-    }
-  }, [isColorScrollActive]);
 
   const toggleFullscreen = async () => {
     try {
@@ -989,7 +933,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
   useEffect(() => {
     setTranspose(initialTranspose);
-    setScrollSpeed(11);
     setFontSize(14);
   }, [initialTranspose, song.id]);
 
@@ -1021,6 +964,17 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     };
   }, []);
 
+  const [displayContent, setDisplayContent] = useState<string>(song?.content || '');
+
+  useEffect(() => {
+    setDisplayContent(song?.content || '');
+  }, [song?.content]);
+
+  const handleAdjustPhrases = () => {
+    const adjusted = adjustPhrasesWithChords(displayContent);
+    setDisplayContent(adjusted);
+  };
+
   const handleTranspose = (delta: number) => {
     const newVal = transpose + delta;
     setTranspose(newVal);
@@ -1028,7 +982,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   };
 
   const transposeHtml = (html: string, semitones: number) => {
-    // Clean existing spans to avoid doubling up
     const cleanedHtml = html.replace(/<span className="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
                             .replace(/<span class="text-orange-600 font-bold">([^<]+)<\/span>/g, '$1')
                             .replace(/<span className="text-chord-orange font-bold font-mono">([^<]+)<\/span>/g, '$1')
@@ -1043,8 +996,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     });
   };
 
-  const isHtml = /<[a-z][\s\S]*>/i.test(song.content);
-  const processedContent = song.content || "";
+  const isHtml = /<[a-z][\s\S]*>/i.test(displayContent || '');
+  const processedContent = displayContent || "";
 
   return (
     <motion.div 
@@ -1070,192 +1023,73 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
       {/* Header Fixo */}
       {!isAppFullScreen && (
-        <div className="bg-white border-b border-orange-100 px-3 sm:px-4 py-1.5 flex items-center justify-between shadow-xs z-20">
-          <div className="flex items-center gap-2 sm:gap-2.5 overflow-hidden mr-2">
+        <div className="bg-white border-b border-orange-100 px-2.5 sm:px-4 py-1 flex items-center justify-between gap-2 shadow-2xs z-20">
+          {/* Informações da Música */}
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <button 
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 border border-transparent hover:border-orange-100/50 rounded-lg shrink-0 transition-all cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-orange-600 hover:bg-orange-50 border border-gray-200/60 hover:border-orange-200 rounded-lg shrink-0 transition-all cursor-pointer"
               title="Voltar"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
-            <div className="min-w-0">
-              {(!isColorScrollActive || !isScrollPlaying) ? (
-                <>
-                  <h1 className="text-sm sm:text-base font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
-                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100">
-                      {getCategoryIcon(song.category, "w-2.5 h-2.5 text-orange-600")}
-                      {song.category}
-                    </span>
-                    {song.ownerId && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-gray-50 text-gray-500 border border-gray-100">
-                        Por: {song.ownerId}
-                      </span>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-1.5 text-xs font-black text-orange-600 uppercase tracking-wider animate-pulse">
-                  <span>• Rolagem Ativa</span>
-                </div>
-              )}
+            <div className="min-w-0 flex items-center gap-1.5">
+              <h1 className="text-xs sm:text-sm font-black leading-tight truncate text-gray-950 tracking-tight">{song.title}</h1>
+              <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-100 shrink-0">
+                {getCategoryIcon(song.category, "w-2.5 h-2.5 text-orange-600")}
+                {song.category}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-wrap justify-end">
-            {/* 1. Tom / Transposição */}
-            <div className="flex items-center bg-orange-50/50 border border-orange-100/80 rounded-lg p-0.5">
+          {/* Opções e Controles do Cabeçalho: Apenas Alteração de Tom e Tela Cheia */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Controle de Tom */}
+            <div className="flex items-center bg-orange-50/90 border border-orange-200/80 rounded-lg p-0.5 shadow-2xs shrink-0">
               <button 
                 onClick={() => handleTranspose(-1)}
-                className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-xs rounded-md text-gray-500 transition-all cursor-pointer"
-                title="Diminuir Tom"
+                className="w-6 h-6 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-2xs rounded-md text-gray-600 transition-all cursor-pointer active:scale-95"
+                title="Diminuir Tom (-1 semitom)"
               >
                 <Minus className="w-3 h-3" />
               </button>
-              <div className="px-1 text-center select-none flex flex-col justify-center min-w-[1.9rem]">
-                <span className="text-[7px] text-orange-500 font-extrabold uppercase tracking-widest leading-none">Tom</span>
-                <span className="text-[9.5px] font-black text-orange-700 leading-tight">
+              
+              <div className="px-1.5 text-center select-none flex items-center gap-1 min-w-[2.2rem]">
+                <span className="text-[8.5px] text-orange-600 font-black uppercase tracking-widest leading-none">Tom:</span>
+                <span className="text-[10px] font-black text-orange-850 leading-none">
                   {transpose > 0 ? `+${transpose}` : transpose === 0 ? 'Orig.' : transpose}
                 </span>
               </div>
+
               <button 
                 onClick={() => handleTranspose(1)}
-                className="w-6.5 h-6.5 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-xs rounded-md text-gray-500 transition-all cursor-pointer"
-                title="Aumentar Tom"
+                className="w-6 h-6 flex items-center justify-center hover:bg-white hover:text-orange-600 hover:shadow-2xs rounded-md text-gray-600 transition-all cursor-pointer active:scale-95"
+                title="Aumentar Tom (+1 semitom)"
               >
                 <Plus className="w-3 h-3" />
               </button>
-            </div>
 
-            {/* 2. Botão de Auto Ajuste de Fonte (Compacto) */}
-            <button 
-              type="button"
-              onClick={handleAutoFitFontSize}
-              className="h-6.5 px-1.5 sm:px-2 flex items-center gap-1 bg-orange-50/80 hover:bg-orange-100 border border-orange-200/80 text-orange-700 hover:text-orange-800 rounded-lg transition-all cursor-pointer shadow-2xs group shrink-0"
-              title="Auto-Ajustar tamanho da fonte para a tela sem quebrar linhas ou cifragem"
-            >
-              <Wand2 className="w-3 h-3 text-orange-600 group-hover:rotate-12 transition-transform shrink-0" />
-              <div className="flex items-center gap-0.5 sm:gap-1">
-                <span className="text-[9px] font-black uppercase tracking-wider">
-                  Auto
-                </span>
-                <span className="text-[8.5px] font-extrabold text-orange-700 font-mono bg-white/90 px-1 py-0.2 rounded border border-orange-200/60">
-                  {fontSize}px
-                </span>
-              </div>
-            </button>
-
-            {/* 3. Controle de Velocidade / Ritmo (Movido para o Cabeçalho) */}
-            <div className="flex items-center bg-orange-50/70 border border-orange-200/80 rounded-lg p-0.5 gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isColorScrollActive) {
-                    setIsColorScrollActive(true);
-                    setIsScrollPlaying(true);
-                    setScrollSpeed(11);
-                    const container = document.getElementById('song-content-area');
-                    if (container) container.scrollTop = 0;
-                    setActiveLineIndex(0);
-                  } else {
-                    setIsScrollPlaying(!isScrollPlaying);
-                  }
-                }}
-                className={`h-6.5 px-2 flex items-center gap-1 rounded-md transition-all cursor-pointer font-black text-[9px] uppercase tracking-wider ${
-                  isColorScrollActive && isScrollPlaying 
-                    ? 'bg-orange-600 text-white shadow-xs' 
-                    : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
-                }`}
-                title={!isColorScrollActive ? "Iniciar Modo Show / Rolagem" : isScrollPlaying ? "Pausar Rolagem (Espaço)" : "Retomar Rolagem (Espaço)"}
-              >
-                {isColorScrollActive && isScrollPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
-                <span className="hidden xs:inline">Show</span>
-              </button>
-
-              <div className="flex items-center gap-1 px-0.5">
-                <span className="text-[7px] text-orange-500 font-extrabold uppercase tracking-widest leading-none hidden sm:inline">Ritmo</span>
-                
+              {transpose !== 0 && (
                 <button
-                  type="button"
-                  onClick={() => setScrollSpeed(prev => parseFloat((Math.max(1, prev - 1)).toFixed(1)))}
-                  className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 hover:bg-orange-100 text-[10px] font-bold cursor-pointer transition-colors"
-                  title="Diminuir velocidade"
+                  onClick={() => handleTranspose(-transpose)}
+                  className="w-5.5 h-5.5 ml-0.5 flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-md transition-all cursor-pointer"
+                  title="Voltar ao Tom Original"
                 >
-                  <Minus className="w-2.5 h-2.5" />
-                </button>
-
-                <input 
-                  type="range"
-                  min="1"
-                  max="100"
-                  step="0.5"
-                  value={scrollSpeed}
-                  onChange={(e) => setScrollSpeed(parseFloat(e.target.value))}
-                  className="w-10 xs:w-14 sm:w-16 h-1 bg-orange-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
-                  title="Ajustar velocidade de rolagem (ritmo)"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setScrollSpeed(prev => parseFloat((Math.min(120, prev + 1)).toFixed(1)))}
-                  className="w-5 h-5 flex items-center justify-center bg-white border border-orange-200 rounded text-orange-700 hover:bg-orange-100 text-[10px] font-bold cursor-pointer transition-colors"
-                  title="Aumentar velocidade"
-                >
-                  <Plus className="w-2.5 h-2.5" />
-                </button>
-
-                <span className="text-[9.5px] font-black text-orange-700 leading-tight font-mono min-w-[1.4rem] text-right">
-                  {scrollSpeed}
-                </span>
-              </div>
-
-              {/* Presets de Velocidade em telas maiores */}
-              <div className="hidden lg:flex items-center gap-0.5 pl-1 border-l border-orange-200/60">
-                {[
-                  { label: 'Lento', speed: 8 },
-                  { label: 'Padrão', speed: 11 },
-                  { label: 'Médio', speed: 18 },
-                  { label: 'Rápido', speed: 35 },
-                  { label: 'Veloz', speed: 60 },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      setScrollSpeed(preset.speed);
-                      if (!isColorScrollActive) {
-                        setIsColorScrollActive(true);
-                        setIsScrollPlaying(true);
-                      }
-                    }}
-                    className={`px-1 py-0.5 text-[8px] font-black rounded cursor-pointer transition-all ${
-                      scrollSpeed === preset.speed
-                        ? 'bg-orange-600 text-white shadow-xs'
-                        : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-100'
-                    }`}
-                    title={`Ritmo ${preset.label} (${preset.speed})`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-
-              {isColorScrollActive && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsColorScrollActive(false);
-                    setIsScrollPlaying(false);
-                    setActiveLineIndex(null);
-                  }}
-                  className="w-5 h-5 flex items-center justify-center hover:bg-orange-200/60 rounded text-orange-800 transition-all cursor-pointer ml-0.5"
-                  title="Encerrar Modo Show"
-                >
-                  <X className="w-3 h-3" />
+                  <RotateCcw className="w-2.5 h-2.5" />
                 </button>
               )}
             </div>
+
+            {/* Botão de Tela Cheia */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="h-7 px-2.5 flex items-center gap-1 bg-orange-600 hover:bg-orange-500 text-white rounded-lg shadow-2xs transition-all cursor-pointer font-bold text-xs active:scale-95 shrink-0"
+              title="Tela Cheia"
+            >
+              {isAppFullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span className="hidden xs:inline sm:inline">Tela Cheia</span>
+            </button>
           </div>
         </div>
       )}
@@ -1266,81 +1100,44 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
       >
         <div className={`max-w-4xl mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
-          isColorScrollActive 
-            ? 'pb-[60vh] columns-1' 
-            : (song.content && song.content.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1')
+          displayContent && displayContent.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1'
         }`}>
-          {/* Nome da música exibido junto com a letra quando pausado; ocultado ao reproduzir */}
-          {(!isColorScrollActive || !isScrollPlaying) && (
-            <div className="mb-6 pb-3 border-b border-orange-200/50 break-inside-avoid animate-in fade-in duration-300">
-              <h1 className="text-xl sm:text-2xl font-black text-gray-950 tracking-tight leading-tight">
-                {song.title}
-              </h1>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-orange-100/80 text-orange-800 border border-orange-200/60">
-                  {getCategoryIcon(song.category, "w-3 h-3 text-orange-600")}
-                  {song.category}
-                </span>
-                {song.artist && (
-                  <span className="text-xs font-bold text-gray-600">
-                    • {song.artist}
-                  </span>
-                )}
-                {song.ownerId && (
-                  <span className="text-xs text-gray-400 font-medium">
-                    • Por: {song.ownerId}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
           {isHtml ? (
             <div 
               style={{ 
                 fontSize: `${fontSize}px`,
-                lineHeight: song.lineHeight || 1.5,
-                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
-                textAlign: song.textAlign || 'left'
+                lineHeight: lineHeight,
+                letterSpacing: `${letterSpacing}px`,
+                textAlign: song.textAlign || 'left',
+                tabSize: 4,
+                MozTabSize: 4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className={`font-mono transition-all rich-text-song whitespace-pre-wrap text-black font-bold ${
-                isColorScrollActive && isScrollPlaying 
-                  ? '[&_.text-chord-orange]:!text-rose-600 [&_.text-chord-orange]:!font-black [&_.text-chord-orange]:scale-105 [&_.text-chord-orange]:inline-block' 
-                  : '[&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold'
-              }`}
+              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
             <div 
               style={{ 
                 fontSize: `${fontSize}px`,
-                lineHeight: song.lineHeight || 1.5,
-                letterSpacing: song.letterSpacing !== undefined ? `${song.letterSpacing}px` : 'normal',
-                textAlign: song.textAlign || 'left'
+                lineHeight: lineHeight,
+                letterSpacing: `${letterSpacing}px`,
+                textAlign: song.textAlign || 'left',
+                tabSize: 4,
+                MozTabSize: 4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className="whitespace-pre-wrap font-mono transition-all text-black"
+              className="whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold"
             >
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
-                const isLyricLine = !isChords && line.trim().length > 0;
                 const parts = line.split(/(\s+)/);
-                
-                // A lyric line is active if activeLineIndex matches i and scroll is playing
-                const isLyricActive = isColorScrollActive && isScrollPlaying && isLyricLine && activeLineIndex === i;
-                
-                // A chord line is active if the lyric line immediately below it (i + 1) is active and scroll is playing
-                const isChordActive = isColorScrollActive && isScrollPlaying && isChords && activeLineIndex === i + 1;
 
                 return (
                   <div 
                     key={i} 
-                    data-line-index={isLyricLine ? i : undefined}
-                    className={`min-h-[1.2em] relative transition-all duration-300 ${isLyricLine ? 'lyric-line-item' : ''} ${
-                      isColorScrollActive && isScrollPlaying 
-                        ? (isChords 
-                            ? (isChordActive ? 'text-chord-orange font-extrabold text-[1.05em] origin-left pb-1 mt-2' : 'text-chord-orange font-bold pb-1 mt-2') 
-                            : (isLyricActive ? 'text-orange-600 drop-shadow-[0_2px_4px_rgba(234,88,12,0.20)] font-black text-[1.05em] origin-left mb-2' : 'text-black font-bold mb-2')
-                          )
-                        : (isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold')
+                    className={`min-h-[1.2em] relative transition-all duration-300 ${
+                      isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold'
                     }`}
                   >
                     {parts.map((part, j) => {
@@ -1350,13 +1147,9 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                         let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
                         chordToDisplay = formatChordNotation(chordToDisplay);
                         return (
-                           <span 
+                          <span 
                             key={j} 
-                            className={`transition-all duration-300 font-mono ${
-                              isColorScrollActive && isScrollPlaying 
-                                ? (isChordActive ? 'font-black scale-100 inline-block text-chord-orange' : 'font-bold text-chord-orange') 
-                                : 'font-bold text-chord-orange !text-chord-orange'
-                            }`}
+                            className="font-mono font-bold text-chord-orange !text-chord-orange"
                           >
                             {part.replace(trimmedPart, chordToDisplay)}
                           </span>
@@ -1374,114 +1167,89 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
       {/* Floating Controls Bar (Navigation, Font Size & Hide) on the Bottom Right */}
       {showControls ? (
-        (() => {
-          const isWatermark = isColorScrollActive && !isBarHoveredOrTouched;
-          return (
-            <div 
-              onMouseEnter={() => setIsBarHoveredOrTouched(true)}
-              onMouseLeave={() => setIsBarHoveredOrTouched(false)}
-              onTouchStart={handleBarTouchStart}
-              onTouchMove={handleBarTouchStart}
-              onTouchEnd={handleBarTouchEnd}
-              className={`fixed bottom-6 right-6 flex items-center gap-2.5 p-2 rounded-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)] transition-all duration-300 ${
-                isWatermark
-                  ? 'bg-orange-500/10 backdrop-blur-xs border border-orange-400/20 opacity-40 shadow-none'
-                  : 'bg-white/95 backdrop-blur-md border border-orange-200 shadow-2xl opacity-100'
-              }`}
-            >
-              {/* Playlist Navigation Controls */}
-              {(onPrev || onNext) && (
-                <div className={`flex items-center gap-1 rounded-xl p-0.5 shadow-sm transition-all ${
-                  isWatermark ? 'bg-orange-600/50' : 'bg-orange-600'
-                }`}>
-                  <button 
-                    disabled={!onPrev}
-                    onClick={onPrev} 
-                    className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                    title="Música anterior"
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </button>
-                  <div className={`w-[1px] h-5 ${isWatermark ? 'bg-orange-400/60' : 'bg-orange-400'}`}></div>
-                  <button 
-                    disabled={!onNext}
-                    onClick={onNext} 
-                    className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                    title="Próxima música"
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                </div>
-              )}
-
-              {/* Divider between Navigation and Font Size */}
-              {(onPrev || onNext) && <div className={`w-[1px] h-6 mx-0.5 ${isWatermark ? 'bg-orange-300/30' : 'bg-orange-200'}`}></div>}
-
-              {/* 1. Copiar Letra */}
+        <div 
+          onMouseEnter={() => setIsBarHoveredOrTouched(true)}
+          onMouseLeave={() => setIsBarHoveredOrTouched(false)}
+          onTouchStart={handleBarTouchStart}
+          onTouchMove={handleBarTouchStart}
+          onTouchEnd={handleBarTouchEnd}
+          className="fixed bottom-6 right-6 flex items-center gap-2.5 p-2 rounded-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)] transition-all duration-300 bg-white/95 backdrop-blur-md border border-orange-200 shadow-2xl opacity-100"
+        >
+          {/* Playlist Navigation Controls */}
+          {(onPrev || onNext) && (
+            <div className="flex items-center gap-1 rounded-xl p-0.5 shadow-sm transition-all bg-orange-600">
               <button 
-                onClick={() => {
-                  const lyricsOnly = song.content.replace(CHORD_REGEX, '');
-                  navigator.clipboard.writeText(lyricsOnly);
-                  alert('Letra da música copiada com sucesso!');
-                }}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
-                  isWatermark
-                    ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
-                    : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
-                }`}
-                title="Copiar Letra (Sem Cifras)"
+                disabled={!onPrev}
+                onClick={onPrev} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Música anterior"
               >
-                <Clipboard className="w-4 h-4" />
+                <ChevronLeft className="w-5 h-5" />
               </button>
-
-              {/* 2. Play do YouTube */}
-              {song.youtubeUrl && (
-                <button 
-                  onClick={() => setShowPlayer(!showPlayer)}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
-                    showPlayer 
-                      ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
-                      : isWatermark
-                        ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
-                        : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
-                  }`}
-                  title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
-                >
-                  <Youtube className="w-4 h-4" />
-                </button>
-              )}
-
-              {/* 3. Tela Cheia */}
+              <div className="w-[1px] h-5 bg-orange-400"></div>
               <button 
-                onClick={toggleFullscreen}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
-                  isWatermark
-                    ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40 border-transparent'
-                    : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
-                }`}
-                title="Modo Tela Cheia"
+                disabled={!onNext}
+                onClick={onNext} 
+                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                title="Próxima música"
               >
-                <Maximize2 className="w-4 h-4" />
-              </button>
-
-              <div className={`w-[1px] h-6 mx-0.5 ${isWatermark ? 'bg-orange-300/30' : 'bg-orange-200'}`}></div>
-
-              {/* Hide Button */}
-              <button
-                type="button"
-                onClick={() => setShowControls(false)}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer ${
-                  isWatermark
-                    ? 'text-orange-900/60 hover:text-orange-700 hover:bg-orange-100/40'
-                    : 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
-                }`}
-                title="Ocultar botões"
-              >
-                <EyeOff className="w-5 h-5" />
+                <ChevronRight className="w-5 h-5" />
               </button>
             </div>
-          );
-        })()
+          )}
+
+          {/* Divider between Navigation and Font Size */}
+          {(onPrev || onNext) && <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>}
+
+          {/* 1. Copiar Letra */}
+          <button 
+            onClick={() => {
+              const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+              navigator.clipboard.writeText(lyricsOnly);
+              alert('Letra da música copiada com sucesso!');
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
+            title="Copiar Letra (Sem Cifras)"
+          >
+            <Clipboard className="w-4 h-4" />
+          </button>
+
+          {/* 2. Play do YouTube */}
+          {song.youtubeUrl && (
+            <button 
+              onClick={() => setShowPlayer(!showPlayer)}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
+                showPlayer 
+                  ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
+                  : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
+              }`}
+              title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
+            >
+              <Youtube className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* 3. Tela Cheia */}
+          <button 
+            onClick={toggleFullscreen}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
+            title="Modo Tela Cheia"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+
+          <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>
+
+          {/* Hide Button */}
+          <button
+            type="button"
+            onClick={() => setShowControls(false)}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer text-gray-500 hover:text-orange-600 hover:bg-orange-50"
+            title="Ocultar botões"
+          >
+            <EyeOff className="w-5 h-5" />
+          </button>
+        </div>
       ) : (
         <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
           <button
@@ -2241,6 +2009,10 @@ export default function App() {
       setAccessUsers(docs);
       setLoading(false);
       clearTimeout(timeout);
+    }, (error) => {
+      console.warn("Users listener notice:", error?.message || error);
+      setLoading(false);
+      clearTimeout(timeout);
     });
 
     const eventsQuery = query(
@@ -2381,7 +2153,7 @@ export default function App() {
       const data = {
         title: editingSong.title || '',
         artist: editingSong.artist || '',
-        content: (editingSong.content || '').toUpperCase(),
+        content: editingSong.content || '',
         category: (editingSong.category || selectedCategory || 'Comum').trim(),
         youtubeUrl: editingSong.youtubeUrl || '',
         lineHeight: editingSong.lineHeight || 1.5,
@@ -3008,11 +2780,11 @@ export default function App() {
         <div className="absolute bottom-[20%] -left-[10%] w-[40%] h-[40%] bg-orange-50/50 blur-[100px] rounded-full" />
       </div>
       {/* Header */}
-      <header className="bg-white border-b border-orange-200 sticky top-0 z-30 shadow-xs flex flex-col">
+      <header className="bg-white border-b border-orange-200 sticky top-0 z-30 shadow-2xs flex flex-col">
         {/* Top layer: back, title, logout */}
-        <div className="flex items-center justify-between px-4 py-2.5 min-h-[56px] relative w-full">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-1.5 min-h-[44px] relative w-full">
           {/* Left section: Back and Interactive Logo */}
-          <div className="flex-1 flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-1.5">
             {((activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
               <button 
                 onClick={() => {
@@ -3028,10 +2800,10 @@ export default function App() {
                     setViewMode('playlist-list');
                   }
                 }}
-                className="p-1.5 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
+                className="p-1 -ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
                 title="Voltar"
               >
-                <ChevronLeft className="w-6 h-6" />
+                <ChevronLeft className="w-5 h-5" />
               </button>
             )}
             <button 
@@ -3040,30 +2812,30 @@ export default function App() {
                 setViewMode('categories');
                 setCurrentCategoryTab(null);
               }}
-              className="shrink-0 bg-white rounded-xl p-0.5 shadow-sm border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
+              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
               title="Ir para o Menu Principal"
             >
-              <Logo className="w-10 h-10 sm:w-11 sm:h-11" />
+              <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
             </button>
           </div>
 
-          {/* Centered Sophisticated Title with Lines (listras sofisticadas) */}
+          {/* Centered Sophisticated Title with Lines */}
           <div className="flex-grow flex items-center justify-center gap-1.5 sm:gap-2 max-w-[65%]">
             <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-300 to-orange-500 opacity-60" />
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
               <img 
                 src={ourLadyImg} 
                 alt="Nossa Senhora" 
-                className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-amber-300/80 shadow-xs shrink-0" 
+                className="w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full object-cover border border-amber-300/80 shadow-2xs shrink-0" 
                 referrerPolicy="no-referrer"
               />
-              <h1 className="font-opensans font-extrabold text-sm sm:text-[17.5px] text-orange-850 uppercase tracking-widest whitespace-nowrap text-center">
+              <h1 className="font-opensans font-extrabold text-xs sm:text-[15px] text-orange-850 uppercase tracking-widest whitespace-nowrap text-center">
                 catoliCifras
               </h1>
               <img 
                 src={ourLadyImg} 
                 alt="Nossa Senhora" 
-                className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-amber-300/80 shadow-xs shrink-0" 
+                className="w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full object-cover border border-amber-300/80 shadow-2xs shrink-0" 
                 referrerPolicy="no-referrer"
               />
             </div>
@@ -3074,20 +2846,20 @@ export default function App() {
           <div className="flex-1 flex items-center justify-end">
             <button 
               onClick={handleLogout}
-              className="p-2 -mr-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
+              className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
               title="Sair"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4.5 h-4.5" />
             </button>
           </div>
         </div>
 
-        {/* Sophisticated Divisor Stripe / Listra fina decorativa */}
-        <div className="h-[2px] bg-gradient-to-r from-transparent via-orange-600 to-transparent opacity-80" />
+        {/* Sophisticated Divisor Stripe */}
+        <div className="h-[1px] bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-70" />
 
-        {/* Bottom layer: Profile information side-by-side underneath */}
-        <div className="bg-orange-50/25 px-4 py-2 border-t border-orange-100/30 flex items-center justify-center gap-2.5">
-          <div className="flex items-center gap-2.5 max-w-full text-zinc-900">
+        {/* Bottom layer: Profile information */}
+        <div className="bg-orange-50/20 px-3 py-1 border-t border-orange-100/30 flex items-center justify-center gap-2">
+          <div className="flex items-center gap-2 max-w-full text-zinc-900">
             {/* Foto (Avatar upload) */}
             <label className={`relative group shrink-0 ${userIdentifier === 'Público' ? 'pointer-events-none' : 'cursor-pointer'}`} title={userIdentifier === 'Público' ? 'Perfil Público (Visitante)' : 'Mudar foto de perfil'}>
               {userIdentifier !== 'Público' && (
@@ -3098,42 +2870,42 @@ export default function App() {
                   onChange={handleProfilePicUpload}
                 />
               )}
-              <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 shadow-xs flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
+              <div className="w-6 h-6 rounded-full bg-orange-100 border border-orange-200 shadow-2xs flex items-center justify-center overflow-hidden transition-all group-hover:border-orange-500 group-active:scale-95">
                 {userProfilePic && userIdentifier !== 'Público' ? (
                   <img src={userProfilePic} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <div className={`${userIdentifier === 'Público' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-600'} w-full h-full flex items-center justify-center font-bold text-xs`}>
+                  <div className={`${userIdentifier === 'Público' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-600'} w-full h-full flex items-center justify-center font-bold text-[11px]`}>
                     {userIdentifier?.charAt(0).toUpperCase()}
                   </div>
                 )}
                 {userIdentifier !== 'Público' && (
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <Plus className="w-3.5 h-3.5 text-white" />
+                    <Plus className="w-3 h-3 text-white" />
                   </div>
                 )}
               </div>
             </label>
 
             {/* Micro divisor line */}
-            <div className="h-3.5 w-[1px] bg-orange-250" />
+            <div className="h-3 w-[1px] bg-orange-250" />
 
-            {/* Nome e Local (Lado a lado) */}
-            <div className="flex items-center gap-2 min-w-0">
+            {/* Nome e Local */}
+            <div className="flex items-center gap-1.5 min-w-0">
               {/* Nome */}
-              <span className={`font-extrabold text-[11px] sm:text-xs tracking-tight truncate max-w-[125px] uppercase ${userIdentifier === 'Público' ? 'text-emerald-700' : 'text-zinc-800'}`}>
+              <span className={`font-extrabold text-[10.5px] sm:text-xs tracking-tight truncate max-w-[125px] uppercase ${userIdentifier === 'Público' ? 'text-emerald-700' : 'text-zinc-800'}`}>
                 {userIdentifier || 'catoliCifras'}
               </span>
               {userIdentifier === 'Público' && (
-                <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/55 shrink-0 uppercase tracking-widest hidden xs:inline-block">
+                <span className="text-[7.5px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.2 rounded-md border border-emerald-200/55 shrink-0 uppercase tracking-widest hidden xs:inline-block">
                   Visitante
                 </span>
               )}
 
               {/* Bullet divider */}
-              <span className="text-orange-300 text-[10px] font-black shrink-0">•</span>
+              <span className="text-orange-300 text-[9px] font-black shrink-0">•</span>
 
               {/* Local (Current section) */}
-              <span className="text-[10px] font-black text-orange-700 uppercase tracking-wider bg-orange-100/60 px-2 py-0.5 rounded-md border border-orange-200/50 truncate max-w-[140px] sm:max-w-[200px]">
+              <span className="text-[9.5px] font-black text-orange-700 uppercase tracking-wider bg-orange-100/60 px-1.5 py-0.2 rounded-md border border-orange-200/50 truncate max-w-[140px] sm:max-w-[200px]">
                 {activeTab === 'liturgia' ? 'Liturgia Diária' :
                  activeTab === 'events_panel' ? 'Painel de Eventos' :
                  viewMode === 'categories' ? (currentCategoryTab === 'missa' ? 'Cifras para Missa' : currentCategoryTab === 'grupo' ? 'Grupo de Oração' : 'Menu Principal') :
@@ -3765,7 +3537,24 @@ export default function App() {
                     </div>
 
                     {/* Botão de Auto-Ajuste de Formatação e Tamanho */}
-                    <div className="ml-auto flex items-center">
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editingSong?.content) {
+                            setEditingSong({
+                              ...editingSong,
+                              content: adjustPhrasesWithChords(editingSong.content)
+                            });
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-orange-100 text-orange-900 rounded-lg hover:bg-orange-200 border border-orange-300 flex items-center gap-1.5 text-xs font-black shadow-sm cursor-pointer transition-all active:scale-95"
+                        title="Dividir cada frase em uma nova linha mantendo as notas nos lugares de origem"
+                      >
+                        <AlignLeft className="w-3.5 h-3.5 text-orange-700" />
+                        <span>Ajustar Frases</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -3785,38 +3574,21 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
+                  <div>
                     <textarea 
                       required
                       rows={15}
                       value={editingSong?.content || ''}
-                      onChange={e => setEditingSong({...editingSong, content: e.target.value.toUpperCase()})}
-                      onPaste={(e) => {
-                        const htmlData = e.clipboardData.getData('text/html');
-                        const plainData = e.clipboardData.getData('text/plain');
-                        
-                        e.preventDefault();
-                        const pastedRaw = (htmlData && /<[a-z][\s\S]*>/i.test(htmlData)) ? htmlData : plainData;
-                        const formattedText = formatSongContent(pastedRaw);
-
-                        const target = e.currentTarget;
-                        const start = target.selectionStart || 0;
-                        const end = target.selectionEnd || 0;
-                        const val = target.value;
-
-                        const updatedVal = val.substring(0, start) + formattedText + val.substring(end);
-                        setEditingSong(prev => prev ? ({ ...prev, content: updatedVal }) : { content: updatedVal });
-
-                        setTimeout(() => {
-                          target.selectionStart = target.selectionEnd = start + formattedText.length;
-                        }, 0);
-                      }}
-                      placeholder="Cole aqui a cifra... (a formatação e tamanho das letras serão ajustados automaticamente ao colar)"
-                      className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm uppercase text-realorange-600 font-extrabold shadow-inner"
+                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                      placeholder="Cole aqui a cifra... (a formatação, tamanho e espaçamento originais da fonte serão mantidos)"
+                      className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 font-bold shadow-inner resize-y whitespace-pre-wrap"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 
                         letterSpacing: `${editingSong?.letterSpacing || 0}px`,
-                        textAlign: editingSong?.textAlign || 'left'
+                        textAlign: editingSong?.textAlign || 'left',
+                        tabSize: 4,
+                        MozTabSize: 4,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
                       }}
                     />
                     <p className="text-[11px] text-gray-500 font-medium">

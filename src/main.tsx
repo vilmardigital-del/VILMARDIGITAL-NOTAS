@@ -3,6 +3,47 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// Prevenção imediata de pull-to-refresh e atalhos de reload no navegador
+if (typeof window !== 'undefined') {
+  // Bloqueio de pull-to-refresh em navegadores touch/mobile
+  let touchY = 0;
+  window.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchY = e.touches[0].clientY;
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1) {
+      const currentY = e.touches[0].clientY;
+      const scrollY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      if (currentY > touchY && scrollY <= 0) {
+        let el = e.target as HTMLElement | null;
+        let isScrolled = false;
+        while (el && el !== document.body && el !== document.documentElement) {
+          if (el.scrollTop > 0) {
+            isScrolled = true;
+            break;
+          }
+          el = el.parentElement;
+        }
+        if (!isScrolled && e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    }
+  }, { passive: false });
+
+  // Bloqueio de F5 e Ctrl+R / Cmd+R
+  window.addEventListener('keydown', (e) => {
+    const isF5 = e.key === 'F5' || e.code === 'F5' || e.keyCode === 116;
+    const isCtrlR = (e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR' || e.keyCode === 82);
+    if (isF5 || isCtrlR) {
+      e.preventDefault();
+    }
+  }, { capture: true });
+}
+
 interface Props {
   children: ReactNode;
 }

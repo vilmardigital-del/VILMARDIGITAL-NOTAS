@@ -85,7 +85,9 @@ import {
   Instagram,
   Clipboard,
   GripHorizontal,
-  Move
+  Move,
+  Scissors,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
@@ -339,6 +341,80 @@ export const adjustPhrasesWithChords = (rawContent: string): string => {
   }
 
   return resultLines.join('\n').replace(/\n{3,}/g, '\n\n');
+};
+
+/**
+ * Extrai e mantém apenas a introdução, tom/capo e a estrutura principal de acordes da música,
+ * omitindo as letras longas de estrofes/versos.
+ */
+export const extractOnlyIntroAndChords = (rawContent: string): string => {
+  if (!rawContent) return '';
+  const lines = rawContent.split('\n');
+  const resultLines: string[] = [];
+
+  let inIntro = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+
+    // Preservar linhas de tom, capotraste, afinação
+    if (
+      lower.startsWith('tom') ||
+      lower.startsWith('capo') ||
+      lower.startsWith('key') ||
+      lower.startsWith('afinação') ||
+      lower.startsWith('afinacao')
+    ) {
+      resultLines.push(line);
+      continue;
+    }
+
+    // Identificar Seção de Introdução / Solo / Tablaturas
+    if (
+      lower.includes('intro') ||
+      lower.includes('introdução') ||
+      lower.includes('introducao') ||
+      lower.includes('solo') ||
+      lower.includes('tab')
+    ) {
+      inIntro = true;
+      resultLines.push(line);
+      continue;
+    }
+
+    // Tablaturas (ex: e|---, B|---)
+    if (/^[eBGDAEa-g]\|/.test(trimmed)) {
+      resultLines.push(line);
+      continue;
+    }
+
+    // Se estiver na seção de introdução, manter até o próximo bloco de letra
+    if (inIntro) {
+      if (trimmed.startsWith('[') && !lower.includes('intro')) {
+        inIntro = false;
+      } else {
+        resultLines.push(line);
+        continue;
+      }
+    }
+
+    // Se for uma linha com acordes
+    if (isChordLine(line)) {
+      resultLines.push(line);
+      continue;
+    }
+
+    // Se for cabeçalho de seção (ex: [Refrão], [Primeira Parte], [Ponte])
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      resultLines.push(line);
+      continue;
+    }
+  }
+
+  const cleaned = resultLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return cleaned || rawContent;
 };
 
 // Components
@@ -1462,6 +1538,80 @@ export default function App() {
     return saved;
   });
 
+  // Prevenção de recarregamento acidental (F5, atalhos de reload e pull-to-refresh)
+  const [reloadNotice, setReloadNotice] = useState<boolean>(false);
+  const reloadNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // 1. Bloquear teclas de recarregamento (F5, Ctrl+R, Cmd+R, Shift+F5, Ctrl+Shift+R)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isF5 = e.key === 'F5' || e.code === 'F5' || e.keyCode === 116;
+      const isReloadShortcut = (e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR' || e.keyCode === 82);
+
+      if (isF5 || isReloadShortcut) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        setReloadNotice(true);
+        if (reloadNoticeTimeoutRef.current) {
+          clearTimeout(reloadNoticeTimeoutRef.current);
+        }
+        reloadNoticeTimeoutRef.current = setTimeout(() => {
+          setReloadNotice(false);
+        }, 3500);
+      }
+    };
+
+    // 2. Bloquear gesto de puxar para baixo no topo (pull-to-refresh móvel)
+    let touchStartY = 0;
+    let isTouchAtTop = false;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchStartY = e.touches[0].clientY;
+        const currentScrollY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        isTouchAtTop = currentScrollY <= 1;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        const currentY = e.touches[0].clientY;
+        const isPullingDown = currentY > touchStartY;
+        const currentScrollY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
+        if (isPullingDown && (currentScrollY <= 0 || isTouchAtTop)) {
+          let target = e.target as HTMLElement | null;
+          let hasScrolledAncestor = false;
+          while (target && target !== document.body && target !== document.documentElement) {
+            if (target.scrollTop > 0) {
+              hasScrolledAncestor = true;
+              break;
+            }
+            target = target.parentElement;
+          }
+
+          if (!hasScrolledAncestor && e.cancelable) {
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      if (reloadNoticeTimeoutRef.current) {
+        clearTimeout(reloadNoticeTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleLogout = async () => {
     if (userId) {
       try {
@@ -1918,6 +2068,20 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
+
+  // Prevenção de saída/recarregamento acidental durante edição de cifras
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (viewMode === 'edit-song' && editingSong && (editingSong.title || editingSong.content)) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [viewMode, editingSong]);
   
   // Playlist selection/editing
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -2139,6 +2303,54 @@ export default function App() {
     return () => clearInterval(interval);
   }, [slidePhotos]);
 
+  const [fetchingChords, setFetchingChords] = useState(false);
+  const [saveOnlyIntroAndChords, setSaveOnlyIntroAndChords] = useState(false);
+
+  const handleFetchChordsFromWeb = async (onlyIntro = false) => {
+    const titleToSearch = editingSong?.title?.trim();
+    const artistToSearch = editingSong?.artist?.trim();
+
+    if (!titleToSearch || titleToSearch.length < 2) {
+      alert("Por favor, digite o nome da música para buscar a cifra automaticamente.");
+      return;
+    }
+
+    setFetchingChords(true);
+    try {
+      const response = await fetch('/api/fetch-chords', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: titleToSearch,
+          artist: artistToSearch,
+          onlyIntroAndChords: onlyIntro
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Não foi possível adquirir a cifra.');
+      }
+
+      let contentToSet = data.content || '';
+      if (onlyIntro) {
+        contentToSet = extractOnlyIntroAndChords(contentToSet);
+      }
+
+      setEditingSong(prev => ({
+        ...prev,
+        title: data.title || titleToSearch,
+        artist: data.artist || artistToSearch,
+        content: contentToSet
+      }));
+
+    } catch (err: any) {
+      alert(err.message || "Erro ao buscar a cifra na internet. Tente novamente ou cole manualmente.");
+    } finally {
+      setFetchingChords(false);
+    }
+  };
+
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSong || saving) return;
@@ -2150,10 +2362,15 @@ export default function App() {
 
     setSaving(true);
     try {
+      let songContent = editingSong.content || '';
+      if (saveOnlyIntroAndChords) {
+        songContent = extractOnlyIntroAndChords(songContent);
+      }
+
       const data = {
         title: editingSong.title || '',
         artist: editingSong.artist || '',
-        content: editingSong.content || '',
+        content: songContent,
         category: (editingSong.category || selectedCategory || 'Comum').trim(),
         youtubeUrl: editingSong.youtubeUrl || '',
         lineHeight: editingSong.lineHeight || 1.5,
@@ -2683,46 +2900,76 @@ export default function App() {
     }
   };
 
+  const reloadNoticeBanner = reloadNotice ? (
+    <aside 
+      role="status"
+      aria-live="polite"
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-[999999] max-w-md w-[92vw] sm:w-auto bg-zinc-950/95 text-white px-4 py-2.5 rounded-2xl border border-emerald-500/50 shadow-2xl backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-auto"
+    >
+      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+        <Info className="w-4 h-4" />
+      </div>
+      <div className="flex-1 text-xs sm:text-sm pr-1">
+        <p className="font-bold text-emerald-400">Navegação Interna Ativa</p>
+        <p className="text-zinc-300 text-xs leading-snug">
+          A página não é recarregada para manter seus dados e posição. Use as opções e botões de navegação do próprio aplicativo.
+        </p>
+      </div>
+      <button 
+        onClick={() => setReloadNotice(false)}
+        className="p-1 text-zinc-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+        title="Fechar aviso"
+        aria-label="Fechar aviso"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </aside>
+  ) : null;
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-orange-50">
+      {reloadNoticeBanner}
       <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-600"></div>
     </div>
   );
 
   if (!userRole || !userIdentifier) {
     return (
-      <PasswordView 
-        accessUsers={accessUsers}
-        massaPhotos={massaPhotos}
-        onUnlock={async (role, identifier, id, isMaster = false) => {
-          const newSession = Math.random().toString(36).substring(2) + Date.now().toString(36);
-          
-          if (id) {
-            try {
-              await updateDoc(doc(db, 'access_users', id), {
-                currentSessionId: newSession
-              });
-            } catch (err) {
-              console.error("Error securing session:", err);
+      <>
+        {reloadNoticeBanner}
+        <PasswordView 
+          accessUsers={accessUsers}
+          massaPhotos={massaPhotos}
+          onUnlock={async (role, identifier, id, isMaster = false) => {
+            const newSession = Math.random().toString(36).substring(2) + Date.now().toString(36);
+            
+            if (id) {
+              try {
+                await updateDoc(doc(db, 'access_users', id), {
+                  currentSessionId: newSession
+                });
+              } catch (err) {
+                console.error("Error securing session:", err);
+              }
             }
-          }
 
-          setUserRole(role);
-          setUserIdentifier(identifier);
-          setUserId(id || null);
-          setSessionId(newSession);
-          setIsMasterAdmin(isMaster);
-          sessionStorage.setItem('userRole', role);
-          sessionStorage.setItem('userIdentifier', identifier);
-          if (id) sessionStorage.setItem('userId', id);
-          sessionStorage.setItem('sessionId', newSession);
-          sessionStorage.setItem('isMasterAdmin', String(isMaster));
-          setActiveTab('songs');
-          setViewMode('categories');
-          setSelectedCategory(null);
-          setSearchTerm('');
-        }} 
-      />
+            setUserRole(role);
+            setUserIdentifier(identifier);
+            setUserId(id || null);
+            setSessionId(newSession);
+            setIsMasterAdmin(isMaster);
+            sessionStorage.setItem('userRole', role);
+            sessionStorage.setItem('userIdentifier', identifier);
+            if (id) sessionStorage.setItem('userId', id);
+            sessionStorage.setItem('sessionId', newSession);
+            sessionStorage.setItem('isMasterAdmin', String(isMaster));
+            setActiveTab('songs');
+            setViewMode('categories');
+            setSelectedCategory(null);
+            setSearchTerm('');
+          }} 
+        />
+      </>
     );
   }
 
@@ -2774,6 +3021,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50/50 to-white flex flex-col font-sans selection:bg-orange-100 selection:text-orange-900">
+      {reloadNoticeBanner}
       {/* Background decoration elements */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-30 -z-10">
         <div className="absolute -top-[10%] -right-[10%] w-[50%] h-[50%] bg-orange-100/50 blur-[120px] rounded-full" />
@@ -3382,9 +3630,65 @@ export default function App() {
               className="p-4"
             >
               <form onSubmit={handleCreateOrUpdateSong} className="flex flex-col gap-5">
+                {/* AUTO-ADQUIRIR CIFRA COM IA DA INTERNET */}
+                <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 border-2 border-orange-400/60 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-orange-950 font-black text-xs sm:text-sm uppercase tracking-wider">
+                      <Sparkles className="w-4.5 h-4.5 text-orange-600 animate-pulse" />
+                      <span>Adquirir Cifra Automática da Internet</span>
+                    </div>
+                    <span className="text-[10px] bg-orange-600 text-white font-black px-2 py-0.5 rounded-full shadow-2xs uppercase tracking-wider">
+                      IA + Busca Web
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-gray-600 font-medium leading-snug">
+                    Digite o nome da música e o artista/banda para buscar a cifra de qualquer site e colá-la automaticamente na sua caixa de texto.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <div className="flex-1">
+                      <input 
+                        type="text" 
+                        value={editingSong?.title || ''}
+                        onChange={e => setEditingSong({...editingSong, title: e.target.value})}
+                        placeholder="Nome da Música (ex: Noites Traiçoeiras)"
+                        className="w-full bg-white border border-orange-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none font-semibold text-gray-900 placeholder:text-gray-400"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <input 
+                        type="text" 
+                        value={editingSong?.artist || ''}
+                        onChange={e => setEditingSong({...editingSong, artist: e.target.value})}
+                        placeholder="Artista / Banda (ex: Padre Marcelo Rossi)"
+                        className="w-full bg-white border border-orange-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none font-semibold text-gray-900 placeholder:text-gray-400"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={fetchingChords}
+                      onClick={() => handleFetchChordsFromWeb(false)}
+                      className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider shadow-md shadow-orange-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shrink-0"
+                    >
+                      {fetchingChords ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Buscando Cifra...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4" />
+                          <span>Adquirir Cifra</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título</label>
+                    <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título da Música</label>
                     <input 
                       type="text" 
                       required
@@ -3420,10 +3724,10 @@ export default function App() {
                           alert('Por favor, digite o título da música para pesquisar.');
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-realorange-50 text-realorange-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-realorange-100 transition-colors border border-realorange-200 shadow-sm cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-realorange-50 text-realorange-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-realorange-100 transition-colors border border-realorange-200 shadow-xs cursor-pointer"
                     >
                       <Search className="w-3.5 h-3.5" />
-                      Procurar Cifra na Internet
+                      Procurar Cifra no Google
                     </button>
                   </div>
                   <select 
@@ -3455,7 +3759,7 @@ export default function App() {
                   </div>
 
                   {/* Opções de Formatação */}
-                  <div className="flex flex-wrap gap-2 p-2 bg-realorange-50/50 rounded-xl border border-realorange-100 shadow-sm mb-3">
+                  <div className="flex flex-wrap gap-2 p-2 bg-realorange-50/50 rounded-xl border border-realorange-100 shadow-xs mb-3">
                     {/* Alinhamento */}
                     <div className="flex gap-1 border-r border-realorange-200 pr-2">
                       <button 
@@ -3495,14 +3799,14 @@ export default function App() {
                           <button 
                             type="button"
                             onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.8, (editingSong?.lineHeight || 1.5) - 0.1)})} 
-                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer"
+                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
                           >
                             -
                           </button>
                           <button 
                             type="button"
                             onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(4, (editingSong?.lineHeight || 1.5) + 0.1)})} 
-                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer"
+                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
                           >
                             +
                           </button>
@@ -3521,14 +3825,14 @@ export default function App() {
                           <button 
                             type="button"
                             onClick={() => setEditingSong({...editingSong, letterSpacing: Math.max(-2, (editingSong?.letterSpacing || 0) - 1)})} 
-                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer"
+                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
                           >
                             -
                           </button>
                           <button 
                             type="button"
                             onClick={() => setEditingSong({...editingSong, letterSpacing: Math.min(10, (editingSong?.letterSpacing || 0) + 1)})} 
-                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-sm cursor-pointer"
+                            className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
                           >
                             +
                           </button>
@@ -3536,8 +3840,25 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Botão de Auto-Ajuste de Formatação e Tamanho */}
-                    <div className="ml-auto flex items-center gap-2">
+                    {/* Botões de Ação de Texto */}
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editingSong?.content) {
+                            setEditingSong({
+                              ...editingSong,
+                              content: extractOnlyIntroAndChords(editingSong.content)
+                            });
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-amber-100 text-amber-950 rounded-lg hover:bg-amber-200 border border-amber-300 flex items-center gap-1.5 text-xs font-black shadow-2xs cursor-pointer transition-all active:scale-95"
+                        title="Filtrar e manter apenas o tom, a introdução e a sequência de acordes"
+                      >
+                        <Scissors className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Apenas Intro/Cifra</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -3548,7 +3869,7 @@ export default function App() {
                             });
                           }
                         }}
-                        className="px-3 py-1.5 bg-orange-100 text-orange-900 rounded-lg hover:bg-orange-200 border border-orange-300 flex items-center gap-1.5 text-xs font-black shadow-sm cursor-pointer transition-all active:scale-95"
+                        className="px-3 py-1.5 bg-orange-100 text-orange-900 rounded-lg hover:bg-orange-200 border border-orange-300 flex items-center gap-1.5 text-xs font-black shadow-2xs cursor-pointer transition-all active:scale-95"
                         title="Dividir cada frase em uma nova linha mantendo as notas nos lugares de origem"
                       >
                         <AlignLeft className="w-3.5 h-3.5 text-orange-700" />
@@ -3565,11 +3886,11 @@ export default function App() {
                             });
                           }
                         }}
-                        className="px-3 py-1.5 bg-realorange-600 text-white rounded-lg hover:bg-realorange-700 flex items-center gap-1.5 text-xs font-bold shadow-sm cursor-pointer transition-all active:scale-95"
+                        className="px-3 py-1.5 bg-realorange-600 text-white rounded-lg hover:bg-realorange-700 flex items-center gap-1.5 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-95"
                         title="Auto-ajustar a formatação da cifra e igualar o tamanho de todas as letras"
                       >
                         <Wand2 className="w-3.5 h-3.5 text-orange-200 animate-pulse" />
-                        <span>Auto-Ajustar Cifra</span>
+                        <span>Auto-Ajustar</span>
                       </button>
                     </div>
                   </div>
@@ -3580,7 +3901,7 @@ export default function App() {
                       rows={15}
                       value={editingSong?.content || ''}
                       onChange={e => setEditingSong({...editingSong, content: e.target.value})}
-                      placeholder="Cole aqui a cifra... (a formatação, tamanho e espaçamento originais da fonte serão mantidos)"
+                      placeholder="Cole aqui a cifra ou use o botão 'Adquirir Cifra' acima..."
                       className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 font-bold shadow-inner resize-y whitespace-pre-wrap"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 
@@ -3591,13 +3912,28 @@ export default function App() {
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
                       }}
                     />
-                    <p className="text-[11px] text-gray-500 font-medium">
+                    <p className="text-[11px] text-gray-500 font-medium mt-1">
                       💡 <strong>Dica de Paginação:</strong> Músicas muito extensas (com mais de 32 linhas) são divididas automaticamente em páginas sem recortar estrofes. Para forçar uma quebra de página manual e precisa, insira uma linha contendo apenas <code>---</code> ou <code>===</code>.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2 pb-10">
+                {/* Opção de Salvar Apenas Introdução e Cifra */}
+                <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 flex items-center gap-3 shadow-2xs">
+                  <input 
+                    type="checkbox"
+                    id="saveOnlyIntro"
+                    checked={saveOnlyIntroAndChords}
+                    onChange={e => setSaveOnlyIntroAndChords(e.target.checked)}
+                    className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded cursor-pointer shrink-0"
+                  />
+                  <label htmlFor="saveOnlyIntro" className="text-xs sm:text-sm font-extrabold text-amber-950 cursor-pointer select-none flex items-center gap-1.5">
+                    <Scissors className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Salvar apenas a introdução e a cifra (remover letras longas ao salvar)</span>
+                  </label>
+                </div>
+
+                <div className="flex gap-3 pt-1 pb-10">
                   <button 
                     type="button"
                     onClick={handleCancelEdit}

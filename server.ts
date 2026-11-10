@@ -12,15 +12,10 @@ function getGenAI() {
   if (!aiInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("A variável GEMINI_API_KEY não foi configurada.");
+      throw new Error("A chave da API Gemini (GEMINI_API_KEY) não foi configurada.");
     }
     aiInstance = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
+      apiKey
     });
   }
   return aiInstance;
@@ -181,6 +176,90 @@ async function startServer() {
       res.status(500).json({
         success: false,
         error: error.message || "Erro interno ao buscar as informações litúrgicas."
+      });
+    }
+  });
+
+  // API Route - Buscar Cifra de Qualquer Site / Música com IA (Google Search Grounding)
+  app.post("/api/fetch-chords", async (req, res) => {
+    try {
+      const { title, artist, onlyIntroAndChords } = req.body;
+
+      if (!title || typeof title !== "string" || title.trim().length < 2) {
+        return res.status(400).json({
+          success: false,
+          error: "Por favor, informe o título da música."
+        });
+      }
+
+      const songTitle = title.trim();
+      const songArtist = (artist && typeof artist === "string") ? artist.trim() : "";
+
+      const prompt = `Você é um músico profissional especialista em transcrever e formatar cifras musicais completas e precisas para violão e teclado em português.
+Forneça a cifra exata, em português, da música "${songTitle}" ${songArtist ? `do artista/banda "${songArtist}"` : ''}.
+
+REQUISITOS OBRIGATÓRIOS DE FORMATAÇÃO:
+1. Comece na PRIMEIRA LINHA indicando o Tom original (ex: "Tom: G" ou "Tom: D").
+2. Na linha seguinte, inclua a Introdução com a sequência de acordes (ex: "[Intro] G  D/F#  Em  C" ou "Introdução: G  D/F#  Em  C").
+3. Mantenha a grafia dos acordes no padrão brasileiro tradicional (C, D, E, F, G, A, B, Fm, C7, D/F#, Bm7, etc.).
+${onlyIntroAndChords ? '4. O usuário solicitou APENAS a INTRODUÇÃO e os ACORDES / ESTRUTURA HARMÔNICA. Não inclua estrofes longas de letras, apenas o Tom, a Introdução e os acordes.' : '4. Inclua a cifra completa com o Tom, a Introdução, estrofes com acordes alinhados acima da letra, refrão e final.'}
+5. Retorne APENAS o texto da cifra, formatado de maneira limpa para leitura monoespaçada. NÃO inclua blocos de código markdown (como \`\`\` text ou \`\`\`cifra), não adicione explicações, comentários ou saudações.`;
+
+      let chordContent = "";
+
+      // 1ª Tentativa: Gemini com ferramenta de Busca (Google Search)
+      try {
+        const ai = getGenAI();
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }]
+          }
+        });
+
+        chordContent = response.text || "";
+      } catch (geminiSearchErr: any) {
+        console.warn("Busca com Google Search falhou, tentando geração direta do Gemini:", geminiSearchErr?.message || geminiSearchErr);
+        
+        // 2ª Tentativa: Conhecimento nativo do Gemini (sem ferramentas externas)
+        try {
+          const ai = getGenAI();
+          const responseFallback = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt
+          });
+          chordContent = responseFallback.text || "";
+        } catch (fallbackErr: any) {
+          console.error("Erro na geração direta do Gemini:", fallbackErr);
+          throw fallbackErr;
+        }
+      }
+
+      // Limpar potenciais marcadores markdown (```, ```cifra, etc)
+      chordContent = chordContent
+        .replace(/^```[a-zA-Z]*\n?/gm, '')
+        .replace(/\n?```$/gm, '')
+        .trim();
+
+      if (!chordContent) {
+        return res.status(404).json({
+          success: false,
+          error: "Não foi possível obter a cifra para esta música no momento."
+        });
+      }
+
+      res.json({
+        success: true,
+        title: songTitle,
+        artist: songArtist,
+        content: chordContent
+      });
+    } catch (error: any) {
+      console.error("Erro no /api/fetch-chords:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message || "Erro ao buscar a cifra."
       });
     }
   });

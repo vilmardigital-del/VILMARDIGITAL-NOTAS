@@ -82,3 +82,19 @@
       3px 3px 4px rgba(0, 0, 0, 0.35);
   }
 }
+
+/* Desativação nativa do pull-to-refresh e bounce em navegadores móveis */
+html, body {
+  overscroll-behavior: none !important;
+  overscroll-behavior-y: none !important;
+  overscroll-behavior-x: none !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  overscroll-behavior: none !important;
+  overscroll-behavior-y: none !important;
+  overscroll-behavior-x: none !important;
+  min-height: 100vh;
+}
+

@@ -188,19 +188,152 @@ export const formatChordNotation = (chordStr: string): string => {
   return normalizeSingleChord(chordStr);
 };
 
-// Auto-ajusta e limpa a formatação da cifra e texto ao colar ou clicar no botão
+// Garante que seções de refrão iniciadas por [Refrão], (Refrão), Refrão:, etc., fiquem em negrito
+export const ensureRefraoInBold = (content: string): string => {
+  if (!content) return '';
+
+  const lines = content.split('\n');
+  const processedLines: string[] = [];
+  let inRefrao = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+
+    const isRefraoHeader = /^(\[|\()?refr[aã]o(\]|\)|\:)?/i.test(trimmed) || 
+                          /^(\[|\()?coro(\]|\)|\:)?/i.test(trimmed) ||
+                          lower.includes('[refrão]') ||
+                          lower.includes('[refrao]') ||
+                          lower.includes('[coro]');
+
+    const isOtherHeader = (trimmed.startsWith('[') && !isRefraoHeader) ||
+                          /^(primeira parte|segunda parte|ponte|intro|solo|estrofe|final|versiculo)/i.test(trimmed);
+
+    if (isRefraoHeader) {
+      inRefrao = true;
+    } else if (isOtherHeader) {
+      inRefrao = false;
+    }
+
+    if (inRefrao) {
+      if (trimmed === '') {
+        const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
+        if (nextLine.startsWith('[') || nextLine === '') {
+          inRefrao = false;
+        }
+      }
+
+      if (line.includes('<b>') || line.includes('<strong>')) {
+        processedLines.push(line);
+      } else if (trimmed.length > 0) {
+        processedLines.push(`<b>${line}</b>`);
+      } else {
+        processedLines.push(line);
+      }
+    } else {
+      processedLines.push(line);
+    }
+  }
+
+  return processedLines.join('\n');
+};
+
+// Processa o conteúdo colado na caixa de cifras aceitando a formatação da internet e mantendo o refrão em negrito
+export const processPastedChordContent = (html: string, plainText: string): string => {
+  if (html && html.trim().length > 0) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // Remover scripts, estilos, navegações e botões de sites externos
+      const elementsToRemove = doc.querySelectorAll('script, style, link, svg, img, iframe, button, nav, header, footer, aside, .cifra-acoes, .cifra-info, .toolbar, .tabs, .art_music, .cnt-tablatura-tools');
+      elementsToRemove.forEach(el => el.remove());
+
+      // Procurar container principal de cifra (<pre>, .cifra_cnt, .cifra-conteudo)
+      const mainPre = doc.querySelector('pre') || doc.querySelector('.cifra_cnt') || doc.querySelector('.cifra-conteudo') || doc.body;
+
+      const parseNode = (node: Node): string => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return node.textContent || '';
+        }
+
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement;
+          const tagName = el.tagName.toUpperCase();
+
+          if (tagName === 'BR') {
+            return '\n';
+          }
+
+          const isBlock = ['P', 'DIV', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE'].includes(tagName);
+
+          const isBold = tagName === 'B' || 
+                         tagName === 'STRONG' || 
+                         el.classList.contains('cifra-refrao') || 
+                         el.classList.contains('refrao') || 
+                         el.classList.contains('cnt-refrao') || 
+                         el.getAttribute('data-refrao') === 'true' ||
+                         (el.style && (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight, 10) >= 600));
+
+          let inner = '';
+          node.childNodes.forEach(child => {
+            inner += parseNode(child);
+          });
+
+          if (isBold && inner.trim().length > 0) {
+            const cleanInner = inner.replace(/<\/?b>/gi, '').replace(/<\/?strong>/gi, '');
+            inner = `<b>${cleanInner}</b>`;
+          }
+
+          if (isBlock) {
+            return '\n' + inner + '\n';
+          }
+
+          return inner;
+        }
+
+        return '';
+      };
+
+      let result = parseNode(mainPre);
+
+      result = result
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&#160;/g, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, ' ')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+
+      result = result.replace(/\n{3,}/g, '\n\n').trim();
+
+      if (result.length > 5) {
+        return ensureRefraoInBold(result);
+      }
+    } catch (e) {
+      console.warn("Erro ao processar HTML colado:", e);
+    }
+  }
+
+  return ensureRefraoInBold(plainText || '');
+};
+
+// Limpa e normaliza a formatação da cifra preservando tags de negrito do refrão
 export const formatSongContent = (raw: string): string => {
   if (!raw) return '';
   
   let text = raw;
 
-  // 1. Converter quebras e tags de bloco HTML para novas linhas, removendo tags HTML
+  // 1. Converter quebras e tags de bloco HTML para novas linhas, preservando <b> e <strong>
   if (/<[a-z][\s\S]*>/i.test(text)) {
     text = text
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|li|tr|h[1-6]|pre|blockquote)>/gi, '\n')
       .replace(/<(p|div|li|tr|h[1-6]|pre|blockquote)[^>]*>/gi, '\n')
-      .replace(/<[^>]+>/g, '');
+      .replace(/<(?!b|\/b|strong|\/strong)[^>]+>/gi, '');
   }
 
   // 2. Decodificar entidades HTML comuns
@@ -1189,7 +1322,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 MozTabSize: 4,
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
+              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-zinc-800 font-medium [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold [&_b]:!font-black [&_strong]:!font-black [&_b]:!text-black [&_strong]:!text-black"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
@@ -1203,17 +1336,20 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 MozTabSize: 4,
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className="whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold"
+              className="whitespace-pre-wrap font-mono transition-all text-zinc-800 font-medium"
             >
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
                 const parts = line.split(/(\s+)/);
+                const isRefraoText = line.toLowerCase().includes('refrão') || line.toLowerCase().includes('refrao') || line.toLowerCase().includes('[coro]');
 
                 return (
                   <div 
                     key={i} 
                     className={`min-h-[1.2em] relative transition-all duration-300 ${
-                      isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold'
+                      isChords 
+                        ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' 
+                        : (isRefraoText ? 'text-black mb-2 font-black text-[1.02em]' : 'text-zinc-800 mb-2 font-medium')
                     }`}
                   >
                     {parts.map((part, j) => {
@@ -2068,6 +2204,23 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
+  const chordEditorRef = useRef<HTMLDivElement>(null);
+
+  // Sincroniza o editor de cifras visual ao carregar ou alternar cifras em edição
+  useEffect(() => {
+    if (viewMode === 'edit-song' && chordEditorRef.current) {
+      const isFocused = document.activeElement === chordEditorRef.current;
+      if (!isFocused) {
+        const raw = editingSong?.content || '';
+        const htmlToRender = /<[a-z][\s\S]*>/i.test(raw)
+          ? raw
+          : raw.replace(/\n/g, '<br>');
+        if (chordEditorRef.current.innerHTML !== htmlToRender) {
+          chordEditorRef.current.innerHTML = htmlToRender;
+        }
+      }
+    }
+  }, [editingSong?.id, viewMode]);
 
   // Prevenção de saída/recarregamento acidental durante edição de cifras
   useEffect(() => {
@@ -2285,10 +2438,12 @@ export default function App() {
     if (hasContent && !editingSong?.id) {
       if (window.confirm('Você tem alterações não salvas. Deseja realmente descartar este rascunho?')) {
         localStorage.removeItem('songDraft');
+        if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
         setEditingSong(null);
         setViewMode('songs');
       }
     } else {
+      if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
       setEditingSong(null);
       setViewMode('songs');
     }
@@ -2303,66 +2458,21 @@ export default function App() {
     return () => clearInterval(interval);
   }, [slidePhotos]);
 
-  const [fetchingChords, setFetchingChords] = useState(false);
   const [saveOnlyIntroAndChords, setSaveOnlyIntroAndChords] = useState(false);
-
-  const handleFetchChordsFromWeb = async (onlyIntro = false) => {
-    const titleToSearch = editingSong?.title?.trim();
-    const artistToSearch = editingSong?.artist?.trim();
-
-    if (!titleToSearch || titleToSearch.length < 2) {
-      alert("Por favor, digite o nome da música para buscar a cifra automaticamente.");
-      return;
-    }
-
-    setFetchingChords(true);
-    try {
-      const response = await fetch('/api/fetch-chords', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: titleToSearch,
-          artist: artistToSearch,
-          onlyIntroAndChords: onlyIntro
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Não foi possível adquirir a cifra.');
-      }
-
-      let contentToSet = data.content || '';
-      if (onlyIntro) {
-        contentToSet = extractOnlyIntroAndChords(contentToSet);
-      }
-
-      setEditingSong(prev => ({
-        ...prev,
-        title: data.title || titleToSearch,
-        artist: data.artist || artistToSearch,
-        content: contentToSet
-      }));
-
-    } catch (err: any) {
-      alert(err.message || "Erro ao buscar a cifra na internet. Tente novamente ou cole manualmente.");
-    } finally {
-      setFetchingChords(false);
-    }
-  };
 
   const handleCreateOrUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSong || saving) return;
 
-    if (!editingSong.content || editingSong.content.trim() === "") {
+    const currentEditorContent = chordEditorRef.current?.innerHTML || editingSong.content || '';
+    if (!currentEditorContent || currentEditorContent.replace(/<[^>]+>/g, '').trim() === "") {
       alert("Por favor, preencha o conteúdo da cifra.");
       return;
     }
 
     setSaving(true);
     try {
-      let songContent = editingSong.content || '';
+      let songContent = currentEditorContent;
       if (saveOnlyIntroAndChords) {
         songContent = extractOnlyIntroAndChords(songContent);
       }
@@ -2395,6 +2505,7 @@ export default function App() {
         });
       }
       localStorage.removeItem('songDraft');
+      if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
       setEditingSong(null);
       setViewMode('songs');
     } catch (err) {
@@ -3630,62 +3741,6 @@ export default function App() {
               className="p-4"
             >
               <form onSubmit={handleCreateOrUpdateSong} className="flex flex-col gap-5">
-                {/* AUTO-ADQUIRIR CIFRA COM IA DA INTERNET */}
-                <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 border-2 border-orange-400/60 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-orange-950 font-black text-xs sm:text-sm uppercase tracking-wider">
-                      <Sparkles className="w-4.5 h-4.5 text-orange-600 animate-pulse" />
-                      <span>Adquirir Cifra Automática da Internet</span>
-                    </div>
-                    <span className="text-[10px] bg-orange-600 text-white font-black px-2 py-0.5 rounded-full shadow-2xs uppercase tracking-wider">
-                      IA + Busca Web
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-gray-600 font-medium leading-snug">
-                    Digite o nome da música e o artista/banda para buscar a cifra de qualquer site e colá-la automaticamente na sua caixa de texto.
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-2.5">
-                    <div className="flex-1">
-                      <input 
-                        type="text" 
-                        value={editingSong?.title || ''}
-                        onChange={e => setEditingSong({...editingSong, title: e.target.value})}
-                        placeholder="Nome da Música (ex: Noites Traiçoeiras)"
-                        className="w-full bg-white border border-orange-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none font-semibold text-gray-900 placeholder:text-gray-400"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <input 
-                        type="text" 
-                        value={editingSong?.artist || ''}
-                        onChange={e => setEditingSong({...editingSong, artist: e.target.value})}
-                        placeholder="Artista / Banda (ex: Padre Marcelo Rossi)"
-                        className="w-full bg-white border border-orange-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none font-semibold text-gray-900 placeholder:text-gray-400"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      disabled={fetchingChords}
-                      onClick={() => handleFetchChordsFromWeb(false)}
-                      className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider shadow-md shadow-orange-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shrink-0"
-                    >
-                      {fetchingChords ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Buscando Cifra...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4" />
-                          <span>Adquirir Cifra</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider mb-2">Título da Música</label>
@@ -3840,69 +3895,85 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Botões de Ação de Texto */}
-                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                    {/* Botão de Ação de Texto: Destacar Refrão */}
+                    <div className="ml-auto flex items-center">
                       <button
                         type="button"
                         onClick={() => {
                           if (editingSong?.content) {
-                            setEditingSong({
-                              ...editingSong,
-                              content: extractOnlyIntroAndChords(editingSong.content)
-                            });
+                            const plain = editingSong.content
+                              .replace(/<br\s*\/?>/gi, '\n')
+                              .replace(/<\/(div|p)>/gi, '\n')
+                              .replace(/<(div|p)[^>]*>/gi, '')
+                              .replace(/<(?!b|\/b|strong|\/strong)[^>]+>/gi, '');
+                            const withBold = ensureRefraoInBold(plain);
+                            const htmlVal = withBold.replace(/\n/g, '<br>');
+                            if (chordEditorRef.current) {
+                              chordEditorRef.current.innerHTML = htmlVal;
+                            }
+                            setEditingSong(prev => prev ? ({ ...prev, content: htmlVal }) : null);
                           }
                         }}
-                        className="px-3 py-1.5 bg-amber-100 text-amber-950 rounded-lg hover:bg-amber-200 border border-amber-300 flex items-center gap-1.5 text-xs font-black shadow-2xs cursor-pointer transition-all active:scale-95"
-                        title="Filtrar e manter apenas o tom, a introdução e a sequência de acordes"
+                        className="px-3.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1.5 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-95"
+                        title="Detectar e colocar seções de [Refrão] em negrito automaticamente"
                       >
-                        <Scissors className="w-3.5 h-3.5 text-amber-700" />
-                        <span>Apenas Intro/Cifra</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (editingSong?.content) {
-                            setEditingSong({
-                              ...editingSong,
-                              content: adjustPhrasesWithChords(editingSong.content)
-                            });
-                          }
-                        }}
-                        className="px-3 py-1.5 bg-orange-100 text-orange-900 rounded-lg hover:bg-orange-200 border border-orange-300 flex items-center gap-1.5 text-xs font-black shadow-2xs cursor-pointer transition-all active:scale-95"
-                        title="Dividir cada frase em uma nova linha mantendo as notas nos lugares de origem"
-                      >
-                        <AlignLeft className="w-3.5 h-3.5 text-orange-700" />
-                        <span>Ajustar Frases</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (editingSong?.content) {
-                            setEditingSong({
-                              ...editingSong,
-                              content: formatSongContent(editingSong.content)
-                            });
-                          }
-                        }}
-                        className="px-3 py-1.5 bg-realorange-600 text-white rounded-lg hover:bg-realorange-700 flex items-center gap-1.5 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-95"
-                        title="Auto-ajustar a formatação da cifra e igualar o tamanho de todas as letras"
-                      >
-                        <Wand2 className="w-3.5 h-3.5 text-orange-200 animate-pulse" />
-                        <span>Auto-Ajustar</span>
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                        <span>Destacar Refrão</span>
                       </button>
                     </div>
                   </div>
 
-                  <div>
-                    <textarea 
-                      required
-                      rows={15}
-                      value={editingSong?.content || ''}
-                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
-                      placeholder="Cole aqui a cifra ou use o botão 'Adquirir Cifra' acima..."
-                      className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 font-bold shadow-inner resize-y whitespace-pre-wrap"
+                  <div className="relative">
+                    <div 
+                      ref={chordEditorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      data-placeholder="Cole aqui a cifra copiada da internet (o refrão e o negrito serão mantidos)..."
+                      onInput={() => {
+                        if (chordEditorRef.current) {
+                          setEditingSong(prev => prev ? ({ ...prev, content: chordEditorRef.current!.innerHTML }) : null);
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const htmlData = e.clipboardData.getData('text/html');
+                        const plainData = e.clipboardData.getData('text/plain');
+
+                        // Processa mantendo o negrito copiado e identificando refrão
+                        const processed = processPastedChordContent(htmlData, plainData);
+                        const htmlToInsert = processed.replace(/\n/g, '<br>');
+
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {
+                          const range = sel.getRangeAt(0);
+                          range.deleteContents();
+
+                          const temp = document.createElement('div');
+                          temp.innerHTML = htmlToInsert;
+
+                          const frag = document.createDocumentFragment();
+                          let node;
+                          let lastNode;
+                          while ((node = temp.firstChild)) {
+                            lastNode = frag.appendChild(node);
+                          }
+                          range.insertNode(frag);
+
+                          if (lastNode) {
+                            range.setStartAfter(lastNode);
+                            range.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                          }
+                        } else if (chordEditorRef.current) {
+                          chordEditorRef.current.innerHTML = htmlToInsert;
+                        }
+
+                        if (chordEditorRef.current) {
+                          setEditingSong(prev => prev ? ({ ...prev, content: chordEditorRef.current!.innerHTML }) : null);
+                        }
+                      }}
+                      className="rich-chord-editor w-full min-h-[380px] max-h-[700px] overflow-y-auto bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 shadow-inner resize-y whitespace-pre-wrap break-words"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 
                         letterSpacing: `${editingSong?.letterSpacing || 0}px`,
@@ -3913,7 +3984,7 @@ export default function App() {
                       }}
                     />
                     <p className="text-[11px] text-gray-500 font-medium mt-1">
-                      💡 <strong>Dica de Paginação:</strong> Músicas muito extensas (com mais de 32 linhas) são divididas automaticamente em páginas sem recortar estrofes. Para forçar uma quebra de página manual e precisa, insira uma linha contendo apenas <code>---</code> ou <code>===</code>.
+                      💡 <strong>Formatação Automática:</strong> Cole a cifra copiada da internet — o refrão em <strong>negrito</strong> é mantido automaticamente. Se necessário, clique em <strong>Destacar Refrão</strong>.
                     </p>
                   </div>
                 </div>

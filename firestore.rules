@@ -51,6 +51,19 @@ service cloud.firestore {
              (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp);
     }
 
+    function isValidVideoLesson(data) {
+      return data.keys().hasAll(['title', 'youtubeUrl', 'youtubeId', 'category', 'ownerId']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.youtubeUrl is string && data.youtubeUrl.size() > 0 && data.youtubeUrl.size() <= 500 &&
+             data.youtubeId is string && data.youtubeId.size() == 11 &&
+             data.category in ['Violão', 'Música', 'Batidas e Ritmos', 'Teoria Musical', 'Dedilhado', 'Cifras na Prática', 'Outros'] &&
+             (!('level' in data) || data.level in ['Iniciante', 'Intermediário', 'Avançado', 'Todos os Níveis']) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             data.ownerId == 'Vilmardigital' &&
+             (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp);
+    }
+
     match /songs/{songId} {
       allow read: if true;
       allow create: if isValidSong(request.resource.data);
@@ -91,6 +104,13 @@ service cloud.firestore {
 
     match /visits/{visitId} {
       allow read, write: if true;
+    }
+
+    match /video_lessons/{lessonId} {
+      allow read: if true;
+      allow create: if isValidVideoLesson(request.resource.data);
+      allow update: if isValidVideoLesson(request.resource.data);
+      allow delete: if true;
     }
   }
 }

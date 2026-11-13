@@ -2,24 +2,9 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
 import { getSantoDoDia, getReflexaoEspiritual } from "./src/santos_db";
 
 dotenv.config();
-
-let aiInstance: GoogleGenAI | null = null;
-function getGenAI() {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("A chave da API Gemini (GEMINI_API_KEY) não foi configurada.");
-    }
-    aiInstance = new GoogleGenAI({
-      apiKey
-    });
-  }
-  return aiInstance;
-}
 
 async function startServer() {
   const app = express();
@@ -180,91 +165,90 @@ async function startServer() {
     }
   });
 
-  // API Route - Buscar Cifra de Qualquer Site / Música com IA (Google Search Grounding)
-  app.post("/api/fetch-chords", async (req, res) => {
+  // API Route - Buscar vídeos no YouTube (usado na aba Salmos)
+  app.get("/api/youtube-search", async (req, res) => {
     try {
-      const { title, artist, onlyIntroAndChords } = req.body;
-
-      if (!title || typeof title !== "string" || title.trim().length < 2) {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q) {
         return res.status(400).json({
           success: false,
-          error: "Por favor, informe o título da música."
+          error: "Digite algo para localizar no YouTube."
         });
       }
 
-      const songTitle = title.trim();
-      const songArtist = (artist && typeof artist === "string") ? artist.trim() : "";
-
-      const prompt = `Você é um músico profissional especialista em transcrever e formatar cifras musicais completas e precisas para violão e teclado em português.
-Forneça a cifra exata, em português, da música "${songTitle}" ${songArtist ? `do artista/banda "${songArtist}"` : ''}.
-
-REQUISITOS OBRIGATÓRIOS DE FORMATAÇÃO:
-1. Comece na PRIMEIRA LINHA indicando o Tom original (ex: "Tom: G" ou "Tom: D").
-2. Na linha seguinte, inclua a Introdução com a sequência de acordes (ex: "[Intro] G  D/F#  Em  C" ou "Introdução: G  D/F#  Em  C").
-3. Mantenha a grafia dos acordes no padrão brasileiro tradicional (C, D, E, F, G, A, B, Fm, C7, D/F#, Bm7, etc.).
-${onlyIntroAndChords ? '4. O usuário solicitou APENAS a INTRODUÇÃO e os ACORDES / ESTRUTURA HARMÔNICA. Não inclua estrofes longas de letras, apenas o Tom, a Introdução e os acordes.' : '4. Inclua a cifra completa com o Tom, a Introdução, estrofes com acordes alinhados acima da letra, refrão e final.'}
-5. Retorne APENAS o texto da cifra, formatado de maneira limpa para leitura monoespaçada. NÃO inclua blocos de código markdown (como \`\`\` text ou \`\`\`cifra), não adicione explicações, comentários ou saudações.`;
-
-      let chordContent = "";
-
-      // 1ª Tentativa: Gemini com ferramenta de Busca (Google Search)
-      try {
-        const ai = getGenAI();
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }]
-          }
-        });
-
-        chordContent = response.text || "";
-      } catch (geminiSearchErr: any) {
-        console.warn("Busca com Google Search falhou, tentando geração direta do Gemini:", geminiSearchErr?.message || geminiSearchErr);
-        
-        // 2ª Tentativa: Conhecimento nativo do Gemini (sem ferramentas externas)
-        try {
-          const ai = getGenAI();
-          const responseFallback = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt
-          });
-          chordContent = responseFallback.text || "";
-        } catch (fallbackErr: any) {
-          console.error("Erro na geração direta do Gemini:", fallbackErr);
-          throw fallbackErr;
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q.slice(0, 200))}`;
+      const response = await fetch(searchUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
         }
-      }
-
-      // Limpar potenciais marcadores markdown (```, ```cifra, etc)
-      chordContent = chordContent
-        .replace(/^```[a-zA-Z]*\n?/gm, '')
-        .replace(/\n?```$/gm, '')
-        .trim();
-
-      if (!chordContent) {
-        return res.status(404).json({
-          success: false,
-          error: "Não foi possível obter a cifra para esta música no momento."
-        });
-      }
-
-      res.json({
-        success: true,
-        title: songTitle,
-        artist: songArtist,
-        content: chordContent
       });
+
+      if (!response.ok) {
+        throw new Error(`YouTube respondeu com status ${response.status}`);
+      }
+
+      const html = await response.text();
+      const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
+      if (!match) {
+        return res.json({ success: true, videos: [] });
+      }
+
+      const data = JSON.parse(match[1]);
+      const contents =
+        data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+
+      const videos: Array<{
+        id: string;
+        title: string;
+        channel: string;
+        duration: string;
+        views: string;
+        thumbnail: string;
+        url: string;
+      }> = [];
+
+      const seenIds = new Set<string>();
+
+      for (const section of contents) {
+        const items = section?.itemSectionRenderer?.contents || [];
+        for (const item of items) {
+          const v = item?.videoRenderer;
+          if (!v || !v.videoId || seenIds.has(v.videoId)) continue;
+          seenIds.add(v.videoId);
+
+          const title = v.title?.runs?.map((r: any) => r.text).join("") || "Salmo no YouTube";
+          const channel = v.ownerText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text || "YouTube";
+          const duration = v.lengthText?.simpleText || "";
+          const views = v.shortViewCountText?.simpleText || v.viewCountText?.simpleText || "";
+          const thumbnail =
+            v.thumbnail?.thumbnails?.[v.thumbnail.thumbnails.length - 1]?.url ||
+            `https://img.youtube.com/vi/${v.videoId}/hqdefault.jpg`;
+
+          videos.push({
+            id: v.videoId,
+            title,
+            channel,
+            duration,
+            views,
+            thumbnail,
+            url: `https://www.youtube.com/watch?v=${v.videoId}`
+          });
+
+          if (videos.length >= 12) break;
+        }
+        if (videos.length >= 12) break;
+      }
+
+      res.json({ success: true, videos });
     } catch (error: any) {
-      console.error("Erro no /api/fetch-chords:", error);
+      console.error("Erro na busca do YouTube:", error);
       res.status(500).json({
         success: false,
-        error: error.message || "Erro ao buscar a cifra."
+        error: error.message || "Não foi possível localizar vídeos no YouTube."
       });
     }
   });
-
-
 
   // Vite middleware setup
   if (process.env.NODE_ENV !== "production") {

@@ -71,19 +71,6 @@
     font-size: inherit !important;
     font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New" !important;
   }
-  .rich-text-song b, 
-  .rich-text-song strong,
-  .rich-chord-editor b, 
-  .rich-chord-editor strong {
-    font-weight: 800 !important;
-    color: #09090b !important;
-  }
-  .rich-chord-editor:empty:before {
-    content: attr(data-placeholder);
-    color: #9ca3af;
-    pointer-events: none;
-    display: block;
-  }
   .text-3d-title {
     color: #10b981; /* Primary bright emerald */
     text-shadow: 

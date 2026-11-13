@@ -152,6 +152,54 @@
         "createdAt": { "type": "integer" }
       },
       "required": ["name", "createdBy"]
+    },
+    "VideoLesson": {
+      "title": "VideoLesson",
+      "description": "A guitar or music video lesson linked from YouTube, managed by the master profile Vilmardigital.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Title of the video lesson."
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "description": "YouTube video URL."
+        },
+        "youtubeId": {
+          "type": "string",
+          "description": "Extracted 11-character YouTube video ID."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Violão", "Música", "Batidas e Ritmos", "Teoria Musical", "Dedilhado", "Cifras na Prática", "Outros"],
+          "description": "Topic category of the lesson."
+        },
+        "level": {
+          "type": "string",
+          "enum": ["Iniciante", "Intermediário", "Avançado", "Todos os Níveis"],
+          "description": "Difficulty level of the lesson."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description or study notes for the lesson."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Owner identifier (Vilmardigital)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of last update."
+        }
+      },
+      "required": ["title", "youtubeUrl", "youtubeId", "category", "ownerId"]
     }
   },
   "firestore": {
@@ -178,6 +226,10 @@
     "/recordings/{recordingId}": {
       "schema": "Recording",
       "description": "Collection of cloud synchronized recordings."
+    },
+    "/video_lessons/{lessonId}": {
+      "schema": "VideoLesson",
+      "description": "Collection of YouTube guitar and music video lessons saved by the master profile."
     }
   }
 }

@@ -85,4 +85,43 @@ export interface MassaPhoto {
   isBanner?: boolean;
 }
 
+export type VideoLessonCategory =
+  | 'Violão'
+  | 'Música'
+  | 'Batidas e Ritmos'
+  | 'Teoria Musical'
+  | 'Dedilhado'
+  | 'Cifras na Prática'
+  | 'Outros';
 
+export const VIDEO_LESSON_CATEGORIES: VideoLessonCategory[] = [
+  'Violão',
+  'Música',
+  'Batidas e Ritmos',
+  'Teoria Musical',
+  'Dedilhado',
+  'Cifras na Prática',
+  'Outros',
+];
+
+export type VideoLessonLevel = 'Iniciante' | 'Intermediário' | 'Avançado' | 'Todos os Níveis';
+
+export const VIDEO_LESSON_LEVELS: VideoLessonLevel[] = [
+  'Todos os Níveis',
+  'Iniciante',
+  'Intermediário',
+  'Avançado',
+];
+
+export interface VideoLesson {
+  id: string;
+  title: string;
+  youtubeUrl: string;
+  youtubeId: string;
+  category: VideoLessonCategory;
+  level?: VideoLessonLevel;
+  description?: string;
+  ownerId: string;
+  createdAt: any;
+  updatedAt?: any;
+}

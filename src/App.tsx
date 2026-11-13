@@ -87,11 +87,12 @@ import {
   GripHorizontal,
   Move,
   Scissors,
-  Loader2
+  PlayCircle,
+  Video
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
-import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto } from './types';
+import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto, VideoLesson, VideoLessonCategory, VIDEO_LESSON_CATEGORIES, VideoLessonLevel, VIDEO_LESSON_LEVELS } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import heic2any from 'heic2any';
 import ourLadyImg from './assets/images/our_lady_icon_1784928887101.jpg';
@@ -134,10 +135,13 @@ const CHORD_REGEX_EXACT = new RegExp(`^${CHORD_REGEX_STR}$`, 'i');
 // Se a linha tiver outras palavras, evitamos classificar estas palavras curtas individuais como acordes
 const EXCLUDED_WORDS = ['e', 'E', 'A', 'a', 'O', 'o', 'Do', 'do', 'Da', 'da', 'Si', 'si', 'De', 'de', 'no', 'No', 'em', 'Em', 'me', 'Me', 'te', 'Te', 'se', 'Se'];
 
-const getYoutubeId = (url: string) => {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
+const getYoutubeId = (url: string): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  const regExp = /^(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:[?&#/].*)?$/i;
+  const match = trimmed.match(regExp);
+  return match ? match[1] : null;
 };
 
 // Formata uma cifra/nota individual no padrão musical universal (Ex: C#m, F#m7, G/B, Bb)
@@ -188,152 +192,19 @@ export const formatChordNotation = (chordStr: string): string => {
   return normalizeSingleChord(chordStr);
 };
 
-// Garante que seções de refrão iniciadas por [Refrão], (Refrão), Refrão:, etc., fiquem em negrito
-export const ensureRefraoInBold = (content: string): string => {
-  if (!content) return '';
-
-  const lines = content.split('\n');
-  const processedLines: string[] = [];
-  let inRefrao = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const lower = trimmed.toLowerCase();
-
-    const isRefraoHeader = /^(\[|\()?refr[aã]o(\]|\)|\:)?/i.test(trimmed) || 
-                          /^(\[|\()?coro(\]|\)|\:)?/i.test(trimmed) ||
-                          lower.includes('[refrão]') ||
-                          lower.includes('[refrao]') ||
-                          lower.includes('[coro]');
-
-    const isOtherHeader = (trimmed.startsWith('[') && !isRefraoHeader) ||
-                          /^(primeira parte|segunda parte|ponte|intro|solo|estrofe|final|versiculo)/i.test(trimmed);
-
-    if (isRefraoHeader) {
-      inRefrao = true;
-    } else if (isOtherHeader) {
-      inRefrao = false;
-    }
-
-    if (inRefrao) {
-      if (trimmed === '') {
-        const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
-        if (nextLine.startsWith('[') || nextLine === '') {
-          inRefrao = false;
-        }
-      }
-
-      if (line.includes('<b>') || line.includes('<strong>')) {
-        processedLines.push(line);
-      } else if (trimmed.length > 0) {
-        processedLines.push(`<b>${line}</b>`);
-      } else {
-        processedLines.push(line);
-      }
-    } else {
-      processedLines.push(line);
-    }
-  }
-
-  return processedLines.join('\n');
-};
-
-// Processa o conteúdo colado na caixa de cifras aceitando a formatação da internet e mantendo o refrão em negrito
-export const processPastedChordContent = (html: string, plainText: string): string => {
-  if (html && html.trim().length > 0) {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-
-      // Remover scripts, estilos, navegações e botões de sites externos
-      const elementsToRemove = doc.querySelectorAll('script, style, link, svg, img, iframe, button, nav, header, footer, aside, .cifra-acoes, .cifra-info, .toolbar, .tabs, .art_music, .cnt-tablatura-tools');
-      elementsToRemove.forEach(el => el.remove());
-
-      // Procurar container principal de cifra (<pre>, .cifra_cnt, .cifra-conteudo)
-      const mainPre = doc.querySelector('pre') || doc.querySelector('.cifra_cnt') || doc.querySelector('.cifra-conteudo') || doc.body;
-
-      const parseNode = (node: Node): string => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          return node.textContent || '';
-        }
-
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = node as HTMLElement;
-          const tagName = el.tagName.toUpperCase();
-
-          if (tagName === 'BR') {
-            return '\n';
-          }
-
-          const isBlock = ['P', 'DIV', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE'].includes(tagName);
-
-          const isBold = tagName === 'B' || 
-                         tagName === 'STRONG' || 
-                         el.classList.contains('cifra-refrao') || 
-                         el.classList.contains('refrao') || 
-                         el.classList.contains('cnt-refrao') || 
-                         el.getAttribute('data-refrao') === 'true' ||
-                         (el.style && (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight, 10) >= 600));
-
-          let inner = '';
-          node.childNodes.forEach(child => {
-            inner += parseNode(child);
-          });
-
-          if (isBold && inner.trim().length > 0) {
-            const cleanInner = inner.replace(/<\/?b>/gi, '').replace(/<\/?strong>/gi, '');
-            inner = `<b>${cleanInner}</b>`;
-          }
-
-          if (isBlock) {
-            return '\n' + inner + '\n';
-          }
-
-          return inner;
-        }
-
-        return '';
-      };
-
-      let result = parseNode(mainPre);
-
-      result = result
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&#160;/g, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, ' ')
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n');
-
-      result = result.replace(/\n{3,}/g, '\n\n').trim();
-
-      if (result.length > 5) {
-        return ensureRefraoInBold(result);
-      }
-    } catch (e) {
-      console.warn("Erro ao processar HTML colado:", e);
-    }
-  }
-
-  return ensureRefraoInBold(plainText || '');
-};
-
-// Limpa e normaliza a formatação da cifra preservando tags de negrito do refrão
+// Auto-ajusta e limpa a formatação da cifra e texto ao colar ou clicar no botão
 export const formatSongContent = (raw: string): string => {
   if (!raw) return '';
   
   let text = raw;
 
-  // 1. Converter quebras e tags de bloco HTML para novas linhas, preservando <b> e <strong>
+  // 1. Converter quebras e tags de bloco HTML para novas linhas, removendo tags HTML
   if (/<[a-z][\s\S]*>/i.test(text)) {
     text = text
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|li|tr|h[1-6]|pre|blockquote)>/gi, '\n')
       .replace(/<(p|div|li|tr|h[1-6]|pre|blockquote)[^>]*>/gi, '\n')
-      .replace(/<(?!b|\/b|strong|\/strong)[^>]+>/gi, '');
+      .replace(/<[^>]+>/g, '');
   }
 
   // 2. Decodificar entidades HTML comuns
@@ -901,11 +772,10 @@ const getCategoryGradient = (category: Category) => {
   return 'from-orange-300 to-orange-500';
 };
 
-const getYoutubeEmbedUrl = (url: string) => {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) 
-    ? `https://www.youtube.com/embed/${match[2]}?autoplay=1` 
+const getYoutubeEmbedUrl = (url: string, autoplay: boolean = true) => {
+  const videoId = getYoutubeId(url);
+  return videoId
+    ? `https://www.youtube.com/embed/${videoId}${autoplay ? '?autoplay=1' : ''}`
     : null;
 };
 
@@ -1322,7 +1192,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 MozTabSize: 4,
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-zinc-800 font-medium [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold [&_b]:!font-black [&_strong]:!font-black [&_b]:!text-black [&_strong]:!text-black"
+              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
               dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
           ) : (
@@ -1336,20 +1206,17 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 MozTabSize: 4,
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
-              className="whitespace-pre-wrap font-mono transition-all text-zinc-800 font-medium"
+              className="whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold"
             >
               {processedContent.split('\n').map((line, i) => {
                 const isChords = isChordLine(line);
                 const parts = line.split(/(\s+)/);
-                const isRefraoText = line.toLowerCase().includes('refrão') || line.toLowerCase().includes('refrao') || line.toLowerCase().includes('[coro]');
 
                 return (
                   <div 
                     key={i} 
                     className={`min-h-[1.2em] relative transition-all duration-300 ${
-                      isChords 
-                        ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' 
-                        : (isRefraoText ? 'text-black mb-2 font-black text-[1.02em]' : 'text-zinc-800 mb-2 font-medium')
+                      isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold'
                     }`}
                   >
                     {parts.map((part, j) => {
@@ -2036,9 +1903,48 @@ export default function App() {
     return `${dayName}, ${formattedDay}/${formattedMonth}/${year}`;
   };
 
+  // Video Aulas States
+  const [videoLessons, setVideoLessons] = useState<VideoLesson[]>([]);
+  const [activeVideoLesson, setActiveVideoLesson] = useState<VideoLesson | null>(null);
+  const [lessonSearchTerm, setLessonSearchTerm] = useState('');
+  const [lessonCategoryFilter, setLessonCategoryFilter] = useState<'Todas' | VideoLessonCategory>('Todas');
+  const [showLessonForm, setShowLessonForm] = useState(false);
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [lessonTitle, setLessonTitle] = useState('');
+  const [lessonYoutubeUrl, setLessonYoutubeUrl] = useState('');
+  const [lessonCategory, setLessonCategory] = useState<VideoLessonCategory>('Violão');
+  const [lessonLevel, setLessonLevel] = useState<VideoLessonLevel>('Todos os Níveis');
+  const [lessonDescription, setLessonDescription] = useState('');
+  const [lessonSaving, setLessonSaving] = useState(false);
+  const [lessonError, setLessonError] = useState<string | null>(null);
+  const [lessonSuccessMsg, setLessonSuccessMsg] = useState<string | null>(null);
+  const [confirmingDeleteLessonId, setConfirmingDeleteLessonId] = useState<string | null>(null);
+  const videoPlayerRef = useRef<HTMLDivElement>(null);
+
+  // Salmos YouTube Search States (exclusivo da categoria Salmos)
+  const [salmoYoutubeQuery, setSalmoYoutubeQuery] = useState('');
+  const [salmoYoutubeResults, setSalmoYoutubeResults] = useState<Array<{
+    id: string;
+    title: string;
+    channel: string;
+    duration: string;
+    views: string;
+    thumbnail: string;
+    url: string;
+  }>>([]);
+  const [salmoYoutubeLoading, setSalmoYoutubeLoading] = useState(false);
+  const [salmoYoutubeError, setSalmoYoutubeError] = useState<string | null>(null);
+  const [salmoYoutubeSearched, setSalmoYoutubeSearched] = useState(false);
+  const [activeSalmoYoutubeVideo, setActiveSalmoYoutubeVideo] = useState<{
+    id: string;
+    title: string;
+    channel: string;
+    url: string;
+  } | null>(null);
+
   // Navigation & View States
-  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'users' | 'events_panel' | 'photos'>('songs');
-  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'events_panel' | 'photos'>('categories');
+  const [activeTab, setActiveTab] = useState<'songs' | 'playlists' | 'liturgia' | 'users' | 'events_panel' | 'photos' | 'video_aulas'>('songs');
+  const [viewMode, setViewMode] = useState<'categories' | 'songs' | 'edit-song' | 'playlist-list' | 'edit-playlist' | 'view-playlist' | 'manage-users' | 'liturgia' | 'events_panel' | 'photos' | 'video_aulas'>('categories');
   
   // Liturgia States
   const [liturgiaDate, setLiturgiaDate] = useState<string>(() => {
@@ -2204,23 +2110,6 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
-  const chordEditorRef = useRef<HTMLDivElement>(null);
-
-  // Sincroniza o editor de cifras visual ao carregar ou alternar cifras em edição
-  useEffect(() => {
-    if (viewMode === 'edit-song' && chordEditorRef.current) {
-      const isFocused = document.activeElement === chordEditorRef.current;
-      if (!isFocused) {
-        const raw = editingSong?.content || '';
-        const htmlToRender = /<[a-z][\s\S]*>/i.test(raw)
-          ? raw
-          : raw.replace(/\n/g, '<br>');
-        if (chordEditorRef.current.innerHTML !== htmlToRender) {
-          chordEditorRef.current.innerHTML = htmlToRender;
-        }
-      }
-    }
-  }, [editingSong?.id, viewMode]);
 
   // Prevenção de saída/recarregamento acidental durante edição de cifras
   useEffect(() => {
@@ -2402,12 +2291,41 @@ export default function App() {
       console.error("Photos listener error:", error);
     });
 
+    const videoLessonsQuery = query(
+      collection(db, 'video_lessons')
+    );
+
+    const unsubVideoLessons = onSnapshot(videoLessonsQuery, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as VideoLesson[];
+      const sortedDocs = [...docs].sort((a, b) => {
+        const getTime = (item: VideoLesson) => {
+          if (!item.createdAt) return 0;
+          if (typeof item.createdAt.toMillis === 'function') return item.createdAt.toMillis();
+          if (item.createdAt.seconds !== undefined) {
+            return item.createdAt.seconds * 1000 + ((item.createdAt.nanoseconds || 0) / 1000000);
+          }
+          if (item.createdAt instanceof Date) return item.createdAt.getTime();
+          if (typeof item.createdAt === 'number') return item.createdAt;
+          if (typeof item.createdAt === 'string') {
+            const parsed = Date.parse(item.createdAt);
+            return isNaN(parsed) ? 0 : parsed;
+          }
+          return 0;
+        };
+        return getTime(b) - getTime(a);
+      });
+      setVideoLessons(sortedDocs);
+    }, (error) => {
+      console.error("Video lessons listener error:", error);
+    });
+
     return () => {
       unsubSongs();
       unsubPlaylists();
       unsubEvents();
       unsubUsers();
       unsubPhotos();
+      unsubVideoLessons();
       clearTimeout(timeout);
     };
   }, []);
@@ -2438,12 +2356,10 @@ export default function App() {
     if (hasContent && !editingSong?.id) {
       if (window.confirm('Você tem alterações não salvas. Deseja realmente descartar este rascunho?')) {
         localStorage.removeItem('songDraft');
-        if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
         setEditingSong(null);
         setViewMode('songs');
       }
     } else {
-      if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
       setEditingSong(null);
       setViewMode('songs');
     }
@@ -2464,15 +2380,14 @@ export default function App() {
     e.preventDefault();
     if (!editingSong || saving) return;
 
-    const currentEditorContent = chordEditorRef.current?.innerHTML || editingSong.content || '';
-    if (!currentEditorContent || currentEditorContent.replace(/<[^>]+>/g, '').trim() === "") {
+    if (!editingSong.content || editingSong.content.trim() === "") {
       alert("Por favor, preencha o conteúdo da cifra.");
       return;
     }
 
     setSaving(true);
     try {
-      let songContent = currentEditorContent;
+      let songContent = editingSong.content || '';
       if (saveOnlyIntroAndChords) {
         songContent = extractOnlyIntroAndChords(songContent);
       }
@@ -2505,7 +2420,6 @@ export default function App() {
         });
       }
       localStorage.removeItem('songDraft');
-      if (chordEditorRef.current) chordEditorRef.current.innerHTML = '';
       setEditingSong(null);
       setViewMode('songs');
     } catch (err) {
@@ -2995,6 +2909,130 @@ export default function App() {
     }
   };
 
+  const isMasterProfile = isMasterAdmin || userIdentifier?.toLowerCase() === 'vilmardigital';
+
+  const resetLessonForm = () => {
+    setEditingLessonId(null);
+    setLessonTitle('');
+    setLessonYoutubeUrl('');
+    setLessonCategory('Violão');
+    setLessonLevel('Todos os Níveis');
+    setLessonDescription('');
+    setLessonError(null);
+  };
+
+  const handleSaveVideoLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isMasterProfile) return;
+
+    setLessonError(null);
+    setLessonSuccessMsg(null);
+
+    const trimmedTitle = lessonTitle.trim();
+    const trimmedUrl = lessonYoutubeUrl.trim();
+    const extractedId = getYoutubeId(trimmedUrl);
+
+    if (!trimmedTitle) {
+      setLessonError('Informe o título da vídeo aula.');
+      return;
+    }
+    if (!extractedId) {
+      setLessonError('URL do YouTube inválida. Cole um link válido do YouTube (ex: youtube.com/watch?v=..., youtu.be/... ou shorts).');
+      return;
+    }
+
+    setLessonSaving(true);
+    try {
+      const payload = {
+        title: trimmedTitle,
+        youtubeUrl: trimmedUrl,
+        youtubeId: extractedId,
+        category: lessonCategory,
+        level: lessonLevel,
+        description: lessonDescription.trim(),
+        ownerId: 'Vilmardigital',
+        updatedAt: serverTimestamp(),
+      };
+
+      if (editingLessonId) {
+        await updateDoc(doc(db, 'video_lessons', editingLessonId), payload);
+        if (activeVideoLesson?.id === editingLessonId) {
+          setActiveVideoLesson({ ...activeVideoLesson, ...payload });
+        }
+        setLessonSuccessMsg('Vídeo aula atualizada com sucesso!');
+      } else {
+        await addDoc(collection(db, 'video_lessons'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        setLessonSuccessMsg('Vídeo aula salva com sucesso no perfil Vilmardigital!');
+      }
+
+      resetLessonForm();
+      setShowLessonForm(false);
+      setTimeout(() => setLessonSuccessMsg(null), 4000);
+    } catch (err) {
+      setLessonError('Erro ao salvar a vídeo aula. Verifique a conexão e tente novamente.');
+      handleFirestoreError(err, OperationType.WRITE, 'video_lessons');
+    } finally {
+      setLessonSaving(false);
+    }
+  };
+
+  const handleEditVideoLesson = (lesson: VideoLesson) => {
+    if (!isMasterProfile) return;
+    setEditingLessonId(lesson.id);
+    setLessonTitle(lesson.title);
+    setLessonYoutubeUrl(lesson.youtubeUrl);
+    setLessonCategory(lesson.category);
+    setLessonLevel(lesson.level || 'Todos os Níveis');
+    setLessonDescription(lesson.description || '');
+    setLessonError(null);
+    setLessonSuccessMsg(null);
+    setShowLessonForm(true);
+  };
+
+  const handleDeleteVideoLesson = async (lessonId: string) => {
+    if (!isMasterProfile) return;
+    try {
+      await deleteDoc(doc(db, 'video_lessons', lessonId));
+      if (activeVideoLesson?.id === lessonId) {
+        setActiveVideoLesson(null);
+      }
+      setConfirmingDeleteLessonId(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `video_lessons/${lessonId}`);
+    }
+  };
+
+  const handleSearchSalmosYoutube = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = salmoYoutubeQuery.trim();
+    if (!q) {
+      setSalmoYoutubeError('Digite o nome, número ou refrão do salmo para localizar no YouTube.');
+      return;
+    }
+
+    setSalmoYoutubeLoading(true);
+    setSalmoYoutubeError(null);
+    setSalmoYoutubeSearched(false);
+
+    try {
+      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao buscar vídeos no YouTube.');
+      }
+      setSalmoYoutubeResults(Array.isArray(data.videos) ? data.videos : []);
+      setSalmoYoutubeSearched(true);
+    } catch (err: any) {
+      setSalmoYoutubeError(err?.message || 'Não foi possível localizar salmos no YouTube.');
+      setSalmoYoutubeResults([]);
+    } finally {
+      setSalmoYoutubeLoading(false);
+    }
+  };
+
   const handleTransposeChange = async (songId: string, transpose: number) => {
     if (viewMode === 'view-playlist' && selectedPlaylist) {
       if (userIdentifier === 'Público') return; // Don't write to DB for public access profile
@@ -3144,7 +3182,7 @@ export default function App() {
         <div className="flex items-center justify-between px-3 sm:px-4 py-1.5 min-h-[44px] relative w-full">
           {/* Left section: Back and Interactive Logo */}
           <div className="flex-1 flex items-center gap-1.5">
-            {((activeTab !== 'liturgia' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
+            {((activeTab !== 'liturgia' && activeTab !== 'video_aulas' && viewMode !== 'categories' && viewMode !== 'playlist-list') || (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null)) && (
               <button 
                 onClick={() => {
                   if (activeTab === 'songs' && viewMode === 'categories' && currentCategoryTab !== null) {
@@ -3266,6 +3304,7 @@ export default function App() {
               {/* Local (Current section) */}
               <span className="text-[9.5px] font-black text-orange-700 uppercase tracking-wider bg-orange-100/60 px-1.5 py-0.2 rounded-md border border-orange-200/50 truncate max-w-[140px] sm:max-w-[200px]">
                 {activeTab === 'liturgia' ? 'Liturgia Diária' :
+                 activeTab === 'video_aulas' ? 'Vídeo Aulas' :
                  activeTab === 'events_panel' ? 'Painel de Eventos' :
                  viewMode === 'categories' ? (currentCategoryTab === 'missa' ? 'Cifras para Missa' : currentCategoryTab === 'grupo' ? 'Grupo de Oração' : 'Menu Principal') :
                  viewMode === 'playlist-list' ? 'Playlists' :
@@ -3630,6 +3669,205 @@ export default function App() {
               exit={{ opacity: 0, x: 20 }}
               className="p-4 flex flex-col gap-4"
             >
+              {/* Ferramenta exclusiva da categoria Salmos: Localizar Salmos no YouTube */}
+              {selectedCategory === 'Salmos' && (
+                <div className="bg-white border-2 border-red-200 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-red-50 text-red-600 rounded-xl border border-red-100 shrink-0">
+                        <Youtube className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-zinc-900 uppercase tracking-wide">
+                          Localizar Salmos no YouTube
+                        </h3>
+                        <p className="text-[10px] text-gray-500 font-bold uppercase">
+                          Digite o salmo ou refrão para buscar vídeos existentes no YouTube
+                        </p>
+                      </div>
+                    </div>
+                    {(salmoYoutubeResults.length > 0 || salmoYoutubeSearched || activeSalmoYoutubeVideo) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSalmoYoutubeResults([]);
+                          setSalmoYoutubeSearched(false);
+                          setSalmoYoutubeError(null);
+                          setActiveSalmoYoutubeVideo(null);
+                        }}
+                        className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Limpar Busca
+                      </button>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSearchSalmosYoutube} className="flex flex-col sm:flex-row gap-2">
+                    <div className="relative flex-1">
+                      <Youtube className="w-4 h-4 text-red-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={salmoYoutubeQuery}
+                        onChange={(e) => setSalmoYoutubeQuery(e.target.value)}
+                        placeholder="Ex: Salmo 22, O Senhor é meu pastor, Salmo de domingo..."
+                        className="w-full bg-red-50/30 border border-red-200 rounded-xl pl-10 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 text-zinc-900 placeholder:text-gray-400"
+                      />
+                      {salmoYoutubeQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSalmoYoutubeQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                          title="Limpar texto"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={salmoYoutubeLoading}
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider shadow-sm active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <Search className="w-4 h-4" />
+                      <span>{salmoYoutubeLoading ? 'Localizando...' : 'Localizar no YouTube'}</span>
+                    </button>
+                  </form>
+
+                  {salmoYoutubeError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs font-bold">
+                      {salmoYoutubeError}
+                    </div>
+                  )}
+
+                  {/* Player inline do Salmo selecionado */}
+                  {activeSalmoYoutubeVideo && (
+                    <div className="bg-zinc-950 rounded-2xl overflow-hidden border border-red-500/70 shadow-md">
+                      <div className="px-3.5 py-2.5 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-extrabold text-white truncate">
+                            {activeSalmoYoutubeVideo.title}
+                          </p>
+                          <p className="text-[10px] text-zinc-400 font-semibold truncate">
+                            {activeSalmoYoutubeVideo.channel}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <a
+                            href={activeSalmoYoutubeVideo.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                            title="Abrir no YouTube"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setActiveSalmoYoutubeVideo(null)}
+                            className="p-1.5 bg-zinc-800 hover:bg-red-600 text-zinc-200 hover:text-white rounded-lg transition-colors cursor-pointer"
+                            title="Fechar Player"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="aspect-video w-full bg-black">
+                        <iframe
+                          key={activeSalmoYoutubeVideo.id}
+                          src={`https://www.youtube.com/embed/${activeSalmoYoutubeVideo.id}?autoplay=1`}
+                          title={activeSalmoYoutubeVideo.title}
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resultados do YouTube */}
+                  {salmoYoutubeSearched && salmoYoutubeResults.length === 0 && !salmoYoutubeLoading && (
+                    <p className="text-xs text-gray-500 text-center py-3 font-medium">
+                      Nenhum vídeo encontrado no YouTube para "{salmoYoutubeQuery}". Tente outras palavras.
+                    </p>
+                  )}
+
+                  {salmoYoutubeResults.length > 0 && (
+                    <div className="flex flex-col gap-2 max-h-[340px] overflow-y-auto pr-1">
+                      {salmoYoutubeResults.map((video) => {
+                        const isPlaying = activeSalmoYoutubeVideo?.id === video.id;
+                        return (
+                          <div
+                            key={video.id}
+                            onClick={() => setActiveSalmoYoutubeVideo(video)}
+                            className={`flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer ${
+                              isPlaying
+                                ? 'bg-red-50/70 border-red-400'
+                                : 'bg-gray-50/70 hover:bg-red-50/40 border-gray-200 hover:border-red-300'
+                            }`}
+                          >
+                            <div className="relative w-24 sm:w-28 aspect-video rounded-lg overflow-hidden bg-zinc-900 shrink-0">
+                              <img
+                                src={video.thumbnail}
+                                alt={video.title}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                                <Play className="w-4 h-4 text-white fill-current" />
+                              </div>
+                              {video.duration && (
+                                <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[9px] font-bold px-1 rounded">
+                                  {video.duration}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-extrabold text-zinc-900 line-clamp-2 leading-snug">
+                                {video.title}
+                              </p>
+                              <p className="text-[10px] text-gray-500 font-semibold truncate mt-0.5">
+                                {video.channel}{video.views ? ` • ${video.views}` : ''}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              {userRole === 'admin' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSong({
+                                      title: video.title,
+                                      category: 'Salmos',
+                                      youtubeUrl: video.url,
+                                      content: '',
+                                    });
+                                    setViewMode('edit-song');
+                                  }}
+                                  className="px-2 py-1.5 bg-orange-100 hover:bg-orange-200 text-orange-800 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                                  title="Usar este vídeo em uma nova cifra de Salmo"
+                                >
+                                  Cifra
+                                </button>
+                              )}
+                              <a
+                                href={video.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Abrir no YouTube"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input 
@@ -3894,86 +4132,16 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Botão de Ação de Texto: Destacar Refrão */}
-                    <div className="ml-auto flex items-center">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (editingSong?.content) {
-                            const plain = editingSong.content
-                              .replace(/<br\s*\/?>/gi, '\n')
-                              .replace(/<\/(div|p)>/gi, '\n')
-                              .replace(/<(div|p)[^>]*>/gi, '')
-                              .replace(/<(?!b|\/b|strong|\/strong)[^>]+>/gi, '');
-                            const withBold = ensureRefraoInBold(plain);
-                            const htmlVal = withBold.replace(/\n/g, '<br>');
-                            if (chordEditorRef.current) {
-                              chordEditorRef.current.innerHTML = htmlVal;
-                            }
-                            setEditingSong(prev => prev ? ({ ...prev, content: htmlVal }) : null);
-                          }
-                        }}
-                        className="px-3.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1.5 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-95"
-                        title="Detectar e colocar seções de [Refrão] em negrito automaticamente"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
-                        <span>Destacar Refrão</span>
-                      </button>
-                    </div>
                   </div>
 
-                  <div className="relative">
-                    <div 
-                      ref={chordEditorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      data-placeholder="Cole aqui a cifra copiada da internet (o refrão e o negrito serão mantidos)..."
-                      onInput={() => {
-                        if (chordEditorRef.current) {
-                          setEditingSong(prev => prev ? ({ ...prev, content: chordEditorRef.current!.innerHTML }) : null);
-                        }
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const htmlData = e.clipboardData.getData('text/html');
-                        const plainData = e.clipboardData.getData('text/plain');
-
-                        // Processa mantendo o negrito copiado e identificando refrão
-                        const processed = processPastedChordContent(htmlData, plainData);
-                        const htmlToInsert = processed.replace(/\n/g, '<br>');
-
-                        const sel = window.getSelection();
-                        if (sel && sel.rangeCount > 0) {
-                          const range = sel.getRangeAt(0);
-                          range.deleteContents();
-
-                          const temp = document.createElement('div');
-                          temp.innerHTML = htmlToInsert;
-
-                          const frag = document.createDocumentFragment();
-                          let node;
-                          let lastNode;
-                          while ((node = temp.firstChild)) {
-                            lastNode = frag.appendChild(node);
-                          }
-                          range.insertNode(frag);
-
-                          if (lastNode) {
-                            range.setStartAfter(lastNode);
-                            range.collapse(true);
-                            sel.removeAllRanges();
-                            sel.addRange(range);
-                          }
-                        } else if (chordEditorRef.current) {
-                          chordEditorRef.current.innerHTML = htmlToInsert;
-                        }
-
-                        if (chordEditorRef.current) {
-                          setEditingSong(prev => prev ? ({ ...prev, content: chordEditorRef.current!.innerHTML }) : null);
-                        }
-                      }}
-                      className="rich-chord-editor w-full min-h-[380px] max-h-[700px] overflow-y-auto bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 shadow-inner resize-y whitespace-pre-wrap break-words"
+                  <div>
+                    <textarea 
+                      required
+                      rows={15}
+                      value={editingSong?.content || ''}
+                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                      placeholder="Cole aqui a cifra..."
+                      className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 font-bold shadow-inner resize-y whitespace-pre-wrap"
                       style={{ 
                         lineHeight: editingSong?.lineHeight || 1.5, 
                         letterSpacing: `${editingSong?.letterSpacing || 0}px`,
@@ -3984,7 +4152,7 @@ export default function App() {
                       }}
                     />
                     <p className="text-[11px] text-gray-500 font-medium mt-1">
-                      💡 <strong>Formatação Automática:</strong> Cole a cifra copiada da internet — o refrão em <strong>negrito</strong> é mantido automaticamente. Se necessário, clique em <strong>Destacar Refrão</strong>.
+                      💡 <strong>Dica de Paginação:</strong> Músicas muito extensas (com mais de 32 linhas) são divididas automaticamente em páginas sem recortar estrofes. Para forçar uma quebra de página manual e precisa, insira uma linha contendo apenas <code>---</code> ou <code>===</code>.
                     </p>
                   </div>
                 </div>
@@ -4918,6 +5086,521 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* VIDEO AULAS TAB (Violão e Música) */}
+          {activeTab === 'video_aulas' && (() => {
+            const previewYoutubeId = getYoutubeId(lessonYoutubeUrl);
+            const filteredLessons = videoLessons.filter((lesson) => {
+              const matchesCategory = lessonCategoryFilter === 'Todas' || lesson.category === lessonCategoryFilter;
+              const term = lessonSearchTerm.trim().toLowerCase();
+              const matchesSearch = !term ||
+                lesson.title.toLowerCase().includes(term) ||
+                lesson.category.toLowerCase().includes(term) ||
+                (lesson.description || '').toLowerCase().includes(term);
+              return matchesCategory && matchesSearch;
+            });
+
+            return (
+              <motion.div
+                key="video-aulas-tab"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="p-4 flex flex-col gap-5 max-w-5xl mx-auto"
+              >
+                {/* Header Banner */}
+                <div className="bg-gradient-to-r from-orange-50 via-amber-50/70 to-emerald-50/50 rounded-2xl p-4 border border-orange-200/80 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-orange-600 text-white rounded-2xl shadow-md shadow-orange-500/20 shrink-0">
+                      <PlayCircle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs sm:text-sm font-black text-orange-950 uppercase tracking-wider">
+                        Vídeo Aulas de Violão e Música
+                      </p>
+                      <p className="text-[10px] text-gray-500 font-bold mt-0.5 uppercase">
+                        Aulas em vídeo selecionadas por Vilmardigital ({videoLessons.length})
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isMasterProfile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (showLessonForm && !editingLessonId) {
+                            setShowLessonForm(false);
+                          } else {
+                            resetLessonForm();
+                            setShowLessonForm(true);
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{showLessonForm && !editingLessonId ? 'Fechar Formulário' : 'Nova Vídeo Aula'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('songs');
+                        setViewMode('categories');
+                      }}
+                      className="px-3 py-2 bg-white border border-orange-200 hover:border-orange-300 rounded-xl text-[10px] font-black text-orange-700 shadow-2xs uppercase tracking-wider cursor-pointer"
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Success Message */}
+                {lessonSuccessMsg && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{lessonSuccessMsg}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLessonSuccessMsg(null)}
+                      className="text-emerald-600 hover:text-emerald-800 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Master-Only Form (Vilmardigital) */}
+                {isMasterProfile && showLessonForm && (
+                  <div className="bg-white border-2 border-emerald-300 rounded-3xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 mb-5 pb-3 border-b border-emerald-100">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                          <Youtube className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h2 className="font-extrabold text-emerald-950 text-sm uppercase">
+                            {editingLessonId ? 'Editar Vídeo Aula' : 'Adicionar Vídeo Aula do YouTube'}
+                          </h2>
+                          <p className="text-[10px] text-emerald-700 font-bold uppercase mt-0.5">
+                            Exclusivo Perfil Master: Vilmardigital
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetLessonForm();
+                          setShowLessonForm(false);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer"
+                        title="Fechar"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveVideoLesson} className="flex flex-col gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[11px] font-black text-emerald-900 uppercase tracking-widest mb-1.5">
+                            Título da Aula *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={lessonTitle}
+                            onChange={(e) => setLessonTitle(e.target.value)}
+                            placeholder="Ex: Batida de Guarânia no Violão (Passo a Passo)"
+                            className="w-full bg-emerald-50/40 border border-emerald-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-zinc-900 placeholder:text-gray-400"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-black text-emerald-900 uppercase tracking-widest mb-1.5">
+                            URL do YouTube *
+                          </label>
+                          <div className="relative">
+                            <Youtube className="w-4 h-4 text-red-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              required
+                              value={lessonYoutubeUrl}
+                              onChange={(e) => setLessonYoutubeUrl(e.target.value)}
+                              placeholder="https://www.youtube.com/watch?v=... ou youtu.be/..."
+                              className="w-full bg-emerald-50/40 border border-emerald-200 rounded-2xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-zinc-900 placeholder:text-gray-400"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[11px] font-black text-emerald-900 uppercase tracking-widest mb-1.5">
+                            Categoria
+                          </label>
+                          <select
+                            value={lessonCategory}
+                            onChange={(e) => setLessonCategory(e.target.value as VideoLessonCategory)}
+                            className="w-full bg-emerald-50/40 border border-emerald-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-zinc-900"
+                          >
+                            {VIDEO_LESSON_CATEGORIES.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-black text-emerald-900 uppercase tracking-widest mb-1.5">
+                            Nível
+                          </label>
+                          <select
+                            value={lessonLevel}
+                            onChange={(e) => setLessonLevel(e.target.value as VideoLessonLevel)}
+                            className="w-full bg-emerald-50/40 border border-emerald-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-zinc-900"
+                          >
+                            {VIDEO_LESSON_LEVELS.map((lvl) => (
+                              <option key={lvl} value={lvl}>{lvl}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-black text-emerald-900 uppercase tracking-widest mb-1.5">
+                          Anotações / Descrição (Opcional)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={lessonDescription}
+                          onChange={(e) => setLessonDescription(e.target.value)}
+                          placeholder="Dicas de acordes, ritmo, campo harmônico ou observações da aula..."
+                          className="w-full bg-emerald-50/40 border border-emerald-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-zinc-900 placeholder:text-gray-400 resize-y"
+                        />
+                      </div>
+
+                      {/* Live YouTube Preview */}
+                      {lessonYoutubeUrl.trim() && (
+                        <div className="bg-zinc-950 rounded-2xl p-3 border border-emerald-200 flex items-center gap-3">
+                          {previewYoutubeId ? (
+                            <>
+                              <img
+                                src={`https://img.youtube.com/vi/${previewYoutubeId}/mqdefault.jpg`}
+                                alt="Prévia do YouTube"
+                                className="w-28 aspect-video rounded-xl object-cover border border-white/10 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                  <Check className="w-3.5 h-3.5" /> Vídeo do YouTube reconhecido
+                                </p>
+                                <p className="text-xs text-zinc-300 font-medium truncate mt-0.5">
+                                  ID: {previewYoutubeId}
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-amber-400 font-bold px-2 py-1">
+                              Link não reconhecido ainda. Verifique se copiou a URL completa do vídeo no YouTube.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {lessonError && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-2xl text-xs font-bold">
+                          {lessonError}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-3 pt-1">
+                        <button
+                          type="submit"
+                          disabled={lessonSaving}
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl py-3 font-extrabold text-xs uppercase tracking-widest shadow-md shadow-emerald-500/20 active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <Youtube className="w-4 h-4" />
+                          <span>
+                            {lessonSaving
+                              ? 'Salvando...'
+                              : editingLessonId
+                              ? 'Salvar Alterações'
+                              : 'Salvar Vídeo Aula (Vilmardigital)'}
+                          </span>
+                        </button>
+                        {editingLessonId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              resetLessonForm();
+                              setShowLessonForm(false);
+                            }}
+                            className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-bold text-xs uppercase tracking-wider cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Featured Active Video Player */}
+                {activeVideoLesson && (
+                  <div
+                    ref={videoPlayerRef}
+                    className="bg-zinc-950 rounded-3xl overflow-hidden border-2 border-orange-500 shadow-xl"
+                  >
+                    <div className="px-4 py-3 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-wider bg-orange-600 text-white px-2 py-0.5 rounded-lg">
+                            {activeVideoLesson.category}
+                          </span>
+                          {activeVideoLesson.level && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded-lg">
+                              {activeVideoLesson.level}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-white font-extrabold text-sm sm:text-base truncate mt-1">
+                          {activeVideoLesson.title}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a
+                          href={activeVideoLesson.youtubeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl transition-colors"
+                          title="Abrir no YouTube"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setActiveVideoLesson(null)}
+                          className="p-2 bg-zinc-800 hover:bg-red-600 text-zinc-200 hover:text-white rounded-xl transition-colors cursor-pointer"
+                          title="Fechar Player"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="aspect-video w-full bg-black">
+                      <iframe
+                        key={activeVideoLesson.id}
+                        src={getYoutubeEmbedUrl(activeVideoLesson.youtubeUrl, true) || `https://www.youtube.com/embed/${activeVideoLesson.youtubeId}?autoplay=1`}
+                        title={activeVideoLesson.title}
+                        className="w-full h-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    </div>
+
+                    {activeVideoLesson.description && (
+                      <div className="px-4 py-3 bg-zinc-900/90 border-t border-zinc-800 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {activeVideoLesson.description}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Search & Category Filter */}
+                <div className="bg-white border border-orange-100 rounded-3xl p-4 shadow-2xs flex flex-col gap-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={lessonSearchTerm}
+                      onChange={(e) => setLessonSearchTerm(e.target.value)}
+                      placeholder="Buscar vídeo aula de violão, teoria, batida..."
+                      className="w-full bg-orange-50/40 border border-orange-200 rounded-2xl pl-10 pr-9 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-zinc-900 placeholder:text-gray-400"
+                    />
+                    {lessonSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setLessonSearchTerm('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['Todas', ...VIDEO_LESSON_CATEGORIES] as const).map((cat) => {
+                      const isActive = lessonCategoryFilter === cat;
+                      const count = cat === 'Todas'
+                        ? videoLessons.length
+                        : videoLessons.filter(v => v.category === cat).length;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setLessonCategoryFilter(cat)}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-wider transition-all cursor-pointer border ${
+                            isActive
+                              ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                              : 'bg-orange-50/50 text-orange-900 border-orange-200/70 hover:bg-orange-100/70'
+                          }`}
+                        >
+                          {cat} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Video Lessons Grid */}
+                {filteredLessons.length === 0 ? (
+                  <div className="bg-white border border-orange-100 rounded-3xl p-10 text-center flex flex-col items-center gap-3 shadow-2xs">
+                    <div className="p-4 bg-orange-50 text-orange-400 rounded-full">
+                      <Video className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-extrabold text-orange-950 uppercase">
+                        Nenhuma vídeo aula encontrada
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {isMasterProfile
+                          ? 'Clique em "Nova Vídeo Aula" acima para adicionar um vídeo do YouTube.'
+                          : 'Aguarde o perfil master Vilmardigital publicar novas aulas de violão e música.'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredLessons.map((lesson) => {
+                      const isPlaying = activeVideoLesson?.id === lesson.id;
+                      const thumbUrl = `https://img.youtube.com/vi/${lesson.youtubeId}/hqdefault.jpg`;
+                      return (
+                        <div
+                          key={lesson.id}
+                          onClick={() => {
+                            setActiveVideoLesson(lesson);
+                            setTimeout(() => {
+                              videoPlayerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }, 80);
+                          }}
+                          className={`group bg-white rounded-3xl overflow-hidden border transition-all cursor-pointer flex flex-col shadow-2xs hover:shadow-md ${
+                            isPlaying
+                              ? 'border-2 border-orange-500 ring-2 ring-orange-500/20'
+                              : 'border-orange-100 hover:border-orange-300'
+                          }`}
+                        >
+                          {/* Thumbnail */}
+                          <div className="relative aspect-video bg-zinc-950 overflow-hidden">
+                            <img
+                              src={thumbUrl}
+                              alt={lesson.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-0 bg-black/25 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                              <div className={`p-3 rounded-full shadow-lg transition-transform group-hover:scale-110 ${
+                                isPlaying ? 'bg-orange-600 text-white' : 'bg-red-600/95 text-white'
+                              }`}>
+                                <Play className="w-5 h-5 fill-current" />
+                              </div>
+                            </div>
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                              <span className="bg-black/75 backdrop-blur-xs text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg">
+                                {lesson.category}
+                              </span>
+                              {lesson.level && lesson.level !== 'Todos os Níveis' && (
+                                <span className="bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg">
+                                  {lesson.level}
+                                </span>
+                              )}
+                            </div>
+                            {isPlaying && (
+                              <span className="absolute bottom-2 right-2 bg-orange-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg shadow">
+                                Reproduzindo
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Card Body */}
+                          <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+                            <div>
+                              <h3 className="font-extrabold text-sm text-zinc-900 leading-snug line-clamp-2">
+                                {lesson.title}
+                              </h3>
+                              {lesson.description && (
+                                <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">
+                                  {lesson.description}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2.5 border-t border-orange-50 gap-2">
+                              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider truncate">
+                                Por {lesson.ownerId || 'Vilmardigital'}
+                              </span>
+
+                              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={lesson.youtubeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Abrir no YouTube"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+
+                                {isMasterProfile && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditVideoLesson(lesson)}
+                                      className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Editar Vídeo Aula"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    {confirmingDeleteLessonId === lesson.id ? (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteVideoLesson(lesson.id)}
+                                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] rounded-lg uppercase cursor-pointer"
+                                        >
+                                          Sim
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmingDeleteLessonId(null)}
+                                          className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-extrabold text-[10px] rounded-lg uppercase cursor-pointer"
+                                        >
+                                          Não
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmingDeleteLessonId(lesson.id)}
+                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                        title="Excluir Vídeo Aula"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            );
+          })()}
+
            {/* USER MANAGEMENT TAB (Admin only) */}
           {activeTab === 'users' && userRole === 'admin' && (
             <motion.div
@@ -5278,6 +5961,17 @@ export default function App() {
         >
           <Calendar className="w-5 h-5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setActiveTab('video_aulas');
+            setViewMode('video_aulas');
+          }}
+          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'video_aulas' ? 'text-white' : 'text-orange-200'}`}
+        >
+          <PlayCircle className="w-5 h-5" />
+          <span className="text-[8px] font-extrabold uppercase tracking-tight">Vídeo Aulas</span>
         </button>
 
 

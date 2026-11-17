@@ -1,7 +1,18 @@
 import React, {StrictMode, Component, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
+import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
+
+// Registrar Service Worker para funcionamento off-line e PWA
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  registerSW({
+    immediate: true,
+    onOfflineReady() {
+      console.info('catoliCifras pronto para funcionar off-line.');
+    },
+  });
+}
 
 // Prevenção imediata de pull-to-refresh e atalhos de reload no navegador
 if (typeof window !== 'undefined') {

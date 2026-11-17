@@ -96,6 +96,35 @@ import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhot
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
 import heic2any from 'heic2any';
 import ourLadyImg from './assets/images/our_lady_icon_1784928887101.jpg';
+import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
+import { useOnlineStatus } from './hooks/usePWAInstall';
+
+const readOfflineCache = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeOfflineCache = (key: string, value: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage quota errors cleanly
+  }
+};
+
+const awaitOfflineSafe = async (promise: Promise<any>) => {
+  if (!navigator.onLine) {
+    return;
+  }
+  await Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(resolve, 4000)),
+  ]);
+};
 
 const CATEGORIES_MISSA: Category[] = [
   'Entrada',
@@ -505,8 +534,14 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const normalizedUsername = username.trim();
-    const normalizedPassword = password.trim();
+    const normalizedUsername = username.replace(/[^a-zA-ZÀ-ÿ]/g, '').trim();
+    const normalizedPassword = password.replace(/\D/g, '').trim();
+
+    if (!normalizedUsername || !normalizedPassword) {
+      setError(true);
+      setTimeout(() => setError(false), 2000);
+      return;
+    }
 
     // Check dynamic users first
     const foundUser = accessUsers.find(u => 
@@ -678,14 +713,17 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
       >
         <form onSubmit={handleSubmit} className="space-y-2 text-left">
           <div className="space-y-0.5">
-            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-900 ml-1">Usuário</label>
+            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-900 ml-1">Usuário (somente letras)</label>
             <div className="relative">
               <LogIn className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
               <input 
                 type="text"
-                placeholder="Seu nome de usuário"
+                placeholder="Digite seu login (somente letras)"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-ZÀ-ÿ]/g, ''))}
+                pattern="[A-Za-zÀ-ÿ]+"
+                title="O login aceita apenas letras"
+                autoComplete="username"
                 className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-250 focus:border-emerald-500'} text-zinc-900 pl-10 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-650 font-bold text-xs shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
                 autoFocus
               />
@@ -693,14 +731,18 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
           </div>
  
           <div className="space-y-0.5">
-            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-950 ml-1 font-sans">Senha</label>
+            <label className="text-[10px] uppercase tracking-widest font-black text-emerald-950 ml-1 font-sans">Senha (somente números)</label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
               <input 
                 type="password"
-                placeholder="Sua senha de acesso"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Digite sua senha (somente números)"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value.replace(/\D/g, ''))}
+                title="A senha aceita apenas números"
+                autoComplete="current-password"
                 className={`w-full bg-stone-50/50 border-2 ${error ? 'border-red-500' : 'border-zinc-250 focus:border-emerald-500'} text-zinc-950 pl-10 pr-4 py-2 rounded-xl outline-none transition-all placeholder:text-zinc-650 font-bold tracking-widest text-xs shadow-sm focus:ring-4 focus:ring-emerald-100/50`}
               />
             </div>
@@ -731,7 +773,8 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
         </form>
       </motion.div>
  
-      <div className="flex flex-col items-center gap-1 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
+      <div className="flex flex-col items-center gap-2 text-zinc-500 text-[10px] font-bold select-none mt-auto mb-1 shrink-0">
+        <PWAInstallButton compact />
         <div>© 2026 catoliCifras • Versão 2.4</div>
       </div>
     </div>
@@ -1501,18 +1544,19 @@ const compressImage = (file: File, maxDimension: number = 640, quality: number =
 };
 
 export default function App() {
+  const isOnline = useOnlineStatus();
   const [userRole, setUserRole] = useState<'admin' | 'viewer' | null>(() => {
-    const saved = sessionStorage.getItem('userRole');
+    const saved = sessionStorage.getItem('userRole') || localStorage.getItem('offline_userRole');
     return (saved === 'admin' || saved === 'viewer') ? saved : null;
   });
   const [isMasterAdmin, setIsMasterAdmin] = useState<boolean>(() => {
-    return sessionStorage.getItem('isMasterAdmin') === 'true';
+    return (sessionStorage.getItem('isMasterAdmin') || localStorage.getItem('offline_isMasterAdmin')) === 'true';
   });
   const [userIdentifier, setUserIdentifier] = useState<string | null>(() => {
-    return sessionStorage.getItem('userIdentifier');
+    return sessionStorage.getItem('userIdentifier') || localStorage.getItem('offline_userIdentifier');
   });
   const [userProfilePic, setUserProfilePic] = useState<string | null>(() => {
-    const id = sessionStorage.getItem('userIdentifier');
+    const id = sessionStorage.getItem('userIdentifier') || localStorage.getItem('offline_userIdentifier');
     return id ? localStorage.getItem(`profilePic_${id}`) : null;
   });
 
@@ -1526,10 +1570,10 @@ export default function App() {
   }, [userIdentifier]);
 
   const [userId, setUserId] = useState<string | null>(() => {
-    return sessionStorage.getItem('userId');
+    return sessionStorage.getItem('userId') || localStorage.getItem('offline_userId');
   });
   const [sessionId, setSessionId] = useState<string | null>(() => {
-    return sessionStorage.getItem('sessionId');
+    return sessionStorage.getItem('sessionId') || localStorage.getItem('offline_sessionId');
   });
 
   const [deviceId] = useState<string>(() => {
@@ -1616,15 +1660,13 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
-    if (userId) {
-      try {
-        await updateDoc(doc(db, 'access_users', userId), {
-          isOnline: false,
-          currentSessionId: null
-        });
-      } catch (err) {
+    if (userId && navigator.onLine) {
+      updateDoc(doc(db, 'access_users', userId), {
+        isOnline: false,
+        currentSessionId: null
+      }).catch((err) => {
         console.error("Error setting offline state on logout:", err);
-      }
+      });
     }
     setUserRole(null);
     setUserIdentifier(null);
@@ -1636,6 +1678,11 @@ export default function App() {
     sessionStorage.removeItem('userId');
     sessionStorage.removeItem('sessionId');
     sessionStorage.removeItem('isMasterAdmin');
+    localStorage.removeItem('offline_userRole');
+    localStorage.removeItem('offline_userIdentifier');
+    localStorage.removeItem('offline_userId');
+    localStorage.removeItem('offline_sessionId');
+    localStorage.removeItem('offline_isMasterAdmin');
   };
 
   // Active status/presence real-time heartbeat
@@ -1645,6 +1692,7 @@ export default function App() {
     let intervalId: any;
 
     const updatePresence = async (online: boolean) => {
+      if (!navigator.onLine) return;
       try {
         await updateDoc(doc(db, 'access_users', userId), {
           isOnline: online,
@@ -1723,6 +1771,7 @@ export default function App() {
 
       const visitRef = doc(db, 'visits', deviceId);
       const updateVisitState = async (online: boolean) => {
+        if (!navigator.onLine) return;
         try {
           await setDoc(visitRef, {
             userIdentifier: userIdentifier || 'Visitante',
@@ -1762,12 +1811,17 @@ export default function App() {
     return Math.max(1, active.length);
   }, [visits]);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    const cachedSongs = readOfflineCache<Song[]>('offline_cache_songs', []);
+    const cachedUsers = readOfflineCache<AccessUser[]>('offline_cache_users', []);
+    return cachedSongs.length === 0 && cachedUsers.length === 0;
+  });
   const [saving, setSaving] = useState(false);
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
-  const [events, setEvents] = useState<MuralEvent[]>([]);
+  const [songs, setSongs] = useState<Song[]>(() => readOfflineCache<Song[]>('offline_cache_songs', []));
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => readOfflineCache<Playlist[]>('offline_cache_playlists', []));
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>(() => readOfflineCache<AccessUser[]>('offline_cache_users', []));
+  const [events, setEvents] = useState<MuralEvent[]>(() => readOfflineCache<MuralEvent[]>('offline_cache_events', []));
 
   // Filter songs added in the last 48 hours
   const newSongsLast48h = useMemo(() => {
@@ -1904,7 +1958,7 @@ export default function App() {
   };
 
   // Video Aulas States
-  const [videoLessons, setVideoLessons] = useState<VideoLesson[]>([]);
+  const [videoLessons, setVideoLessons] = useState<VideoLesson[]>(() => readOfflineCache<VideoLesson[]>('offline_cache_video_lessons', []));
   const [activeVideoLesson, setActiveVideoLesson] = useState<VideoLesson | null>(null);
   const [lessonSearchTerm, setLessonSearchTerm] = useState('');
   const [lessonCategoryFilter, setLessonCategoryFilter] = useState<'Todas' | VideoLessonCategory>('Todas');
@@ -1983,6 +2037,18 @@ export default function App() {
         ];
 
         try {
+          if (!navigator.onLine) {
+            const cachedLiturgia = readOfflineCache<any>(`liturgia_cache_${liturgiaDate}`, null);
+            if (cachedLiturgia) {
+              if (!isCancelled) {
+                setLiturgiaData(cachedLiturgia);
+                setLiturgiaLoading(false);
+              }
+              return;
+            }
+            throw new Error('Modo off-line sem cache prévio para esta data.');
+          }
+
           // Buscar da API pública liturgia-diaria-api diretamente no navegador
           const apiUrl = `https://liturgia.up.railway.app/?dia=${dayVal}&mes=${monthVal}`;
           const response = await fetch(apiUrl);
@@ -2045,8 +2111,17 @@ export default function App() {
             oracao: santoInfo.oracao,
             sources
           };
+          writeOfflineCache(`liturgia_cache_${liturgiaDate}`, { ...dataObj, readableDate });
         } catch (innerError) {
           console.warn("Falha no fetch da API litúrgica, aplicando fallback:", innerError);
+          const cachedLiturgia = readOfflineCache<any>(`liturgia_cache_${liturgiaDate}`, null);
+          if (cachedLiturgia) {
+            if (!isCancelled) {
+              setLiturgiaData(cachedLiturgia);
+              setLiturgiaLoading(false);
+            }
+            return;
+          }
           // Fallback robusto offline
           const santoInfo = getSantoDoDia(monthVal, dayVal);
           let tempoLiturgico = "Tempo Comum";
@@ -2075,7 +2150,7 @@ export default function App() {
             evangelhoTexto: "Naquele tempo, Jesus tomou a palavra e disse: 'Eu te louvo, Pai, Senhor do céu e da terra, porque escondeste estas coisas aos sábios e inteligentes, e as revelaste aos pequeninos. Sim, Pai, porque assim foi do vosso agrado. Tudo me foi entregue por meu Pai, e ninguém conhece o Filho senão o Pai, e ninguém conhece o Pai senão o Filho e aquele a quem o Filho o quiser revelar. Vinde a mim, todos vós que estais cansados e fatigados sob o peso dos vossos fardos, e eu vos darei descanso. Tomai sobre vós o meu jugo e aprendei de mim, porque sou manso e humilde de coração, e vós encontrareis descanso para as vossas almas. Pois o meu jugo é suave e o meu fardo é leve'.",
             reflexao,
             oracao: santoInfo.oracao,
-            sources: [{ title: "Calendário Litúrgico Local (Seguro)", url: "https://aistudio.build" }]
+            sources: [{ title: "Calendário Litúrgico Local (Off-line)", url: "https://aistudio.build" }]
           };
         }
 
@@ -2105,6 +2180,12 @@ export default function App() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'admin' | 'viewer'>('viewer');
+  const [userFormError, setUserFormError] = useState<string | null>(null);
+  const [userFormSuccess, setUserFormSuccess] = useState<string | null>(null);
+  const [userDeleteTarget, setUserDeleteTarget] = useState<{ mode: 'single'; user: AccessUser } | { mode: 'all' } | null>(null);
+  const [deleteAdminPasswordInput, setDeleteAdminPasswordInput] = useState('');
+  const [deleteAdminPasswordError, setDeleteAdminPasswordError] = useState<string | null>(null);
+  const [deletingUsersLoading, setDeletingUsersLoading] = useState(false);
   
   // Song selection/editing
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -2189,6 +2270,7 @@ export default function App() {
     const unsubSongs = onSnapshot(songsQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Song[];
       setSongs(docs);
+      writeOfflineCache('offline_cache_songs', docs);
     }, (error) => {
       console.error("Songs listener error:", error);
     });
@@ -2201,6 +2283,7 @@ export default function App() {
     const unsubPlaylists = onSnapshot(playlistsQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Playlist[];
       setPlaylists(docs);
+      writeOfflineCache('offline_cache_playlists', docs);
     }, (error) => {
       console.error("Playlists listener error:", error);
     });
@@ -2213,6 +2296,7 @@ export default function App() {
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AccessUser[];
       setAccessUsers(docs);
+      writeOfflineCache('offline_cache_users', docs);
       setLoading(false);
       clearTimeout(timeout);
     }, (error) => {
@@ -2252,6 +2336,7 @@ export default function App() {
         return getTime(b) - getTime(a);
       });
       setEvents(sortedDocs);
+      writeOfflineCache('offline_cache_events', sortedDocs);
     }, (error) => {
       console.error("Events listener error:", error);
     });
@@ -2315,6 +2400,7 @@ export default function App() {
         return getTime(b) - getTime(a);
       });
       setVideoLessons(sortedDocs);
+      writeOfflineCache('offline_cache_video_lessons', sortedDocs);
     }, (error) => {
       console.error("Video lessons listener error:", error);
     });
@@ -2412,12 +2498,12 @@ export default function App() {
           setSaving(false);
           return;
         }
-        await updateDoc(doc(db, 'songs', editingSong.id), data);
+        await awaitOfflineSafe(updateDoc(doc(db, 'songs', editingSong.id), data));
       } else {
-        await addDoc(collection(db, 'songs'), {
+        await awaitOfflineSafe(addDoc(collection(db, 'songs'), {
           ...data,
           createdAt: serverTimestamp()
-        });
+        }));
       }
       localStorage.removeItem('songDraft');
       setEditingSong(null);
@@ -2450,12 +2536,12 @@ export default function App() {
           setSaving(false);
           return;
         }
-        await updateDoc(doc(db, 'playlists', editingPlaylist.id), data);
+        await awaitOfflineSafe(updateDoc(doc(db, 'playlists', editingPlaylist.id), data));
       } else {
-        await addDoc(collection(db, 'playlists'), {
+        await awaitOfflineSafe(addDoc(collection(db, 'playlists'), {
           ...data,
           createdAt: serverTimestamp()
-        });
+        }));
       }
       setEditingPlaylist(null);
       setPlaylistSongSearchTerm('');
@@ -2836,48 +2922,126 @@ export default function App() {
 
   const handleCreateAccessUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUserFormError(null);
+    setUserFormSuccess(null);
+
     if (!isMasterAdmin && userRole !== 'admin') {
-      alert("Apenas administradores e o administrador mestre podem cadastrar novos usuários.");
+      setUserFormError("Apenas administradores e o administrador mestre podem cadastrar novos usuários.");
       return;
     }
-    if (!newUserName || !newUserPassword || saving) return;
+
+    const cleanName = newUserName.replace(/[^a-zA-ZÀ-ÿ]/g, '').trim();
+    const cleanPassword = newUserPassword.replace(/\D/g, '').trim();
+
+    if (!cleanName || !/^[a-zA-ZÀ-ÿ]+$/.test(cleanName)) {
+      setUserFormError("O login deve conter apenas letras (sem números ou espaços).");
+      return;
+    }
+    if (!cleanPassword || !/^[0-9]+$/.test(cleanPassword)) {
+      setUserFormError("A senha deve conter apenas números.");
+      return;
+    }
+
+    const alreadyExists =
+      cleanName.toLowerCase() === 'vilmardigital' ||
+      cleanName.toLowerCase() === 'usuario' ||
+      accessUsers.some(u => u.name.toLowerCase() === cleanName.toLowerCase());
+
+    if (alreadyExists) {
+      setUserFormError("Já existe um usuário cadastrado com este login.");
+      return;
+    }
+
+    if (saving) return;
 
     setSaving(true);
     try {
-      await addDoc(collection(db, 'access_users'), {
-        name: newUserName,
-        password: newUserPassword,
+      await awaitOfflineSafe(addDoc(collection(db, 'access_users'), {
+        name: cleanName,
+        password: cleanPassword,
         role: isMasterAdmin ? newUserRole : 'viewer',
         createdBy: userId || 'master',
         creatorName: userIdentifier,
         createdAt: serverTimestamp()
-      });
+      }));
       setNewUserName('');
       setNewUserPassword('');
+      setUserFormSuccess(`Login "${cleanName}" cadastrado com sucesso!`);
+      setTimeout(() => setUserFormSuccess(null), 3500);
     } catch (err) {
+      setUserFormError("Erro ao cadastrar usuário. Tente novamente.");
       handleFirestoreError(err, OperationType.WRITE, 'access_users');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRemoveAccessUser = async (id: string) => {
+  const getExpectedAdminPassword = (): string => {
+    if (currentUserDoc?.password) return currentUserDoc.password;
+    if (isMasterAdmin || userIdentifier?.toLowerCase() === 'vilmardigital') return '4526';
+    return '';
+  };
+
+  const handleOpenDeleteUserModal = (target: { mode: 'single'; user: AccessUser } | { mode: 'all' }) => {
+    setUserFormError(null);
+    setUserFormSuccess(null);
+
     if (!isMasterAdmin && userRole !== 'admin') {
-      alert("Apenas administradores podem remover usuários.");
+      setUserFormError("Apenas administradores podem apagar logins.");
       return;
     }
 
-    const userToRemove = accessUsers.find(u => u.id === id);
-    if (!isMasterAdmin && userToRemove?.createdBy !== (userId || 'master')) {
-      alert("Você só pode remover usuários que você mesmo cadastrou.");
+    if (target.mode === 'single' && !isMasterAdmin && target.user.createdBy !== (userId || 'master')) {
+      setUserFormError("Você só pode remover usuários que você mesmo cadastrou.");
       return;
     }
+
+    setDeleteAdminPasswordInput('');
+    setDeleteAdminPasswordError(null);
+    setUserDeleteTarget(target);
+  };
+
+  const handleConfirmDeleteAccessUsers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userDeleteTarget || deletingUsersLoading) return;
+
+    const enteredPassword = deleteAdminPasswordInput.replace(/\D/g, '').trim();
+    const expectedPassword = getExpectedAdminPassword();
+
+    if (!enteredPassword) {
+      setDeleteAdminPasswordError("Digite a senha numérica de login do administrador.");
+      return;
+    }
+
+    if (!expectedPassword || enteredPassword !== expectedPassword) {
+      setDeleteAdminPasswordError("Senha de administrador incorreta.");
+      return;
+    }
+
+    setDeletingUsersLoading(true);
+    setDeleteAdminPasswordError(null);
 
     try {
-      // 1. Deletar o usuário da coleção access_users
-      await deleteDoc(doc(db, 'access_users', id));
+      if (userDeleteTarget.mode === 'single') {
+        await awaitOfflineSafe(deleteDoc(doc(db, 'access_users', userDeleteTarget.user.id)));
+        setUserFormSuccess(`Login "${userDeleteTarget.user.name}" apagado com sucesso.`);
+      } else {
+        const targets = accessUsers.filter(u =>
+          u.role !== 'master' && (isMasterAdmin || u.createdBy === (userId || 'master'))
+        );
+        for (const u of targets) {
+          await awaitOfflineSafe(deleteDoc(doc(db, 'access_users', u.id)));
+        }
+        setUserFormSuccess(`${targets.length} login(s) criado(s) apagado(s) com sucesso.`);
+      }
+      setUserDeleteTarget(null);
+      setDeleteAdminPasswordInput('');
+      setTimeout(() => setUserFormSuccess(null), 4000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `access_users/${id}`);
+      setDeleteAdminPasswordError("Erro ao apagar login(s). Tente novamente.");
+      handleFirestoreError(err, OperationType.DELETE, 'access_users');
+    } finally {
+      setDeletingUsersLoading(false);
     }
   };
 
@@ -3012,6 +3176,10 @@ export default function App() {
       setSalmoYoutubeError('Digite o nome, número ou refrão do salmo para localizar no YouTube.');
       return;
     }
+    if (!navigator.onLine) {
+      setSalmoYoutubeError('Você está no modo off-line. Conecte-se à internet para localizar salmos no YouTube.');
+      return;
+    }
 
     setSalmoYoutubeLoading(true);
     setSalmoYoutubeError(null);
@@ -3086,20 +3254,19 @@ export default function App() {
     return (
       <>
         {reloadNoticeBanner}
+        <OfflineIndicator />
         <PasswordView 
           accessUsers={accessUsers}
           massaPhotos={massaPhotos}
           onUnlock={async (role, identifier, id, isMaster = false) => {
             const newSession = Math.random().toString(36).substring(2) + Date.now().toString(36);
             
-            if (id) {
-              try {
-                await updateDoc(doc(db, 'access_users', id), {
-                  currentSessionId: newSession
-                });
-              } catch (err) {
+            if (id && navigator.onLine) {
+              updateDoc(doc(db, 'access_users', id), {
+                currentSessionId: newSession
+              }).catch((err) => {
                 console.error("Error securing session:", err);
-              }
+              });
             }
 
             setUserRole(role);
@@ -3112,6 +3279,11 @@ export default function App() {
             if (id) sessionStorage.setItem('userId', id);
             sessionStorage.setItem('sessionId', newSession);
             sessionStorage.setItem('isMasterAdmin', String(isMaster));
+            localStorage.setItem('offline_userRole', role);
+            localStorage.setItem('offline_userIdentifier', identifier);
+            if (id) localStorage.setItem('offline_userId', id);
+            localStorage.setItem('offline_sessionId', newSession);
+            localStorage.setItem('offline_isMasterAdmin', String(isMaster));
             setActiveTab('songs');
             setViewMode('categories');
             setSelectedCategory(null);
@@ -3239,8 +3411,10 @@ export default function App() {
             <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-300 to-orange-500 opacity-60" />
           </div>
 
-          {/* Right section: Logout */}
-          <div className="flex-1 flex items-center justify-end">
+          {/* Right section: PWA Install + Logout */}
+          <div className="flex-1 flex items-center justify-end gap-1.5">
+            <OfflineIndicator />
+            <PWAInstallButton compact />
             <button 
               onClick={handleLogout}
               className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
@@ -5388,14 +5562,24 @@ export default function App() {
                     </div>
 
                     <div className="aspect-video w-full bg-black">
-                      <iframe
-                        key={activeVideoLesson.id}
-                        src={getYoutubeEmbedUrl(activeVideoLesson.youtubeUrl, true) || `https://www.youtube.com/embed/${activeVideoLesson.youtubeId}?autoplay=1`}
-                        title={activeVideoLesson.title}
-                        className="w-full h-full border-0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowFullScreen
-                      />
+                      {!isOnline ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-zinc-200 gap-2">
+                          <Youtube className="w-10 h-10 text-amber-400" />
+                          <p className="text-sm font-extrabold">Você está no modo off-line</p>
+                          <p className="text-xs text-zinc-400 max-w-sm">
+                            A reprodução de vídeos do YouTube requer conexão com a internet, mas todas as suas cifras, playlists e liturgia continuam disponíveis off-line.
+                          </p>
+                        </div>
+                      ) : (
+                        <iframe
+                          key={activeVideoLesson.id}
+                          src={getYoutubeEmbedUrl(activeVideoLesson.youtubeUrl, true) || `https://www.youtube.com/embed/${activeVideoLesson.youtubeId}?autoplay=1`}
+                          title={activeVideoLesson.title}
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        />
+                      )}
                     </div>
 
                     {activeVideoLesson.description && (
@@ -5624,25 +5808,36 @@ export default function App() {
 
                 <form onSubmit={handleCreateAccessUser} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Nome do Usuário</label>
-                    <input 
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Login do Usuário (somente letras)</label>
+                    <input
                       type="text"
                       required
                       value={newUserName}
-                      onChange={e => setNewUserName(e.target.value)}
-                      placeholder="Ex: João da Silva"
+                      onChange={e => {
+                        setNewUserName(e.target.value.replace(/[^a-zA-ZÀ-ÿ]/g, ''));
+                        if (userFormError) setUserFormError(null);
+                      }}
+                      pattern="[A-Za-zÀ-ÿ]+"
+                      title="O login aceita apenas letras"
+                      placeholder="Somente letras (ex: Joao)"
                       className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso</label>
-                    <input 
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Senha de Acesso (somente números)</label>
+                    <input
                       type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       required
                       value={newUserPassword}
-                      onChange={e => setNewUserPassword(e.target.value)}
-                      placeholder="Senha numérica ou texto"
-                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                      onChange={e => {
+                        setNewUserPassword(e.target.value.replace(/\D/g, ''));
+                        if (userFormError) setUserFormError(null);
+                      }}
+                      title="A senha aceita apenas números"
+                      placeholder="Somente números (ex: 1234)"
+                      className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                     />
                   </div>
                   {isMasterAdmin && (
@@ -5674,10 +5869,20 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                  {userFormError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-4 py-3 rounded-2xl">
+                      {userFormError}
+                    </div>
+                  )}
+                  {userFormSuccess && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-4 py-3 rounded-2xl">
+                      {userFormSuccess}
+                    </div>
+                  )}
                   <button
                     type="submit"
                     disabled={saving}
-                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all"
+                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-200 active:scale-95 transition-all cursor-pointer"
                   >
                     {saving ? 'Criando...' : 'Cadastrar Usuário'}
                   </button>
@@ -5690,11 +5895,26 @@ export default function App() {
                      if (isMasterAdmin) return true;
                      return user.createdBy === (userId || 'master');
                    });
+                   const deletableUsers = displayedUsers.filter(user =>
+                     user.role !== 'master' && (isMasterAdmin || user.createdBy === (userId || 'master'))
+                   );
                    return (
                      <>
-                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest px-2">
-                         Usuários Cadastrados ({displayedUsers.length})
-                       </h3>
+                       <div className="flex flex-wrap items-center justify-between gap-2 px-2">
+                         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                           Usuários Cadastrados ({displayedUsers.length})
+                         </h3>
+                         {deletableUsers.length > 0 && (
+                           <button
+                             type="button"
+                             onClick={() => handleOpenDeleteUserModal({ mode: 'all' })}
+                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 cursor-pointer"
+                           >
+                             <Trash2 className="w-3.5 h-3.5" />
+                             Apagar Logins Criados ({deletableUsers.length})
+                           </button>
+                         )}
+                       </div>
                        {displayedUsers.map(user => {
                          const isOnline = user.isOnline === true && user.lastActive && (Date.now() - user.lastActive < 45000);
 
@@ -5771,13 +5991,14 @@ export default function App() {
                                  </span>
                                </button>
 
-                               {(isMasterAdmin || user.createdBy === (userId || 'master')) && (
+                               {user.role !== 'master' && (isMasterAdmin || user.createdBy === (userId || 'master')) && (
                                  <button
-                                   onClick={() => handleRemoveAccessUser(user.id)}
-                                   className="p-2 text-gray-300 hover:text-orange-600 transition-colors"
-                                   title="Remover acesso"
+                                   type="button"
+                                   onClick={() => handleOpenDeleteUserModal({ mode: 'single', user })}
+                                   className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                                   title="Apagar login com senha do administrador"
                                  >
-                                   <X className="w-5 h-5" />
+                                   <Trash2 className="w-4 h-4" />
                                  </button>
                                )}
                              </div>
@@ -6126,6 +6347,109 @@ export default function App() {
           </motion.div>
         )}
 
+
+        {/* Modal de Confirmação com Senha do Administrador para Apagar Logins */}
+        {userDeleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+            onClick={() => {
+              if (!deletingUsersLoading) {
+                setUserDeleteTarget(null);
+                setDeleteAdminPasswordInput('');
+                setDeleteAdminPasswordError(null);
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-orange-200"
+            >
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-red-100 text-red-600">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">Confirmar Exclusão</h3>
+                    <p className="text-xs text-gray-500">
+                      {userDeleteTarget.mode === 'single'
+                        ? `Apagar o login "${userDeleteTarget.user.name}"`
+                        : 'Apagar todos os logins criados'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={deletingUsersLoading}
+                  onClick={() => {
+                    setUserDeleteTarget(null);
+                    setDeleteAdminPasswordInput('');
+                    setDeleteAdminPasswordError(null);
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-xl cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmDeleteAccessUsers} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
+                    Senha de Login do Administrador (somente números)
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    required
+                    autoFocus
+                    value={deleteAdminPasswordInput}
+                    onChange={e => {
+                      setDeleteAdminPasswordInput(e.target.value.replace(/\D/g, ''));
+                      if (deleteAdminPasswordError) setDeleteAdminPasswordError(null);
+                    }}
+                    placeholder="Digite sua senha numérica de administrador"
+                    className="w-full bg-orange-50 border border-orange-200 px-4 py-3 rounded-2xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                  />
+                </div>
+
+                {deleteAdminPasswordError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-4 py-2.5 rounded-2xl">
+                    {deleteAdminPasswordError}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    disabled={deletingUsersLoading}
+                    onClick={() => {
+                      setUserDeleteTarget(null);
+                      setDeleteAdminPasswordInput('');
+                      setDeleteAdminPasswordError(null);
+                    }}
+                    className="flex-1 py-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={deletingUsersLoading}
+                    className="flex-1 py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-red-200 transition-all active:scale-95 cursor-pointer disabled:opacity-60"
+                  >
+                    {deletingUsersLoading ? 'Apagando...' : 'Confirmar Exclusão'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
 
       </AnimatePresence>
     </div>

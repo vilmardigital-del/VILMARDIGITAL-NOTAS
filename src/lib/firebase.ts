@@ -1,6 +1,12 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfigJSON from '../../firebase-applet-config.json';
 
@@ -13,13 +19,36 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigJSON?.appId,
 };
 
-const databaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (firebaseConfigJSON as any).firestoreDatabaseId;
+const databaseId =
+  import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
+  (firebaseConfigJSON as any).firestoreDatabaseId;
 
 // Initialize Firebase safely
-const app = !getApps().length && firebaseConfig.apiKey 
-  ? initializeApp(firebaseConfig) 
-  : (getApps().length ? getApp() : null);
+const app =
+  !getApps().length && firebaseConfig.apiKey
+    ? initializeApp(firebaseConfig)
+    : getApps().length
+    ? getApp()
+    : null;
 
-export const db = app ? getFirestore(app, databaseId) : null as any;
-export const auth = app ? getAuth(app) : null as any;
-export const storage = app ? getStorage(app) : null as any;
+function createFirestore(): Firestore {
+  if (!app) return null as any;
+  try {
+    return initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      },
+      databaseId
+    );
+  } catch (err) {
+    // Fallback if Firestore was already initialized or IndexedDB is unavailable
+    return getFirestore(app, databaseId);
+  }
+}
+
+export const db = createFirestore();
+export const auth = app ? getAuth(app) : (null as any);
+export const storage = app ? getStorage(app) : (null as any);

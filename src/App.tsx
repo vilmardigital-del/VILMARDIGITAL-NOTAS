@@ -929,142 +929,6 @@ const isChordLine = (line: string) => {
   return chordsCount / wordsCount >= 0.4;
 };
 
-const FormattedCifraView = ({
-  content,
-  transpose = 0,
-  lineHeight = 1.05,
-  letterSpacing = 0,
-  textAlign = 'left',
-  fontSize = 14,
-  allowMultiColumn = false,
-}: {
-  content: string;
-  transpose?: number;
-  lineHeight?: number;
-  letterSpacing?: number;
-  textAlign?: 'left' | 'center' | 'right';
-  fontSize?: number;
-  allowMultiColumn?: boolean;
-}) => {
-  const normalized = (content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = normalized.split('\n');
-
-  const chordLineHeight = Math.max(0.9, Math.min(lineHeight, 1.05));
-  const lyricLineHeight = Math.max(1.0, Math.min(lineHeight, 1.18));
-  const pairGapPx = Math.max(2, Math.round((lineHeight - 0.85) * 10));
-
-  const renderChordLineSpans = (lineText: string) => {
-    const parts = lineText.split(/(\s+)/);
-    return parts.map((part, j) => {
-      const trimmedPart = part.trim();
-      const isChord = trimmedPart.length > 0 && CHORD_REGEX_EXACT.test(trimmedPart);
-      if (isChord) {
-        let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
-        chordToDisplay = formatChordNotation(chordToDisplay);
-        return (
-          <span
-            key={j}
-            className="font-mono font-bold text-chord-orange !text-chord-orange"
-          >
-            {part.replace(trimmedPart, chordToDisplay)}
-          </span>
-        );
-      }
-      return <span key={j}>{part}</span>;
-    });
-  };
-
-  const blocks: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      blocks.push(<div key={`blank-${i}`} className="h-2.5" aria-hidden="true" />);
-      i++;
-      continue;
-    }
-
-    const isChords = isChordLine(line);
-    const nextLine = i + 1 < lines.length ? lines[i + 1] : null;
-    const hasPairedLyric =
-      isChords &&
-      nextLine !== null &&
-      nextLine.trim().length > 0 &&
-      !isChordLine(nextLine);
-
-    if (hasPairedLyric && nextLine !== null) {
-      blocks.push(
-        <div
-          key={`pair-${i}`}
-          className="break-inside-avoid w-max min-w-full"
-          style={{ marginBottom: `${pairGapPx}px` }}
-        >
-          <div
-            className="text-chord-orange !text-chord-orange font-bold whitespace-pre m-0 p-0"
-            style={{ lineHeight: chordLineHeight }}
-          >
-            {renderChordLineSpans(line)}
-          </div>
-          <div
-            className="text-gray-950 font-bold whitespace-pre m-0 p-0"
-            style={{ lineHeight: lyricLineHeight }}
-          >
-            {nextLine}
-          </div>
-        </div>
-      );
-      i += 2;
-      continue;
-    }
-
-    if (isChords) {
-      blocks.push(
-        <div
-          key={`chord-${i}`}
-          className="text-chord-orange !text-chord-orange font-bold whitespace-pre w-max min-w-full m-0 p-0"
-          style={{ lineHeight: chordLineHeight, marginBottom: `${pairGapPx}px` }}
-        >
-          {renderChordLineSpans(line)}
-        </div>
-      );
-      i++;
-      continue;
-    }
-
-    blocks.push(
-      <div
-        key={`lyric-${i}`}
-        className="text-gray-950 font-bold whitespace-pre w-max min-w-full m-0 p-0"
-        style={{ lineHeight: lyricLineHeight, marginBottom: `${pairGapPx}px` }}
-      >
-        {line}
-      </div>
-    );
-    i++;
-  }
-
-  return (
-    <div
-      style={{
-        fontSize: `${fontSize}px`,
-        letterSpacing: `${letterSpacing}px`,
-        textAlign,
-        tabSize: 4,
-        MozTabSize: 4,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      }}
-      className={`font-mono font-bold text-gray-950 ${
-        allowMultiColumn ? 'columns-1 md:columns-2 gap-8' : 'overflow-x-auto w-full'
-      }`}
-    >
-      {allowMultiColumn ? blocks : <div className="w-max min-w-full">{blocks}</div>}
-    </div>
-  );
-};
-
 const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, userRole, isMasterAdmin }: { 
   song: Song, 
   onClose: () => void,
@@ -1110,7 +974,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   }, [fontSize, song?.id]);
 
   // Carregar o tamanho, espessamento vertical e horizontal salvos ao trocar de música na navegação
-  const [lineHeight, setLineHeight] = useState<number>(() => (song as any)?.lineHeight || 1.05);
+  const [lineHeight, setLineHeight] = useState<number>(() => (song as any)?.lineHeight || 1.5);
   const [letterSpacing, setLetterSpacing] = useState<number>(() => (song as any)?.letterSpacing || 0);
 
   useEffect(() => {
@@ -1121,7 +985,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
           const parsed = parseInt(savedSongFont, 10);
           if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
             setFontSize(parsed);
-            setLineHeight((song as any)?.lineHeight || 1.05);
+            setLineHeight((song as any)?.lineHeight || 1.5);
             setLetterSpacing((song as any)?.letterSpacing || 0);
             return;
           }
@@ -1137,7 +1001,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     } catch (e) {
       console.error(e);
     }
-    setLineHeight((song as any)?.lineHeight || 1.05);
+    setLineHeight((song as any)?.lineHeight || 1.5);
     setLetterSpacing((song as any)?.letterSpacing || 0);
   }, [song?.id, song?.lineHeight, song?.letterSpacing]);
 
@@ -1256,11 +1120,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
   const isHtml = /<[a-z][\s\S]*>/i.test(displayContent || '');
   const processedContent = displayContent || "";
-  const maxLineLength = useMemo(() => {
-    const plain = processedContent.replace(/<[^>]+>/g, '');
-    return plain.split('\n').reduce((max, l) => Math.max(max, l.length), 0);
-  }, [processedContent]);
-  const useTwoColumns = Boolean(displayContent && displayContent.length > 800 && maxLineLength <= 46);
 
   return (
     <motion.div 
@@ -1362,33 +1221,68 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         id="song-content-area"
         className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
       >
-        <div className={`${useTwoColumns ? 'max-w-4xl' : 'max-w-5xl'} mx-auto p-4 sm:p-6 md:p-10 pb-32 transition-all duration-500`}>
+        <div className={`max-w-4xl mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
+          displayContent && displayContent.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1'
+        }`}>
           {isHtml ? (
-            <div className={useTwoColumns ? 'columns-1 md:columns-2 gap-8' : 'overflow-x-auto w-full'}>
-              <div 
-                style={{ 
-                  fontSize: `${fontSize}px`,
-                  lineHeight: Math.min(lineHeight, 1.15),
-                  letterSpacing: `${letterSpacing}px`,
-                  textAlign: song.textAlign || 'left',
-                  tabSize: 4,
-                  MozTabSize: 4,
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                }}
-                className="font-mono transition-all rich-text-song whitespace-pre w-max min-w-full text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
-                dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
-              />
-            </div>
-          ) : (
-            <FormattedCifraView
-              content={processedContent}
-              transpose={transpose}
-              lineHeight={lineHeight}
-              letterSpacing={letterSpacing}
-              textAlign={song.textAlign || 'left'}
-              fontSize={fontSize}
-              allowMultiColumn={useTwoColumns}
+            <div 
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: lineHeight,
+                letterSpacing: `${letterSpacing}px`,
+                textAlign: song.textAlign || 'left',
+                tabSize: 4,
+                MozTabSize: 4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+              }}
+              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
+              dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
             />
+          ) : (
+            <div 
+              style={{ 
+                fontSize: `${fontSize}px`,
+                lineHeight: lineHeight,
+                letterSpacing: `${letterSpacing}px`,
+                textAlign: song.textAlign || 'left',
+                tabSize: 4,
+                MozTabSize: 4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+              }}
+              className="whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold"
+            >
+              {processedContent.split('\n').map((line, i) => {
+                const isChords = isChordLine(line);
+                const parts = line.split(/(\s+)/);
+
+                return (
+                  <div 
+                    key={i} 
+                    className={`min-h-[1.2em] relative transition-all duration-300 ${
+                      isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold'
+                    }`}
+                  >
+                    {parts.map((part, j) => {
+                      const trimmedPart = part.trim();
+                      const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
+                      if (isChord && trimmedPart.length > 0) {
+                        let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
+                        chordToDisplay = formatChordNotation(chordToDisplay);
+                        return (
+                          <span 
+                            key={j} 
+                            className="font-mono font-bold text-chord-orange !text-chord-orange"
+                          >
+                            {part.replace(trimmedPart, chordToDisplay)}
+                          </span>
+                        );
+                      }
+                      return <span key={j}>{part}</span>;
+                    })}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
@@ -2297,7 +2191,6 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
-  const [editorContentMode, setEditorContentMode] = useState<'edit' | 'preview'>('edit');
 
   // Prevenção de saída/recarregamento acidental durante edição de cifras
   useEffect(() => {
@@ -2550,12 +2443,10 @@ export default function App() {
       if (window.confirm('Você tem alterações não salvas. Deseja realmente descartar este rascunho?')) {
         localStorage.removeItem('songDraft');
         setEditingSong(null);
-        setEditorContentMode('edit');
         setViewMode('songs');
       }
     } else {
       setEditingSong(null);
-      setEditorContentMode('edit');
       setViewMode('songs');
     }
   };
@@ -2593,7 +2484,7 @@ export default function App() {
         content: songContent,
         category: (editingSong.category || selectedCategory || 'Comum').trim(),
         youtubeUrl: editingSong.youtubeUrl || '',
-        lineHeight: editingSong.lineHeight || 1.05,
+        lineHeight: editingSong.lineHeight || 1.5,
         letterSpacing: editingSong.letterSpacing || 0,
         textAlign: editingSong.textAlign || 'left',
         ownerId: editingSong.id ? (editingSong.ownerId || 'Vilmardigital') : userIdentifier,
@@ -2616,7 +2507,6 @@ export default function App() {
       }
       localStorage.removeItem('songDraft');
       setEditingSong(null);
-      setEditorContentMode('edit');
       setViewMode('songs');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'songs');
@@ -4331,37 +4221,12 @@ export default function App() {
                 </div>
 
                 <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider">Conteúdo (Cifras e Letras)</label>
-                    <div className="inline-flex bg-realorange-50 border border-realorange-200 rounded-xl p-0.5 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => setEditorContentMode('edit')}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                          editorContentMode === 'edit'
-                            ? 'bg-realorange-600 text-white shadow-xs'
-                            : 'text-realorange-700 hover:bg-realorange-100/70'
-                        }`}
-                      >
-                        Editar Texto
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditorContentMode('preview')}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
-                          editorContentMode === 'preview'
-                            ? 'bg-realorange-600 text-white shadow-xs'
-                            : 'text-realorange-700 hover:bg-realorange-100/70'
-                        }`}
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        Visualizar Cifra
-                      </button>
-                    </div>
                   </div>
 
                   {/* Opções de Formatação */}
-                  <div className="flex flex-wrap items-center gap-2 p-2 bg-realorange-50/50 rounded-xl border border-realorange-100 shadow-xs mb-3">
+                  <div className="flex flex-wrap gap-2 p-2 bg-realorange-50/50 rounded-xl border border-realorange-100 shadow-xs mb-3">
                     {/* Alinhamento */}
                     <div className="flex gap-1 border-r border-realorange-200 pr-2">
                       <button 
@@ -4395,32 +4260,20 @@ export default function App() {
                       <div className="flex flex-col items-center">
                         <div className="flex items-center gap-1 mb-0.5">
                           <ArrowUpDown className="w-2.5 h-2.5 text-realorange-400" />
-                          <span className="text-[8px] font-black text-realorange-600 uppercase">
-                            Vert: {(editingSong?.lineHeight ?? 1.05).toFixed(2)}
-                          </span>
+                          <span className="text-[8px] font-black text-realorange-600">{(editingSong?.lineHeight || 1.5).toFixed(1)}</span>
                         </div>
                         <div className="flex gap-1">
                           <button 
                             type="button"
-                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.85, Math.round(((editingSong?.lineHeight ?? 1.05) - 0.05) * 100) / 100)})} 
+                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.max(0.8, (editingSong?.lineHeight || 1.5) - 0.1)})} 
                             className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
-                            title="Diminuir espaçamento vertical"
                           >
                             -
                           </button>
                           <button 
                             type="button"
-                            onClick={() => setEditingSong({...editingSong, lineHeight: 1.0})}
-                            className="px-1.5 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[9px] font-black uppercase shadow-2xs cursor-pointer"
-                            title="Espaçamento vertical mínimo entre cifra e letra"
-                          >
-                            Mín
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(2.5, Math.round(((editingSong?.lineHeight ?? 1.05) + 0.05) * 100) / 100)})} 
+                            onClick={() => setEditingSong({...editingSong, lineHeight: Math.min(4, (editingSong?.lineHeight || 1.5) + 0.1)})} 
                             className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
-                            title="Aumentar espaçamento vertical"
                           >
                             +
                           </button>
@@ -4433,16 +4286,13 @@ export default function App() {
                       <div className="flex flex-col items-center">
                         <div className="flex items-center gap-1 mb-0.5">
                           <ArrowLeftRight className="w-2.5 h-2.5 text-realorange-400" />
-                          <span className="text-[8px] font-black text-realorange-600 uppercase">
-                            Horiz: {editingSong?.letterSpacing || 0}px
-                          </span>
+                          <span className="text-[8px] font-black text-realorange-600">{editingSong?.letterSpacing || 0}px</span>
                         </div>
                         <div className="flex gap-1">
                           <button 
                             type="button"
                             onClick={() => setEditingSong({...editingSong, letterSpacing: Math.max(-2, (editingSong?.letterSpacing || 0) - 1)})} 
                             className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
-                            title="Diminuir espaçamento horizontal"
                           >
                             -
                           </button>
@@ -4450,7 +4300,6 @@ export default function App() {
                             type="button"
                             onClick={() => setEditingSong({...editingSong, letterSpacing: Math.min(10, (editingSong?.letterSpacing || 0) + 1)})} 
                             className="w-6 h-6 bg-white border border-realorange-200 rounded-md hover:bg-realorange-100 hover:text-realorange-600 transition-all flex items-center justify-center text-[10px] font-black shadow-2xs cursor-pointer"
-                            title="Aumentar espaçamento horizontal"
                           >
                             +
                           </button>
@@ -4460,43 +4309,24 @@ export default function App() {
                   </div>
 
                   <div>
-                    {editorContentMode === 'edit' ? (
-                      <textarea 
-                        required
-                        wrap="off"
-                        rows={16}
-                        value={editingSong?.content || ''}
-                        onChange={e => setEditingSong({...editingSong, content: e.target.value})}
-                        placeholder="Cole aqui a cifra (1 linha para cifra, 1 linha para letra)..."
-                        className="w-full bg-white border-2 border-realorange-200 rounded-xl px-3.5 py-3 focus:ring-2 focus:ring-realorange-500/20 focus:border-realorange-500 outline-none font-mono text-[13px] sm:text-sm text-gray-950 font-bold shadow-inner resize-y whitespace-pre overflow-x-auto"
-                        style={{ 
-                          lineHeight: editingSong?.lineHeight ?? 1.05, 
-                          letterSpacing: `${editingSong?.letterSpacing || 0}px`,
-                          textAlign: editingSong?.textAlign || 'left',
-                          tabSize: 4,
-                          MozTabSize: 4,
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full bg-white border-2 border-realorange-200 rounded-xl px-3.5 py-3 min-h-[340px] max-h-[540px] overflow-auto shadow-inner">
-                        {editingSong?.content?.trim() ? (
-                          <FormattedCifraView
-                            content={editingSong.content}
-                            lineHeight={editingSong?.lineHeight ?? 1.05}
-                            letterSpacing={editingSong?.letterSpacing || 0}
-                            textAlign={editingSong?.textAlign || 'left'}
-                            fontSize={14}
-                          />
-                        ) : (
-                          <p className="text-xs text-gray-400 font-medium text-center py-12">
-                            Cole ou digite uma cifra no modo "Editar Texto" para visualizar aqui.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <p className="text-[11px] text-gray-500 font-medium mt-1.5">
-                      💡 <strong>Dica:</strong> Cada linha de cifra fica diretamente sobre sua linha de letra sem quebrar frases longas. Para forçar quebra de página em músicas longas, use uma linha com <code>---</code> ou <code>===</code>.
+                    <textarea 
+                      required
+                      rows={15}
+                      value={editingSong?.content || ''}
+                      onChange={e => setEditingSong({...editingSong, content: e.target.value})}
+                      placeholder="Cole aqui a cifra..."
+                      className="w-full bg-realorange-50/20 border border-realorange-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-realorange-500 focus:border-realorange-500 outline-none font-mono text-sm sm:text-base text-gray-900 font-bold shadow-inner resize-y whitespace-pre-wrap"
+                      style={{ 
+                        lineHeight: editingSong?.lineHeight || 1.5, 
+                        letterSpacing: `${editingSong?.letterSpacing || 0}px`,
+                        textAlign: editingSong?.textAlign || 'left',
+                        tabSize: 4,
+                        MozTabSize: 4,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                      }}
+                    />
+                    <p className="text-[11px] text-gray-500 font-medium mt-1">
+                      💡 <strong>Dica de Paginação:</strong> Músicas muito extensas (com mais de 32 linhas) são divididas automaticamente em páginas sem recortar estrofes. Para forçar uma quebra de página manual e precisa, insira uma linha contendo apenas <code>---</code> ou <code>===</code>.
                     </p>
                   </div>
                 </div>

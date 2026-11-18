@@ -65,7 +65,8 @@
 
 @layer utilities {
   .rich-text-song div {
-    min-height: 1.2em;
+    min-height: 1em;
+    line-height: 1.08;
   }
   .rich-text-song, .rich-text-song * {
     font-size: inherit !important;

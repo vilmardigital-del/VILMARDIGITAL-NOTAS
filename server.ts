@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
@@ -8,6 +9,7 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   const PORT = 3000;
 
   // Enable JSON request bodies
@@ -252,10 +254,29 @@ async function startServer() {
 
   // Vite middleware setup
   if (process.env.NODE_ENV !== "production") {
+    const isHmrDisabled = process.env.DISABLE_HMR === "true";
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: isHmrDisabled ? false : { server: httpServer },
+      },
       appType: "spa",
     });
+    if (isHmrDisabled) {
+      app.get("/@vite/client", async (req, res, next) => {
+        try {
+          const result = await vite.transformRequest("/@vite/client");
+          if (!result) return next();
+          const code = result.code.replace(
+            "transport.connect(createHMRHandler(handleMessage));",
+            "// HMR disabled: skipped WebSocket connection"
+          );
+          res.type("application/javascript").send(code);
+        } catch (err) {
+          next(err);
+        }
+      });
+    }
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
@@ -265,7 +286,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
 }

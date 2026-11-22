@@ -169,37 +169,7 @@ async function startServer() {
 
   // API Route - Buscar vídeos no YouTube (usado na aba Salmos)
   app.get("/api/youtube-search", async (req, res) => {
-    try {
-      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-      if (!q) {
-        return res.status(400).json({
-          success: false,
-          error: "Digite algo para localizar no YouTube."
-        });
-      }
-
-      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q.slice(0, 200))}`;
-      const response = await fetch(searchUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`YouTube respondeu com status ${response.status}`);
-      }
-
-      const html = await response.text();
-      const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
-      if (!match) {
-        return res.json({ success: true, videos: [] });
-      }
-
-      const data = JSON.parse(match[1]);
-      const contents =
-        data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
-
+    const extractVideosFromContents = (contents: any[]) => {
       const videos: Array<{
         id: string;
         title: string;
@@ -209,7 +179,6 @@ async function startServer() {
         thumbnail: string;
         url: string;
       }> = [];
-
       const seenIds = new Set<string>();
 
       for (const section of contents) {
@@ -242,6 +211,122 @@ async function startServer() {
         if (videos.length >= 12) break;
       }
 
+      return videos;
+    };
+
+    const fetchWithSafeRedirects = async (startUrl: string, baseHeaders: Record<string, string>, maxRedirects = 4) => {
+      let currentUrl = startUrl;
+      let cookieJar = baseHeaders["Cookie"] || "";
+
+      for (let hop = 0; hop <= maxRedirects; hop++) {
+        const response = await fetch(currentUrl, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            ...baseHeaders,
+            ...(cookieJar ? { Cookie: cookieJar } : {})
+          }
+        });
+
+        const setCookieHeader = response.headers.get("set-cookie");
+        if (setCookieHeader) {
+          const newCookies = setCookieHeader
+            .split(/,(?=\s*[^;]+=)/)
+            .map((c) => c.split(";")[0].trim())
+            .filter(Boolean);
+          if (newCookies.length > 0) {
+            cookieJar = cookieJar ? `${cookieJar}; ${newCookies.join("; ")}` : newCookies.join("; ");
+          }
+        }
+
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) {
+            throw new Error(`YouTube redirecionou sem destino (${response.status})`);
+          }
+          currentUrl = new URL(location, currentUrl).toString();
+          continue;
+        }
+
+        return response;
+      }
+
+      throw new Error("Limite de redirecionamentos atingido ao acessar o YouTube.");
+    };
+
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q) {
+        return res.status(400).json({
+          success: false,
+          error: "Digite algo para localizar no YouTube."
+        });
+      }
+
+      const trimmedQuery = q.slice(0, 200);
+      const userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+      // 1. Tentar primeiro via YouTube Innertube API (evita loops de redirecionamento/consentimento HTML)
+      try {
+        const innertubeRes = await fetch("https://www.youtube.com/youtubei/v1/search?prettyPrint=false", {
+          method: "POST",
+          redirect: "manual",
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": userAgent,
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+          },
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "WEB",
+                clientVersion: "2.20241120.01.00",
+                hl: "pt",
+                gl: "BR"
+              }
+            },
+            query: trimmedQuery
+          })
+        });
+
+        if (innertubeRes.ok) {
+          const data: any = await innertubeRes.json();
+          const contents =
+            data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+          const videos = extractVideosFromContents(contents);
+          if (videos.length > 0) {
+            return res.json({ success: true, videos });
+          }
+        }
+      } catch (innertubeError) {
+        console.warn("Innertube fallback para HTML:", innertubeError);
+      }
+
+      // 2. Fallback via página de resultados com controle manual de redirecionamentos
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(trimmedQuery)}`;
+      const response = await fetchWithSafeRedirects(searchUrl, {
+        "User-Agent": userAgent,
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cookie": "CONSENT=YES+cb.20210328-17-p0.pt-BR+FX+999; SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg"
+      });
+
+      if (!response.ok) {
+        throw new Error(`YouTube respondeu com status ${response.status}`);
+      }
+
+      const html = await response.text();
+      const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
+      if (!match) {
+        return res.json({ success: true, videos: [] });
+      }
+
+      const data = JSON.parse(match[1]);
+      const contents =
+        data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+      const videos = extractVideosFromContents(contents);
+
       res.json({ success: true, videos });
     } catch (error: any) {
       console.error("Erro na busca do YouTube:", error);
@@ -267,14 +352,28 @@ async function startServer() {
         try {
           const result = await vite.transformRequest("/@vite/client");
           if (!result) return next();
-          const code = result.code.replace(
-            "transport.connect(createHMRHandler(handleMessage));",
-            "// HMR disabled: skipped WebSocket connection"
-          );
+          const code = result.code
+            .replace(
+              "transport.connect(createHMRHandler(handleMessage));",
+              "// HMR disabled: skipped WebSocket connection"
+            )
+            .replace(
+              'throw new Error("send was called before connect");',
+              "return;"
+            )
+            .replace(
+              'throw new Error("invoke was called before connect");',
+              "return;"
+            );
           res.type("application/javascript").send(code);
         } catch (err) {
           next(err);
         }
+      });
+      app.get("/@vite-plugin-pwa/pwa-entry-point-loaded", (_req, res) => {
+        res
+          .type("application/javascript")
+          .send("export default function registerDevSW() {}\n");
       });
     }
     app.use(vite.middlewares);

@@ -946,7 +946,7 @@ const isChordLine = (line: string) => {
   return chordsCount / wordsCount >= 0.4;
 };
 
-const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, onTimingsSaved, userRole, isMasterAdmin }: { 
+const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, onTimingsSaved, flushPendingSyncRef, userRole, isMasterAdmin }: { 
   song: Song, 
   onClose: () => void,
   onPrev?: () => void,
@@ -954,6 +954,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   initialTranspose?: number,
   onTransposeChange?: (val: number) => void,
   onTimingsSaved?: (songId: string, timings: SongTiming[]) => void,
+  flushPendingSyncRef?: React.MutableRefObject<(() => Promise<void>) | null>,
   userRole?: 'admin' | 'viewer' | null,
   isMasterAdmin?: boolean
 }) => {
@@ -1612,6 +1613,41 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       setSavingTimings(false);
     }
   };
+
+  // Permite salvar marcações de karaokê em andamento ao sair ou voltar para a página inicial
+  useEffect(() => {
+    if (!flushPendingSyncRef) return;
+    flushPendingSyncRef.current = async () => {
+      if (!isSyncMode || draftTimings.length === 0) return;
+      const sorted = [...draftTimings]
+        .sort((a, b) => a.id - b.id)
+        .map((item, idx, arr) => {
+          const nextItem = arr[idx + 1];
+          const safeStart = Number(Math.max(0, item.startTime).toFixed(2));
+          const safeEnd = nextItem
+            ? Number(Math.max(safeStart + 0.25, nextItem.startTime).toFixed(2))
+            : Number(Math.max(safeStart + 4.0, item.endTime).toFixed(2));
+          return { id: item.id, startTime: safeStart, endTime: safeEnd };
+        });
+      try {
+        await awaitOfflineSafe(
+          updateDoc(doc(db, 'songs', song.id), {
+            timings: sorted,
+            updatedAt: serverTimestamp()
+          })
+        );
+        setSavedTimings(sorted);
+        onTimingsSaved?.(song.id, sorted);
+      } catch (err) {
+        console.error('Erro ao salvar marcações pendentes ao sair:', err);
+      }
+    };
+    return () => {
+      if (flushPendingSyncRef) {
+        flushPendingSyncRef.current = null;
+      }
+    };
+  }, [flushPendingSyncRef, isSyncMode, draftTimings, song.id, onTimingsSaved]);
 
   // Atalho de teclado (Espaço) para marcar frases rapidamente no desktop durante a sincronização
   useEffect(() => {
@@ -2724,7 +2760,11 @@ export default function App() {
     };
   }, []);
 
-  const handleLogout = async () => {
+  const isIntentionalRestartRef = useRef(false);
+  const [isRestartingApp, setIsRestartingApp] = useState(false);
+  const flushPendingKaraokeSyncRef = useRef<(() => Promise<void>) | null>(null);
+
+  const clearSessionState = useCallback(() => {
     if (userId && navigator.onLine) {
       updateDoc(doc(db, 'access_users', userId), {
         isOnline: false,
@@ -2748,7 +2788,7 @@ export default function App() {
     localStorage.removeItem('offline_userId');
     localStorage.removeItem('offline_sessionId');
     localStorage.removeItem('offline_isMasterAdmin');
-  };
+  }, [userId]);
 
   // Active status/presence real-time heartbeat
   useEffect(() => {
@@ -2787,14 +2827,14 @@ export default function App() {
         if (snapshot.exists()) {
           const data = snapshot.data() as AccessUser;
           if (data.currentSessionId && data.currentSessionId !== sessionId) {
-            handleLogout();
+            clearSessionState();
             alert("Aviso: Sua conta foi conectada em outro dispositivo. Você foi desconectado para garantir a segurança.");
           }
         }
       });
       return () => unsub();
     }
-  }, [userId, sessionId]);
+  }, [userId, sessionId, clearSessionState]);
 
   // Visitor list and detailed geolocation tracking
   const [visits, setVisits] = useState<any[]>([]);
@@ -3257,18 +3297,38 @@ export default function App() {
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
 
-  // Prevenção de saída/recarregamento acidental durante edição de cifras
+  // Prevenção de saída/recarregamento acidental durante edição de cifras (respeita reinício intencional)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isIntentionalRestartRef.current) return;
       if (viewMode === 'edit-song' && editingSong && (editingSong.title || editingSong.content)) {
+        localStorage.setItem('songDraft', JSON.stringify(editingSong));
         e.preventDefault();
         e.returnValue = '';
         return '';
       }
     };
 
+    const persistDraftOnLeave = () => {
+      if (viewMode === 'edit-song' && editingSong && (editingSong.title || editingSong.content || editingSong.artist)) {
+        localStorage.setItem('songDraft', JSON.stringify(editingSong));
+      }
+    };
+
+    const handleVisibilitySave = () => {
+      if (document.visibilityState === 'hidden') {
+        persistDraftOnLeave();
+      }
+    };
+
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', persistDraftOnLeave);
+    document.addEventListener('visibilitychange', handleVisibilitySave);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', persistDraftOnLeave);
+      document.removeEventListener('visibilitychange', handleVisibilitySave);
+    };
   }, [viewMode, editingSong]);
   
   // Playlist selection/editing
@@ -4282,6 +4342,119 @@ export default function App() {
     }
   };
 
+  // Salva alterações pendentes (cifra, playlist, marcações de karaokê e cache local) antes de reiniciar na página inicial
+  const savePendingWorkBeforeExit = async () => {
+    try {
+      if (flushPendingKaraokeSyncRef.current) {
+        await flushPendingKaraokeSyncRef.current();
+      }
+
+      if (viewMode === 'edit-song' && editingSong) {
+        const hasSongContent = Boolean(editingSong.content && editingSong.content.trim() !== '');
+        const canSaveSong =
+          !editingSong.id ||
+          isMasterAdmin ||
+          editingSong.ownerId === userIdentifier;
+
+        if (hasSongContent && canSaveSong) {
+          let songContent = editingSong.content || '';
+          if (saveOnlyIntroAndChords) {
+            songContent = extractOnlyIntroAndChords(songContent);
+          }
+          const data = {
+            title: editingSong.title || '',
+            artist: editingSong.artist || '',
+            content: songContent,
+            category: (editingSong.category || selectedCategory || 'Comum').trim(),
+            youtubeUrl: editingSong.youtubeUrl || '',
+            lineHeight: editingSong.lineHeight || 1.5,
+            letterSpacing: editingSong.letterSpacing || 0,
+            textAlign: editingSong.textAlign || 'left',
+            ownerId: editingSong.id ? (editingSong.ownerId || 'Vilmardigital') : userIdentifier,
+            updatedAt: serverTimestamp()
+          };
+
+          if (editingSong.id) {
+            await awaitOfflineSafe(updateDoc(doc(db, 'songs', editingSong.id), data));
+          } else {
+            await awaitOfflineSafe(addDoc(collection(db, 'songs'), {
+              ...data,
+              createdAt: serverTimestamp()
+            }));
+          }
+          localStorage.removeItem('songDraft');
+        } else if (editingSong.title?.trim() || editingSong.content?.trim() || editingSong.artist?.trim()) {
+          localStorage.setItem('songDraft', JSON.stringify(editingSong));
+        }
+      }
+
+      if (viewMode === 'edit-playlist' && editingPlaylist) {
+        const hasPlaylistData = Boolean(
+          editingPlaylist.title?.trim() || (editingPlaylist.songIds && editingPlaylist.songIds.length > 0)
+        );
+        const canSavePlaylist =
+          !editingPlaylist.id ||
+          isMasterAdmin ||
+          editingPlaylist.ownerId === userIdentifier;
+
+        if (hasPlaylistData && canSavePlaylist) {
+          const data = {
+            title: editingPlaylist.title || 'Nova Playlist',
+            date: editingPlaylist.date || '',
+            songIds: editingPlaylist.songIds || [],
+            transpositions: editingPlaylist.transpositions || {},
+            ownerId: editingPlaylist.id ? editingPlaylist.ownerId : userIdentifier,
+            updatedAt: serverTimestamp()
+          };
+
+          if (editingPlaylist.id) {
+            await awaitOfflineSafe(updateDoc(doc(db, 'playlists', editingPlaylist.id), data));
+          } else {
+            await awaitOfflineSafe(addDoc(collection(db, 'playlists'), {
+              ...data,
+              createdAt: serverTimestamp()
+            }));
+          }
+        }
+      }
+
+      writeOfflineCache('offline_cache_songs', songs);
+      writeOfflineCache('offline_cache_playlists', playlists);
+      writeOfflineCache('offline_cache_events', events);
+      writeOfflineCache('offline_cache_video_lessons', videoLessons);
+    } catch (err) {
+      console.error('Erro ao salvar alterações antes de reiniciar:', err);
+    }
+  };
+
+  const restartToInitialPage = async (logoutUser: boolean) => {
+    if (isRestartingApp) return;
+    setIsRestartingApp(true);
+
+    await savePendingWorkBeforeExit();
+
+    if (logoutUser) {
+      clearSessionState();
+    }
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      await Promise.race([
+        navigator.serviceWorker.getRegistration().then((reg) => reg?.update()).catch(() => {}),
+        new Promise((resolve) => window.setTimeout(resolve, 400))
+      ]);
+    }
+
+    isIntentionalRestartRef.current = true;
+    setEditingSong(null);
+    setEditingPlaylist(null);
+    setViewingSong(null);
+    window.location.replace(`${window.location.origin}/`);
+  };
+
+  const handleLogout = async () => {
+    await restartToInitialPage(true);
+  };
+
   const reloadNoticeBanner = reloadNotice ? (
     <aside 
       role="status"
@@ -4441,13 +4614,11 @@ export default function App() {
               </button>
             )}
             <button 
-              onClick={() => {
-                setActiveTab('songs');
-                setViewMode('categories');
-                setCurrentCategoryTab(null);
-              }}
-              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
-              title="Ir para o Menu Principal"
+              type="button"
+              disabled={isRestartingApp}
+              onClick={() => restartToInitialPage(false)}
+              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:opacity-60"
+              title="Salvar alterações e reiniciar na Página Inicial"
             >
               <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
             </button>
@@ -4481,9 +4652,11 @@ export default function App() {
             <OfflineIndicator />
             <PWAInstallButton compact />
             <button 
+              type="button"
+              disabled={isRestartingApp}
               onClick={handleLogout}
-              className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
-              title="Sair"
+              className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all cursor-pointer disabled:opacity-50"
+              title="Sair, salvar e reiniciar na página inicial"
             >
               <LogOut className="w-4.5 h-4.5" />
             </button>
@@ -7292,6 +7465,7 @@ export default function App() {
             onClose={() => setViewingSong(null)} 
             userRole={userRole}
             isMasterAdmin={isMasterAdmin}
+            flushPendingSyncRef={flushPendingKaraokeSyncRef}
             initialTranspose={viewMode === 'view-playlist' && selectedPlaylist ? (selectedPlaylist.transpositions?.[viewingSong.id] || 0) : 0}
             onTransposeChange={(val) => handleTransposeChange(viewingSong.id, val)}
             onTimingsSaved={(songId, timings) => {

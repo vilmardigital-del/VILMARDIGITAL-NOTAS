@@ -4,10 +4,36 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
-// Registrar Service Worker para funcionamento off-line e PWA
+// Registrar Service Worker para funcionamento off-line e PWA com atualização automática
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let refreshing = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
   registerSW({
     immediate: true,
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+
+      const checkUpdate = () => {
+        registration.update().catch(() => {
+          // ignore network errors when offline
+        });
+      };
+
+      checkUpdate();
+      window.setInterval(checkUpdate, 30 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          checkUpdate();
+        }
+      });
+    },
     onOfflineReady() {
       console.info('catoliCifras pronto para funcionar off-line.');
     },

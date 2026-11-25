@@ -10,17 +10,20 @@ import {
 import { getStorage } from 'firebase/storage';
 import firebaseConfigJSON from '../../firebase-applet-config.json';
 
+const readEnv = (val: unknown): string =>
+  typeof val === 'string' ? val.trim() : '';
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigJSON?.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJSON?.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJSON?.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJSON?.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJSON?.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigJSON?.appId,
+  apiKey: readEnv(import.meta.env.VITE_FIREBASE_API_KEY) || firebaseConfigJSON?.apiKey,
+  authDomain: readEnv(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfigJSON?.authDomain,
+  projectId: readEnv(import.meta.env.VITE_FIREBASE_PROJECT_ID) || firebaseConfigJSON?.projectId,
+  storageBucket: readEnv(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET) || firebaseConfigJSON?.storageBucket,
+  messagingSenderId: readEnv(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID) || firebaseConfigJSON?.messagingSenderId,
+  appId: readEnv(import.meta.env.VITE_FIREBASE_APP_ID) || firebaseConfigJSON?.appId,
 };
 
 const databaseId =
-  import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
+  readEnv(import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID) ||
   (firebaseConfigJSON as any).firestoreDatabaseId;
 
 // Initialize Firebase safely

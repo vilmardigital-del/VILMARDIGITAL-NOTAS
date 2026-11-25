@@ -88,9 +88,12 @@ import {
   Move,
   Scissors,
   PlayCircle,
-  Video
+  Video,
+  Save,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { db, auth, storage } from './lib/firebase';
 import { CATEGORIES, Category, Song, Playlist, AccessUser, MuralEvent, MassaPhoto, VideoLesson, VideoLessonCategory, VIDEO_LESSON_CATEGORIES, VideoLessonLevel, VIDEO_LESSON_LEVELS } from './types';
 import { getSantoDoDia, getReflexaoEspiritual } from './santos_db';
@@ -98,6 +101,20 @@ import heic2any from 'heic2any';
 import ourLadyImg from './assets/images/our_lady_icon_1784928887101.jpg';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 import { useOnlineStatus } from './hooks/usePWAInstall';
+import {
+  SongTiming,
+  CountdownStep,
+  COUNTDOWN_WORDS_PT,
+  formatSyncTime,
+  formatShortTime,
+  prepareDisplayLines,
+  isSyncableLyricLine,
+  findActiveTiming,
+  loadYouTubeIframeApi,
+  unlockCountdownAudio,
+  playCountdownCue,
+  stopCountdownAudio
+} from './lib/karaokeUtils';
 
 const readOfflineCache = <T,>(key: string, fallback: T): T => {
   try {
@@ -929,13 +946,14 @@ const isChordLine = (line: string) => {
   return chordsCount / wordsCount >= 0.4;
 };
 
-const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, userRole, isMasterAdmin }: { 
+const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, onTimingsSaved, userRole, isMasterAdmin }: { 
   song: Song, 
   onClose: () => void,
   onPrev?: () => void,
   onNext?: () => void,
   initialTranspose?: number,
   onTransposeChange?: (val: number) => void,
+  onTimingsSaved?: (songId: string, timings: SongTiming[]) => void,
   userRole?: 'admin' | 'viewer' | null,
   isMasterAdmin?: boolean
 }) => {
@@ -1121,6 +1139,664 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const isHtml = /<[a-z][\s\S]*>/i.test(displayContent || '');
   const processedContent = displayContent || "";
 
+  // Sistema Karaokê & Sincronização com YouTube
+  const canSyncKaraoke = userRole === 'admin' || Boolean(isMasterAdmin);
+  const dragControls = useDragControls();
+  const youtubeVideoId = useMemo(() => getYoutubeId(song?.youtubeUrl || ''), [song?.youtubeUrl]);
+
+  const displayLines = useMemo(
+    () => prepareDisplayLines(processedContent, isHtml),
+    [processedContent, isHtml]
+  );
+
+  const syncableLineIndices = useMemo(() => {
+    const indices: number[] = [];
+    displayLines.forEach((line, idx) => {
+      if (isSyncableLyricLine(line, isChordLine)) {
+        indices.push(idx);
+      }
+    });
+    return indices;
+  }, [displayLines]);
+
+  const [savedTimings, setSavedTimings] = useState<SongTiming[]>(() => song?.timings || []);
+  const [isSyncMode, setIsSyncMode] = useState(false);
+  const [draftTimings, setDraftTimings] = useState<SongTiming[]>([]);
+  const [lastMarkedLineId, setLastMarkedLineId] = useState<number | null>(null);
+  const [savingTimings, setSavingTimings] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [isKaraokePlaying, setIsKaraokePlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [ytReady, setYtReady] = useState(false);
+  const [ytIsPlaying, setYtIsPlaying] = useState(false);
+  const [ytApiFailed, setYtApiFailed] = useState(false);
+
+  // Sistema de contagem regressiva até 4 (1, 2, 3, 4) em popup com áudio em português
+  const [countdownStep, setCountdownStep] = useState<CountdownStep | null>(null);
+  const [countdownMode, setCountdownMode] = useState<'playback' | 'sync' | null>(null);
+  const [countdownSoundEnabled, setCountdownSoundEnabled] = useState(true);
+  const countdownSoundEnabledRef = useRef(true);
+  const countdownTimerRef = useRef<number | null>(null);
+  const countdownPendingStartRef = useRef<number>(0);
+
+  useEffect(() => {
+    countdownSoundEnabledRef.current = countdownSoundEnabled;
+  }, [countdownSoundEnabled]);
+
+  const ytMountRef = useRef<HTMLDivElement | null>(null);
+  const ytPlayerRef = useRef<any>(null);
+  const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Relógio interno de precisão para fallback (sem vídeo aberto ou offline)
+  const localClockRunningRef = useRef(false);
+  const localClockStartPerfRef = useRef(0);
+  const localClockBaseTimeRef = useRef(0);
+  const currentTimeRef = useRef(0);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  const clearCountdownTimers = useCallback(() => {
+    if (countdownTimerRef.current !== null) {
+      window.clearTimeout(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    stopCountdownAudio();
+    setCountdownStep(null);
+    setCountdownMode(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearCountdownTimers();
+    };
+  }, [clearCountdownTimers]);
+
+  // Resetar estados de karaokê ao trocar de música
+  useEffect(() => {
+    clearCountdownTimers();
+    setSavedTimings(Array.isArray(song?.timings) ? song.timings : []);
+    setIsSyncMode(false);
+    setDraftTimings([]);
+    setLastMarkedLineId(null);
+    setIsKaraokePlaying(false);
+    setCurrentTime(0);
+    localClockRunningRef.current = false;
+    localClockBaseTimeRef.current = 0;
+    setSyncNotice(null);
+  }, [song?.id, clearCountdownTimers]);
+
+  useEffect(() => {
+    if (!isSyncMode && Array.isArray(song?.timings)) {
+      setSavedTimings(song.timings);
+    }
+  }, [song?.timings, isSyncMode]);
+
+  const startLocalClock = useCallback((fromTime?: number) => {
+    const base = typeof fromTime === 'number' ? fromTime : currentTimeRef.current;
+    localClockBaseTimeRef.current = Math.max(0, base);
+    localClockStartPerfRef.current = performance.now();
+    localClockRunningRef.current = true;
+  }, []);
+
+  const pauseLocalClock = useCallback(() => {
+    if (localClockRunningRef.current) {
+      const elapsed = (performance.now() - localClockStartPerfRef.current) / 1000;
+      const updated = localClockBaseTimeRef.current + elapsed;
+      localClockBaseTimeRef.current = updated;
+      currentTimeRef.current = updated;
+      setCurrentTime(updated);
+      localClockRunningRef.current = false;
+    }
+  }, []);
+
+  const resetLocalClock = useCallback((toTime = 0) => {
+    localClockBaseTimeRef.current = toTime;
+    localClockStartPerfRef.current = performance.now();
+    currentTimeRef.current = toTime;
+    setCurrentTime(toTime);
+  }, []);
+
+  const getAccurateTime = useCallback((): number => {
+    if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+      try {
+        const ytTime = ytPlayerRef.current.getCurrentTime();
+        if (typeof ytTime === 'number' && !Number.isNaN(ytTime)) {
+          return ytTime;
+        }
+      } catch {
+        // fallback below
+      }
+    }
+    if (localClockRunningRef.current) {
+      return localClockBaseTimeRef.current + (performance.now() - localClockStartPerfRef.current) / 1000;
+    }
+    return currentTimeRef.current;
+  }, [showPlayer, ytReady]);
+
+  // Inicializa o YT.Player quando o player flutuante é aberto
+  useEffect(() => {
+    if (!showPlayer || !youtubeVideoId) {
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.destroy();
+        } catch {
+          // ignore
+        }
+        ytPlayerRef.current = null;
+      }
+      setYtReady(false);
+      setYtIsPlaying(false);
+      setYtApiFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setYtReady(false);
+    setYtApiFailed(false);
+
+    loadYouTubeIframeApi()
+      .then((YT) => {
+        if (cancelled || !ytMountRef.current) return;
+        ytMountRef.current.innerHTML = '';
+        const targetEl = document.createElement('div');
+        targetEl.style.width = '100%';
+        targetEl.style.height = '100%';
+        ytMountRef.current.appendChild(targetEl);
+
+        const player = new YT.Player(targetEl, {
+          videoId: youtubeVideoId,
+          width: '100%',
+          height: '100%',
+          playerVars: {
+            autoplay: 1,
+            enablejsapi: 1,
+            playsinline: 1,
+            rel: 0,
+            origin: window.location.origin
+          },
+          events: {
+            onReady: (e: any) => {
+              if (cancelled) return;
+              setYtReady(true);
+              if (currentTimeRef.current > 0.2) {
+                try {
+                  e.target.seekTo(currentTimeRef.current, true);
+                } catch {
+                  // ignore
+                }
+              }
+            },
+            onStateChange: (e: any) => {
+              if (cancelled) return;
+              // 1 = PLAYING, 2 = PAUSED, 0 = ENDED
+              if (e.data === 1) {
+                setYtIsPlaying(true);
+                localClockRunningRef.current = false;
+              } else if (e.data === 2) {
+                setYtIsPlaying(false);
+              } else if (e.data === 0) {
+                setYtIsPlaying(false);
+                setIsKaraokePlaying(false);
+              }
+            },
+            onError: () => {
+              if (!cancelled) setYtApiFailed(true);
+            }
+          }
+        });
+        ytPlayerRef.current = player;
+      })
+      .catch(() => {
+        if (!cancelled) setYtApiFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.destroy();
+        } catch {
+          // ignore
+        }
+        ytPlayerRef.current = null;
+      }
+      setYtReady(false);
+      setYtIsPlaying(false);
+    };
+  }, [showPlayer, youtubeVideoId]);
+
+  const maxSavedEndTime = useMemo(() => {
+    if (!savedTimings || savedTimings.length === 0) return 0;
+    return savedTimings.reduce((max, t) => Math.max(max, t.endTime), 0);
+  }, [savedTimings]);
+
+  // Atualização contínua do tempo em Sincronização ou Player Karaokê
+  useEffect(() => {
+    if (!isSyncMode && !isKaraokePlaying) return;
+
+    const interval = window.setInterval(() => {
+      let nextTime = currentTimeRef.current;
+
+      if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+        try {
+          const t = ytPlayerRef.current.getCurrentTime();
+          if (typeof t === 'number' && !Number.isNaN(t)) {
+            nextTime = t;
+          }
+        } catch {
+          // ignore
+        }
+      } else if (localClockRunningRef.current) {
+        nextTime = localClockBaseTimeRef.current + (performance.now() - localClockStartPerfRef.current) / 1000;
+        if (isKaraokePlaying && maxSavedEndTime > 0 && nextTime >= maxSavedEndTime + 0.5) {
+          localClockRunningRef.current = false;
+          localClockBaseTimeRef.current = 0;
+          setIsKaraokePlaying(false);
+          setCurrentTime(0);
+          return;
+        }
+      }
+
+      setCurrentTime(nextTime);
+    }, 75);
+
+    return () => window.clearInterval(interval);
+  }, [isSyncMode, isKaraokePlaying, showPlayer, ytReady, maxSavedEndTime]);
+
+  const activeTimingsList = isSyncMode ? draftTimings : savedTimings;
+  const draftTimingMap = useMemo(() => {
+    const map = new Map<number, SongTiming>();
+    draftTimings.forEach((t) => map.set(t.id, t));
+    return map;
+  }, [draftTimings]);
+
+  const savedTimingMap = useMemo(() => {
+    const map = new Map<number, SongTiming>();
+    savedTimings.forEach((t) => map.set(t.id, t));
+    return map;
+  }, [savedTimings]);
+
+  const activePlaybackTiming = useMemo(() => {
+    if (!isKaraokePlaying && currentTime <= 0) return null;
+    return findActiveTiming(savedTimings, currentTime);
+  }, [savedTimings, currentTime, isKaraokePlaying]);
+
+  const activeLineId = activePlaybackTiming?.id ?? null;
+
+  // Auto-scroll suave para a frase ativa no modo Player
+  useEffect(() => {
+    if (!isKaraokePlaying || activeLineId === null) return;
+    const el = lineRefs.current[activeLineId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeLineId, isKaraokePlaying]);
+
+  const nextUnmarkedLineId = useMemo(() => {
+    for (const idx of syncableLineIndices) {
+      if (!draftTimingMap.has(idx)) {
+        return idx;
+      }
+    }
+    return null;
+  }, [syncableLineIndices, draftTimingMap]);
+
+  const markedCountInSync = useMemo(() => {
+    return syncableLineIndices.filter((idx) => draftTimingMap.has(idx)).length;
+  }, [syncableLineIndices, draftTimingMap]);
+
+  const allPhrasesMarked = syncableLineIndices.length > 0 && markedCountInSync === syncableLineIndices.length;
+
+  const enterSyncMode = () => {
+    clearCountdownTimers();
+    setIsKaraokePlaying(false);
+    pauseLocalClock();
+    setSyncNotice(null);
+    setDraftTimings(savedTimings.length > 0 ? [...savedTimings].sort((a, b) => a.id - b.id) : []);
+    setLastMarkedLineId(null);
+    setIsSyncMode(true);
+    if (youtubeVideoId) {
+      setShowPlayer(true);
+    }
+  };
+
+  const exitSyncMode = () => {
+    clearCountdownTimers();
+    setIsSyncMode(false);
+    pauseLocalClock();
+  };
+
+  const markPhrase = useCallback((explicitLineId?: number) => {
+    const targetId = typeof explicitLineId === 'number' ? explicitLineId : nextUnmarkedLineId;
+    if (targetId === null || targetId === undefined) return;
+
+    // Se o YouTube estiver aberto e pausado, inicia automaticamente na primeira marcação
+    if (showPlayer && ytReady && ytPlayerRef.current && !ytIsPlaying) {
+      try {
+        ytPlayerRef.current.playVideo();
+      } catch {
+        // ignore
+      }
+    } else if ((!showPlayer || !ytReady || ytApiFailed) && !localClockRunningRef.current) {
+      startLocalClock(currentTimeRef.current);
+    }
+
+    const nowSec = Number(Math.max(0, getAccurateTime()).toFixed(2));
+
+    setDraftTimings((prev) => {
+      const filtered = prev.filter((item) => item.id !== targetId);
+      const sorted = [...filtered].sort((a, b) => a.id - b.id);
+
+      // Fecha a frase anterior com o timestamp atual
+      let prevIdx = -1;
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].id < targetId) {
+          prevIdx = i;
+          break;
+        }
+      }
+      if (prevIdx !== -1) {
+        const prevItem = sorted[prevIdx];
+        sorted[prevIdx] = {
+          ...prevItem,
+          endTime: Number(Math.max(prevItem.startTime + 0.25, nowSec).toFixed(2))
+        };
+      }
+
+      // Se existir uma frase posterior já marcada, respeita o início dela como fim
+      const nextItem = sorted.find((item) => item.id > targetId);
+      const defaultEnd = nextItem
+        ? Math.max(nowSec + 0.25, nextItem.startTime)
+        : nowSec + 4.0;
+
+      sorted.push({
+        id: targetId,
+        startTime: nowSec,
+        endTime: Number(defaultEnd.toFixed(2))
+      });
+
+      return sorted.sort((a, b) => a.id - b.id);
+    });
+
+    setLastMarkedLineId(targetId);
+
+    // Rola suavemente para a próxima frase após a marcada
+    const pos = syncableLineIndices.indexOf(targetId);
+    const lookAheadId = pos !== -1 && pos + 1 < syncableLineIndices.length
+      ? syncableLineIndices[pos + 1]
+      : targetId;
+    window.setTimeout(() => {
+      const el = lineRefs.current[lookAheadId];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 60);
+  }, [nextUnmarkedLineId, showPlayer, ytReady, ytIsPlaying, ytApiFailed, getAccurateTime, startLocalClock, syncableLineIndices]);
+
+  const undoLastMark = () => {
+    setDraftTimings((prev) => {
+      if (prev.length === 0) return prev;
+      let targetToRemoveId = lastMarkedLineId;
+      if (targetToRemoveId === null || !prev.some((t) => t.id === targetToRemoveId)) {
+        const latest = [...prev].sort((a, b) => b.startTime - a.startTime)[0];
+        targetToRemoveId = latest.id;
+      }
+      const next = prev.filter((t) => t.id !== targetToRemoveId).sort((a, b) => a.id - b.id);
+      if (next.length > 0) {
+        const last = next[next.length - 1];
+        next[next.length - 1] = { ...last, endTime: Number((last.startTime + 4.0).toFixed(2)) };
+        setLastMarkedLineId(last.id);
+      } else {
+        setLastMarkedLineId(null);
+      }
+      return next;
+    });
+  };
+
+  const resetSyncTimings = () => {
+    setDraftTimings([]);
+    setLastMarkedLineId(null);
+    resetLocalClock(0);
+    if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      try {
+        ytPlayerRef.current.seekTo(0, true);
+      } catch {
+        // ignore
+      }
+    }
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const saveSyncTimings = async () => {
+    if (draftTimings.length === 0) {
+      setSyncNotice({ type: 'error', text: 'Marque pelo menos uma frase antes de salvar.' });
+      return;
+    }
+
+    const sorted = [...draftTimings]
+      .sort((a, b) => a.id - b.id)
+      .map((item, idx, arr) => {
+        const nextItem = arr[idx + 1];
+        const safeStart = Number(Math.max(0, item.startTime).toFixed(2));
+        const safeEnd = nextItem
+          ? Number(Math.max(safeStart + 0.25, nextItem.startTime).toFixed(2))
+          : Number(Math.max(safeStart + 4.0, item.endTime).toFixed(2));
+        return { id: item.id, startTime: safeStart, endTime: safeEnd };
+      });
+
+    setSavingTimings(true);
+    setSyncNotice(null);
+    try {
+      await awaitOfflineSafe(
+        updateDoc(doc(db, 'songs', song.id), {
+          timings: sorted,
+          updatedAt: serverTimestamp()
+        })
+      );
+      setSavedTimings(sorted);
+      onTimingsSaved?.(song.id, sorted);
+      setIsSyncMode(false);
+      pauseLocalClock();
+      setSyncNotice({ type: 'success', text: 'Sincronização salva! Aperte Player para tocar e rolar automaticamente.' });
+      window.setTimeout(() => setSyncNotice(null), 5000);
+    } catch (err: any) {
+      console.error('Erro ao salvar sincronização:', err);
+      setSyncNotice({ type: 'error', text: 'Não foi possível salvar a sincronização. Tente novamente.' });
+    } finally {
+      setSavingTimings(false);
+    }
+  };
+
+  // Atalho de teclado (Espaço) para marcar frases rapidamente no desktop durante a sincronização
+  useEffect(() => {
+    if (!isSyncMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        markPhrase();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSyncMode, markPhrase]);
+
+  const beginKaraokePlaybackImmediate = useCallback((startFrom: number) => {
+    if (startFrom === 0) {
+      resetLocalClock(0);
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    setIsKaraokePlaying(true);
+
+    if (showPlayer && ytReady && ytPlayerRef.current) {
+      try {
+        if (startFrom === 0) {
+          ytPlayerRef.current.seekTo(0, true);
+        }
+        ytPlayerRef.current.playVideo();
+      } catch {
+        startLocalClock(startFrom);
+      }
+    } else {
+      startLocalClock(startFrom);
+    }
+  }, [resetLocalClock, showPlayer, ytReady, startLocalClock]);
+
+  const beginSyncClockImmediate = useCallback(() => {
+    if (showPlayer && ytReady && ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.playVideo();
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    startLocalClock(currentTimeRef.current);
+  }, [showPlayer, ytReady, startLocalClock]);
+
+  const startCountInPopup = useCallback((mode: 'playback' | 'sync', startFrom = 0) => {
+    unlockCountdownAudio();
+    clearCountdownTimers();
+
+    countdownPendingStartRef.current = startFrom;
+    setCountdownMode(mode);
+
+    const BEAT_MS = 850;
+    const runStep = (step: CountdownStep) => {
+      setCountdownStep(step);
+      playCountdownCue(step, countdownSoundEnabledRef.current);
+
+      countdownTimerRef.current = window.setTimeout(() => {
+        if (step < 4) {
+          runStep((step + 1) as CountdownStep);
+        } else {
+          countdownTimerRef.current = null;
+          setCountdownStep(null);
+          setCountdownMode(null);
+          if (mode === 'playback') {
+            beginKaraokePlaybackImmediate(countdownPendingStartRef.current);
+          } else {
+            beginSyncClockImmediate();
+          }
+        }
+      }, BEAT_MS);
+    };
+
+    runStep(1);
+  }, [clearCountdownTimers, beginKaraokePlaybackImmediate, beginSyncClockImmediate]);
+
+  const skipCountIn = useCallback(() => {
+    const activeMode = countdownMode;
+    const startFrom = countdownPendingStartRef.current;
+    clearCountdownTimers();
+    if (activeMode === 'playback') {
+      beginKaraokePlaybackImmediate(startFrom);
+    } else if (activeMode === 'sync') {
+      beginSyncClockImmediate();
+    }
+  }, [countdownMode, clearCountdownTimers, beginKaraokePlaybackImmediate, beginSyncClockImmediate]);
+
+  // Atalhos de teclado durante a contagem regressiva (Esc cancela, Enter/Espaço pula)
+  useEffect(() => {
+    if (countdownStep === null) return;
+    const handleCountdownKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        clearCountdownTimers();
+      } else if (e.key === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        skipCountIn();
+      }
+    };
+    window.addEventListener('keydown', handleCountdownKey);
+    return () => window.removeEventListener('keydown', handleCountdownKey);
+  }, [countdownStep, clearCountdownTimers, skipCountIn]);
+
+  const toggleKaraokePlayer = () => {
+    if (savedTimings.length === 0) return;
+    if (countdownStep !== null) {
+      clearCountdownTimers();
+      return;
+    }
+    if (isKaraokePlaying) {
+      setIsKaraokePlaying(false);
+      pauseLocalClock();
+      if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      const startFrom =
+        currentTimeRef.current >= maxSavedEndTime && maxSavedEndTime > 0
+          ? 0
+          : currentTimeRef.current;
+      startCountInPopup('playback', startFrom);
+    }
+  };
+
+  const restartKaraokePlayer = () => {
+    if (savedTimings.length === 0) return;
+    setIsKaraokePlaying(false);
+    pauseLocalClock();
+    resetLocalClock(0);
+    if (showPlayer && ytReady && ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.pauseVideo();
+        ytPlayerRef.current.seekTo(0, true);
+      } catch {
+        // ignore
+      }
+    }
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    startCountInPopup('playback', 0);
+  };
+
+  const startSyncWithCountdown = () => {
+    pauseLocalClock();
+    if (showPlayer && ytReady && ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.pauseVideo();
+      } catch {
+        // ignore
+      }
+    }
+    startCountInPopup('sync', currentTimeRef.current);
+  };
+
+  const jumpToTiming = (timing: SongTiming) => {
+    resetLocalClock(timing.startTime);
+    if (isKaraokePlaying && (!showPlayer || !ytReady || ytApiFailed)) {
+      startLocalClock(timing.startTime);
+    }
+    if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      try {
+        ytPlayerRef.current.seekTo(timing.startTime, true);
+        if (isKaraokePlaying) {
+          ytPlayerRef.current.playVideo();
+        }
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const isKaraokeLayoutActive = isSyncMode || isKaraokePlaying;
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: '100%' }}
@@ -1164,8 +1840,50 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             </div>
           </div>
 
-          {/* Opções e Controles do Cabeçalho: Apenas Alteração de Tom e Tela Cheia */}
+          {/* Opções e Controles do Cabeçalho: Tom, Player Karaokê, Sincronizar e Tela Cheia */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Botão Player Karaokê (disponível quando a música já tem marcação salva) */}
+            {savedTimings.length > 0 && !isSyncMode && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleKaraokePlayer}
+                  className={`h-7 px-2.5 flex items-center gap-1 rounded-lg shadow-2xs transition-all cursor-pointer font-bold text-xs active:scale-95 whitespace-nowrap shrink-0 ${
+                    isKaraokePlaying
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-orange-100 hover:bg-orange-200 text-orange-800 border border-orange-300/80'
+                  }`}
+                  title={isKaraokePlaying ? 'Pausar Player Karaokê' : 'Iniciar Player Karaokê (rolagem automática)'}
+                >
+                  {isKaraokePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{isKaraokePlaying ? 'Pausar' : 'Player'}</span>
+                </button>
+                {(isKaraokePlaying || currentTime > 0) && (
+                  <button
+                    type="button"
+                    onClick={restartKaraokePlayer}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-orange-100 text-gray-700 hover:text-orange-700 border border-gray-200 transition-all cursor-pointer shrink-0"
+                    title="Reiniciar do início"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Botão Sincronizar Karaokê */}
+            {canSyncKaraoke && !isSyncMode && (
+              <button
+                type="button"
+                onClick={enterSyncMode}
+                className="h-7 px-2.5 flex items-center gap-1 bg-white hover:bg-orange-50 text-orange-700 border border-orange-200 rounded-lg shadow-2xs transition-all cursor-pointer font-bold text-xs active:scale-95 whitespace-nowrap shrink-0"
+                title="Sincronizar letra frase por frase com o YouTube"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sincronizar</span>
+              </button>
+            )}
+
             {/* Controle de Tom */}
             <div className="flex items-center bg-orange-50/90 border border-orange-200/80 rounded-lg p-0.5 shadow-2xs shrink-0">
               <button 
@@ -1216,52 +1934,251 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
       )}
 
+      {/* Barra de Sincronização Estilo Karaokê */}
+      {isSyncMode && (
+        <div className="bg-orange-50/95 border-b border-orange-200 px-3 sm:px-5 py-2.5 z-20 shadow-xs">
+          <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-mono tabular-nums text-xs font-extrabold bg-white text-orange-700 border border-orange-200 px-2 py-1 rounded-lg">
+                  {formatSyncTime(currentTime)}
+                </span>
+                <div className="text-xs text-gray-800 font-bold leading-tight">
+                  <span>
+                    {markedCountInSync} de {syncableLineIndices.length} frases marcadas
+                  </span>
+                  <span className="hidden md:inline text-gray-500 font-medium ml-2">
+                    Dê play no vídeo e aperte em cada frase (ou Espaço) conforme a música toca.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={startSyncWithCountdown}
+                className="min-h-[40px] px-3 py-1.5 flex items-center gap-1.5 rounded-xl bg-white hover:bg-orange-100 text-orange-700 border border-orange-200 font-bold text-xs cursor-pointer transition-colors whitespace-nowrap"
+                title="Contagem 1, 2, 3, 4 com áudio em português antes de iniciar"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>Contar 1-4</span>
+              </button>
+
+              {(!showPlayer || !ytReady || ytApiFailed) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (localClockRunningRef.current) {
+                      pauseLocalClock();
+                    } else {
+                      startLocalClock(currentTimeRef.current);
+                    }
+                  }}
+                  className="min-h-[40px] px-3 py-1.5 flex items-center gap-1.5 rounded-xl bg-white hover:bg-orange-100 text-gray-800 border border-orange-200 font-bold text-xs cursor-pointer transition-colors"
+                  title="Iniciar/pausar cronômetro manual"
+                >
+                  {localClockRunningRef.current ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{localClockRunningRef.current ? 'Pausar Tempo' : 'Iniciar Tempo'}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={nextUnmarkedLineId === null}
+                onClick={() => markPhrase()}
+                className="min-h-[44px] px-4 py-2 flex items-center gap-2 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:bg-gray-300 disabled:text-gray-500 text-white font-extrabold text-xs sm:text-sm shadow-sm active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+              >
+                <Clock className="w-4 h-4" />
+                <span>{allPhrasesMarked ? 'Todas Marcadas' : 'Marcar Próxima Frase'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={draftTimings.length === 0}
+                onClick={undoLastMark}
+                className="min-h-[40px] px-3 py-1.5 flex items-center gap-1.5 rounded-xl bg-white hover:bg-gray-50 disabled:opacity-40 text-gray-700 border border-gray-200 font-bold text-xs cursor-pointer transition-colors"
+                title="Desfazer última marcação"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Desfazer</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={resetSyncTimings}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white hover:bg-rose-50 text-gray-600 hover:text-rose-700 border border-gray-200 font-bold text-xs cursor-pointer transition-colors"
+                title="Limpar marcações e recomeçar do zero"
+              >
+                Recomeçar
+              </button>
+
+              <button
+                type="button"
+                disabled={savingTimings || draftTimings.length === 0}
+                onClick={saveSyncTimings}
+                className={`min-h-[44px] px-4 py-2 flex items-center gap-1.5 rounded-xl font-extrabold text-xs sm:text-sm shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap ${
+                  allPhrasesMarked
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    : 'bg-gray-900 hover:bg-gray-800 text-white'
+                }`}
+              >
+                <Save className="w-4 h-4" />
+                <span>{savingTimings ? 'Salvando...' : 'Salvar'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={exitSyncMode}
+                className="min-h-[40px] w-10 flex items-center justify-center rounded-xl bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 cursor-pointer transition-colors"
+                title="Cancelar sincronização"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso rápido de salvamento ou erro de sincronização */}
+      {syncNotice && (
+        <div
+          className={`px-4 py-2 text-xs font-bold text-center border-b z-20 ${
+            syncNotice.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}
+        >
+          {syncNotice.text}
+        </div>
+      )}
+
       {/* Área de Conteúdo */}
       <div 
+        ref={scrollContainerRef}
         id="song-content-area"
         className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
       >
-        <div className={`max-w-4xl mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
-          displayContent && displayContent.length > 800 ? 'pb-32 columns-1 md:columns-2' : 'pb-32 columns-1'
+        <div className={`mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
+          isKaraokeLayoutActive
+            ? 'max-w-2xl pb-44 columns-1'
+            : displayContent && displayContent.length > 800
+              ? 'max-w-4xl pb-32 columns-1 md:columns-2'
+              : 'max-w-4xl pb-32 columns-1'
         }`}>
-          {isHtml ? (
-            <div 
-              style={{ 
-                fontSize: `${fontSize}px`,
-                lineHeight: lineHeight,
-                letterSpacing: `${letterSpacing}px`,
-                textAlign: song.textAlign || 'left',
-                tabSize: 4,
-                MozTabSize: 4,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-              }}
-              className="font-mono transition-all rich-text-song whitespace-pre-wrap text-gray-950 font-bold [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold"
-              dangerouslySetInnerHTML={{ __html: transposeHtml(processedContent, transpose) }}
-            />
-          ) : (
-            <div 
-              style={{ 
-                fontSize: `${fontSize}px`,
-                lineHeight: lineHeight,
-                letterSpacing: `${letterSpacing}px`,
-                textAlign: song.textAlign || 'left',
-                tabSize: 4,
-                MozTabSize: 4,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-              }}
-              className="whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold"
-            >
-              {processedContent.split('\n').map((line, i) => {
-                const isChords = isChordLine(line);
-                const parts = line.split(/(\s+)/);
+          <div
+            style={{
+              fontSize: `${fontSize}px`,
+              lineHeight: lineHeight,
+              letterSpacing: `${letterSpacing}px`,
+              textAlign: song.textAlign || 'left',
+              tabSize: 4,
+              MozTabSize: 4,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+            }}
+            className={`whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold ${
+              isHtml ? 'rich-text-song [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold' : ''
+            }`}
+          >
+            {displayLines.map((line, i) => {
+              const isChords = isChordLine(line);
+              const isSyncable = isSyncableLyricLine(line, isChordLine);
+              const draftTiming = isSyncMode ? draftTimingMap.get(i) : undefined;
+              const playbackTiming = !isSyncMode ? savedTimingMap.get(i) : undefined;
+              const isNextSyncTarget = isSyncMode && nextUnmarkedLineId === i;
+              const isActiveKaraokeLine = !isSyncMode && activeLineId === i;
+              const isPassedKaraokeLine =
+                !isSyncMode &&
+                Boolean(playbackTiming) &&
+                (isKaraokePlaying || currentTime > 0) &&
+                currentTime >= playbackTiming!.endTime;
 
+              const isPairedActiveChord =
+                !isSyncMode &&
+                isChords &&
+                activeLineId !== null &&
+                activeLineId === i + 1;
+
+              let lineStyleClass = isChords
+                ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold'
+                : 'text-black mb-2 font-bold';
+
+              if (isPairedActiveChord) {
+                lineStyleClass = 'text-orange-700 !text-orange-700 pb-0.5 mt-2 font-extrabold';
+              }
+
+              if (isSyncMode && isSyncable) {
+                if (draftTiming) {
+                  lineStyleClass =
+                    'bg-emerald-50 text-emerald-950 border border-emerald-300 rounded-xl px-2.5 py-1 my-1 cursor-pointer transition-colors';
+                } else if (isNextSyncTarget) {
+                  lineStyleClass =
+                    'bg-amber-50 text-gray-950 border-2 border-amber-400 rounded-xl px-2.5 py-1 my-1 cursor-pointer shadow-2xs transition-colors';
+                } else {
+                  lineStyleClass =
+                    'text-gray-900 hover:bg-orange-50/80 rounded-xl px-2 py-0.5 my-0.5 cursor-pointer transition-colors';
+                }
+              } else if (!isSyncMode && isSyncable && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
+                if (isActiveKaraokeLine) {
+                  lineStyleClass =
+                    'bg-orange-600 text-white rounded-xl px-3 py-1 my-1 shadow-sm cursor-pointer transition-colors duration-200';
+                } else if (isPassedKaraokeLine) {
+                  lineStyleClass =
+                    'text-emerald-800/80 bg-emerald-50/60 rounded-lg px-2 py-0.5 mb-1.5 cursor-pointer transition-colors duration-200';
+                } else {
+                  lineStyleClass =
+                    'text-gray-950 hover:bg-orange-50 rounded-lg px-2 py-0.5 mb-1.5 cursor-pointer transition-colors duration-200';
+                }
+              }
+
+              const handleLineClick = () => {
+                if (isSyncMode && isSyncable) {
+                  markPhrase(i);
+                } else if (!isSyncMode && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
+                  jumpToTiming(playbackTiming);
+                }
+              };
+
+              if (isHtml) {
                 return (
-                  <div 
-                    key={i} 
-                    className={`min-h-[1.2em] relative transition-all duration-300 ${
-                      isChords ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold' : 'text-black mb-2 font-bold'
-                    }`}
+                  <div
+                    key={i}
+                    ref={(el) => {
+                      lineRefs.current[i] = el;
+                    }}
+                    onClick={handleLineClick}
+                    className={`min-h-[1.2em] relative flex items-center justify-between gap-2 ${lineStyleClass}`}
                   >
+                    <span
+                      className="flex-1 min-w-0"
+                      dangerouslySetInnerHTML={{ __html: transposeHtml(line || '&nbsp;', transpose) }}
+                    />
+                    {isSyncMode && draftTiming && (
+                      <span className="shrink-0 font-mono tabular-nums text-[10px] font-extrabold text-emerald-700 bg-white/90 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                        {formatShortTime(draftTiming.startTime)}
+                      </span>
+                    )}
+                    {isSyncMode && isNextSyncTarget && !draftTiming && (
+                      <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wide text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                        Tocar
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+
+              const parts = line.split(/(\s+)/);
+
+              return (
+                <div
+                  key={i}
+                  ref={(el) => {
+                    lineRefs.current[i] = el;
+                  }}
+                  onClick={handleLineClick}
+                  className={`min-h-[1.2em] relative flex items-center justify-between gap-2 ${lineStyleClass}`}
+                >
+                  <div className="flex-1 min-w-0">
                     {parts.map((part, j) => {
                       const trimmedPart = part.trim();
                       const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
@@ -1269,8 +2186,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                         let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
                         chordToDisplay = formatChordNotation(chordToDisplay);
                         return (
-                          <span 
-                            key={j} 
+                          <span
+                            key={j}
                             className="font-mono font-bold text-chord-orange !text-chord-orange"
                           >
                             {part.replace(trimmedPart, chordToDisplay)}
@@ -1280,10 +2197,21 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                       return <span key={j}>{part}</span>;
                     })}
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  {isSyncMode && draftTiming && (
+                    <span className="shrink-0 font-mono tabular-nums text-[10px] font-extrabold text-emerald-700 bg-white/90 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                      {formatShortTime(draftTiming.startTime)}
+                    </span>
+                  )}
+                  {isSyncMode && isNextSyncTarget && !draftTiming && (
+                    <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wide text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                      Tocar
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1351,7 +2279,24 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
             </button>
           )}
 
-          {/* 3. Tela Cheia */}
+          {/* 3. Botão Player Karaokê (na barra flutuante também para fácil acesso no modo tela cheia) */}
+          {savedTimings.length > 0 && !isSyncMode && (
+            <button
+              type="button"
+              onClick={toggleKaraokePlayer}
+              className={`h-8 px-2.5 flex items-center justify-center gap-1 rounded-lg transition-all cursor-pointer border font-bold text-xs whitespace-nowrap ${
+                isKaraokePlaying
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                  : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border-orange-200 shadow-2xs'
+              }`}
+              title={isKaraokePlaying ? 'Pausar Player Karaokê' : 'Iniciar Player Karaokê'}
+            >
+              {isKaraokePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              <span>{isKaraokePlaying ? 'Pausar' : 'Player'}</span>
+            </button>
+          )}
+
+          {/* 4. Tela Cheia */}
           <button 
             onClick={toggleFullscreen}
             className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
@@ -1385,24 +2330,29 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         </div>
       )}
 
-      {/* Floating Draggable Player */}
+      {/* Floating Draggable Player (com API do YouTube para sincronização de tempo) */}
       <AnimatePresence>
         {showPlayer && song.youtubeUrl && (
           <motion.div 
             drag
+            dragControls={dragControls}
+            dragListener={false}
             dragMomentum={false}
             dragElastic={0.05}
             whileDrag={{ scale: 1.02 }}
             initial={{ opacity: 0, scale: 0.8, y: 30 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 30 }}
-            className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 w-[280px] sm:w-[360px] md:w-[420px] z-50 group shadow-2xl touch-none select-none"
+            className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 w-[280px] sm:w-[360px] md:w-[420px] z-50 group shadow-2xl select-none"
           >
             <div className="bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl border-2 border-orange-500/90 flex flex-col">
               {/* Barra de Arraste (Cabeçalho do Player) */}
-              <div className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-950 border-b border-zinc-800/80 px-3 py-2 flex items-center justify-between cursor-move select-none active:bg-zinc-800/90 transition-colors">
+              <div
+                onPointerDown={(e) => dragControls.start(e)}
+                className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-950 border-b border-zinc-800/80 px-3 py-2 flex items-center justify-between cursor-move select-none touch-none active:bg-zinc-800/90 transition-colors"
+              >
                 <div className="flex items-center gap-2 text-orange-400 font-bold text-xs min-w-0 pr-2">
-                  <GripHorizontal className="w-4 h-4 text-orange-500 shrink-0 animate-pulse" />
+                  <GripHorizontal className="w-4 h-4 text-orange-500 shrink-0" />
                   <span className="truncate text-[11px] font-black uppercase tracking-wider text-zinc-200">
                     {song.title}
                   </span>
@@ -1423,16 +2373,21 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 </div>
               </div>
 
-              {/* Player Iframe */}
+              {/* Player Iframe gerenciado pela API do YouTube (com fallback se offline/bloqueado) */}
               <div className="aspect-video relative w-full bg-black select-auto">
-                {getYoutubeEmbedUrl(song.youtubeUrl) ? (
-                  <iframe 
-                    src={getYoutubeEmbedUrl(song.youtubeUrl) || ''} 
-                    title="YouTube video player" 
-                    className="w-full h-full border-0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                    allowFullScreen
-                  />
+                {youtubeVideoId ? (
+                  <>
+                    <div ref={ytMountRef} className="w-full h-full" />
+                    {ytApiFailed && (
+                      <iframe
+                        src={getYoutubeEmbedUrl(song.youtubeUrl) || ''}
+                        title="YouTube video player"
+                        className="absolute inset-0 w-full h-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    )}
+                  </>
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-white text-xs p-4 text-center bg-zinc-900">
                     Link do YouTube inválido
@@ -1444,6 +2399,116 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         )}
       </AnimatePresence>
 
+      {/* Popup de Contagem até 4 (Um, Dois, Três, Quatro) antes de iniciar a marcação da cifra */}
+      <AnimatePresence>
+        {countdownStep !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 backdrop-blur-sm p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Contagem para iniciar"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-sm bg-white rounded-3xl border border-orange-200 shadow-2xl p-6 sm:p-7 text-center select-none"
+            >
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span className="text-xs font-bold text-orange-700 tracking-wide">
+                  Contagem inicial
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCountdownSoundEnabled((prev) => {
+                      const next = !prev;
+                      if (!next) stopCountdownAudio();
+                      return next;
+                    });
+                  }}
+                  className="min-h-[44px] min-w-[44px] px-2.5 flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-orange-50 text-gray-700 hover:text-orange-700 text-xs font-bold transition-colors cursor-pointer"
+                  title={countdownSoundEnabled ? 'Silenciar voz da contagem' : 'Ativar voz da contagem'}
+                >
+                  {countdownSoundEnabled ? (
+                    <>
+                      <Volume2 className="w-4 h-4 text-orange-600" />
+                      <span>Som</span>
+                    </>
+                  ) : (
+                    <>
+                      <VolumeX className="w-4 h-4 text-gray-400" />
+                      <span>Mudo</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <p className="text-sm font-bold text-gray-600 truncate mb-4">
+                {song.title}
+              </p>
+
+              <div className="py-3">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={countdownStep}
+                    initial={{ opacity: 0, scale: 0.72 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.08 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="text-7xl sm:text-8xl font-black tabular-nums text-orange-600 leading-none">
+                      {countdownStep}
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-2">
+                      {COUNTDOWN_WORDS_PT[countdownStep]}
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2 my-5" aria-hidden="true">
+                {([1, 2, 3, 4] as CountdownStep[]).map((num) => (
+                  <div
+                    key={num}
+                    className={`h-2 rounded-full transition-colors duration-150 ${
+                      num <= countdownStep ? 'bg-orange-600' : 'bg-orange-100'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <p className="text-xs font-medium text-gray-500 mb-5">
+                {countdownMode === 'sync'
+                  ? 'O tempo vai iniciar logo após o 4 para você marcar.'
+                  : 'A cifra começará a ser marcada logo após o 4.'}
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={clearCountdownTimers}
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-bold text-sm transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={skipCountIn}
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm shadow-sm active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Iniciar agora
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </motion.div>
   );
@@ -6229,6 +7294,9 @@ export default function App() {
             isMasterAdmin={isMasterAdmin}
             initialTranspose={viewMode === 'view-playlist' && selectedPlaylist ? (selectedPlaylist.transpositions?.[viewingSong.id] || 0) : 0}
             onTransposeChange={(val) => handleTransposeChange(viewingSong.id, val)}
+            onTimingsSaved={(songId, timings) => {
+              setViewingSong((prev) => (prev && prev.id === songId ? { ...prev, timings } : prev));
+            }}
             onPrev={currentPlaylistSongIndex > 0 && viewMode === 'view-playlist' ? () => {
               const prevIndex = currentPlaylistSongIndex - 1;
               setCurrentPlaylistSongIndex(prevIndex);

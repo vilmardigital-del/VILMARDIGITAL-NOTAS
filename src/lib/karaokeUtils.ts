@@ -21,13 +21,14 @@ export const formatShortTime = (seconds: number): string => {
 
 export const prepareDisplayLines = (content: string, isHtml: boolean): string[] => {
   if (!content) return [];
+  const cleanContent = content.replace(/\r\n?/g, '\n');
   if (!isHtml) {
-    return content.split('\n');
+    return cleanContent.split('\n');
   }
-  const normalized = content
+  const normalized = cleanContent
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-    .replace(/<\/\s*(?:p|div|li|h[1-6])\s*>/gi, '\n')
-    .replace(/<\s*(?:p|div|li|h[1-6])[^>]*>/gi, '');
+    .replace(/<\/\s*(?:p|div|li|h[1-6]|pre)\s*>/gi, '\n')
+    .replace(/<\s*(?:p|div|li|h[1-6]|pre)[^>]*>/gi, '');
   return normalized.split('\n');
 };
 

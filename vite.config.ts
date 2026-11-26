@@ -120,6 +120,20 @@ export default defineConfig(({ mode }) => {
                 },
               },
             },
+            {
+              urlPattern: /^https:\/\/(firebasestorage\.googleapis\.com|.*\.firebasestorage\.app)\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'firebase-storage-images-cache',
+                expiration: {
+                  maxEntries: 80,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
           ],
         },
         devOptions: {

@@ -946,7 +946,7 @@ const isChordLine = (line: string) => {
   return chordsCount / wordsCount >= 0.4;
 };
 
-const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, onTimingsSaved, flushPendingSyncRef, userRole, isMasterAdmin }: { 
+const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, onTransposeChange, onTimingsSaved, userRole, isMasterAdmin }: { 
   song: Song, 
   onClose: () => void,
   onPrev?: () => void,
@@ -954,75 +954,34 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   initialTranspose?: number,
   onTransposeChange?: (val: number) => void,
   onTimingsSaved?: (songId: string, timings: SongTiming[]) => void,
-  flushPendingSyncRef?: React.MutableRefObject<(() => Promise<void>) | null>,
   userRole?: 'admin' | 'viewer' | null,
   isMasterAdmin?: boolean
 }) => {
+  const isOnline = useOnlineStatus();
   const [showPlayer, setShowPlayer] = useState(false);
   const [transpose, setTranspose] = useState(initialTranspose);
+  const UNIFIED_DEFAULT_FONT_SIZE = 19;
   const [fontSize, setFontSize] = useState<number>(() => {
     try {
-      if (song?.id) {
-        const savedSongFont = localStorage.getItem(`cifras_font_size_${song.id}`);
-        if (savedSongFont) {
-          const parsed = parseInt(savedSongFont, 10);
-          if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) return parsed;
-        }
-      }
-      const savedGlobalFont = localStorage.getItem('cifras_font_size');
-      if (savedGlobalFont) {
-        const parsed = parseInt(savedGlobalFont, 10);
-        if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) return parsed;
+      const savedUnifiedFont = localStorage.getItem('cifras_font_size_unified');
+      if (savedUnifiedFont) {
+        const parsed = parseInt(savedUnifiedFont, 10);
+        if (!isNaN(parsed) && parsed >= 14 && parsed <= 36) return parsed;
       }
     } catch (e) {
       console.error(e);
     }
-    return (song as any)?.fontSize || 14;
+    return UNIFIED_DEFAULT_FONT_SIZE;
   });
 
-  // Salvar preferência de tamanho de fonte no localStorage ao alterar
+  // Salvar preferência unificada de tamanho de fonte no localStorage ao alterar
   useEffect(() => {
     try {
-      if (song?.id) {
-        localStorage.setItem(`cifras_font_size_${song.id}`, String(fontSize));
-      }
-      localStorage.setItem('cifras_font_size', String(fontSize));
+      localStorage.setItem('cifras_font_size_unified', String(fontSize));
     } catch (e) {
       console.error(e);
     }
-  }, [fontSize, song?.id]);
-
-  // Carregar o tamanho, espessamento vertical e horizontal salvos ao trocar de música na navegação
-  const [lineHeight, setLineHeight] = useState<number>(() => (song as any)?.lineHeight || 1.5);
-  const [letterSpacing, setLetterSpacing] = useState<number>(() => (song as any)?.letterSpacing || 0);
-
-  useEffect(() => {
-    try {
-      if (song?.id) {
-        const savedSongFont = localStorage.getItem(`cifras_font_size_${song.id}`);
-        if (savedSongFont) {
-          const parsed = parseInt(savedSongFont, 10);
-          if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
-            setFontSize(parsed);
-            setLineHeight((song as any)?.lineHeight || 1.5);
-            setLetterSpacing((song as any)?.letterSpacing || 0);
-            return;
-          }
-        }
-      }
-      const savedGlobalFont = localStorage.getItem('cifras_font_size');
-      if (savedGlobalFont) {
-        const parsed = parseInt(savedGlobalFont, 10);
-        if (!isNaN(parsed) && parsed >= 8 && parsed <= 48) {
-          setFontSize(parsed);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setLineHeight((song as any)?.lineHeight || 1.5);
-    setLetterSpacing((song as any)?.letterSpacing || 0);
-  }, [song?.id, song?.lineHeight, song?.letterSpacing]);
+  }, [fontSize]);
 
   const [showControls, setShowControls] = useState(true);
   const [isAppFullScreen, setIsAppFullScreen] = useState(false);
@@ -1074,7 +1033,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
   useEffect(() => {
     setTranspose(initialTranspose);
-    setFontSize(14);
   }, [initialTranspose, song.id]);
 
   useEffect(() => {
@@ -1614,41 +1572,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     }
   };
 
-  // Permite salvar marcações de karaokê em andamento ao sair ou voltar para a página inicial
-  useEffect(() => {
-    if (!flushPendingSyncRef) return;
-    flushPendingSyncRef.current = async () => {
-      if (!isSyncMode || draftTimings.length === 0) return;
-      const sorted = [...draftTimings]
-        .sort((a, b) => a.id - b.id)
-        .map((item, idx, arr) => {
-          const nextItem = arr[idx + 1];
-          const safeStart = Number(Math.max(0, item.startTime).toFixed(2));
-          const safeEnd = nextItem
-            ? Number(Math.max(safeStart + 0.25, nextItem.startTime).toFixed(2))
-            : Number(Math.max(safeStart + 4.0, item.endTime).toFixed(2));
-          return { id: item.id, startTime: safeStart, endTime: safeEnd };
-        });
-      try {
-        await awaitOfflineSafe(
-          updateDoc(doc(db, 'songs', song.id), {
-            timings: sorted,
-            updatedAt: serverTimestamp()
-          })
-        );
-        setSavedTimings(sorted);
-        onTimingsSaved?.(song.id, sorted);
-      } catch (err) {
-        console.error('Erro ao salvar marcações pendentes ao sair:', err);
-      }
-    };
-    return () => {
-      if (flushPendingSyncRef) {
-        flushPendingSyncRef.current = null;
-      }
-    };
-  }, [flushPendingSyncRef, isSyncMode, draftTimings, song.id, onTimingsSaved]);
-
   // Atalho de teclado (Espaço) para marcar frases rapidamente no desktop durante a sincronização
   useEffect(() => {
     if (!isSyncMode) return;
@@ -2095,87 +2018,147 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         id="song-content-area"
         className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
       >
-        <div className={`mx-auto p-6 md:p-10 gap-8 transition-all duration-500 ${
-          isKaraokeLayoutActive
-            ? 'max-w-2xl pb-44 columns-1'
-            : displayContent && displayContent.length > 800
-              ? 'max-w-4xl pb-32 columns-1 md:columns-2'
-              : 'max-w-4xl pb-32 columns-1'
+        <div className={`mx-auto max-w-5xl px-4 sm:px-8 py-6 md:py-8 columns-1 transition-all duration-300 ${
+          isKaraokeLayoutActive ? 'pb-44' : 'pb-32'
         }`}>
-          <div
-            style={{
-              fontSize: `${fontSize}px`,
-              lineHeight: lineHeight,
-              letterSpacing: `${letterSpacing}px`,
-              textAlign: song.textAlign || 'left',
-              tabSize: 4,
-              MozTabSize: 4,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-            }}
-            className={`whitespace-pre-wrap font-mono transition-all text-gray-950 font-bold ${
-              isHtml ? 'rich-text-song [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold' : ''
-            }`}
-          >
-            {displayLines.map((line, i) => {
-              const isChords = isChordLine(line);
-              const isSyncable = isSyncableLyricLine(line, isChordLine);
-              const draftTiming = isSyncMode ? draftTimingMap.get(i) : undefined;
-              const playbackTiming = !isSyncMode ? savedTimingMap.get(i) : undefined;
-              const isNextSyncTarget = isSyncMode && nextUnmarkedLineId === i;
-              const isActiveKaraokeLine = !isSyncMode && activeLineId === i;
-              const isPassedKaraokeLine =
-                !isSyncMode &&
-                Boolean(playbackTiming) &&
-                (isKaraokePlaying || currentTime > 0) &&
-                currentTime >= playbackTiming!.endTime;
+          <div className="overflow-x-auto pb-2">
+            <div
+              style={{
+                fontSize: `${fontSize}px`,
+                lineHeight: 1.15,
+                letterSpacing: '0px',
+                textAlign: 'left',
+                tabSize: 4,
+                MozTabSize: 4,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontVariantLigatures: 'none'
+              }}
+              className={`w-max min-w-full whitespace-pre font-mono transition-all text-gray-950 font-bold ${
+                isHtml ? 'rich-text-song [&_.text-chord-orange]:!text-chord-orange [&_.text-chord-orange]:!font-bold' : ''
+              }`}
+            >
+              {displayLines.map((line, i) => {
+                const plainLine = line.replace(/<[^>]*>/g, '').trim();
+                const isBlank = plainLine.length === 0;
+                const prevPlain = i > 0 ? displayLines[i - 1].replace(/<[^>]*>/g, '').trim() : '';
+                const nextPlain = i + 1 < displayLines.length ? displayLines[i + 1].replace(/<[^>]*>/g, '').trim() : '';
+                const prevWasBlank = i > 0 && prevPlain.length === 0;
 
-              const isPairedActiveChord =
-                !isSyncMode &&
-                isChords &&
-                activeLineId !== null &&
-                activeLineId === i + 1;
+                const isChords = !isBlank && isChordLine(line);
+                const prevIsChord = i > 0 && prevPlain.length > 0 && isChordLine(displayLines[i - 1]);
+                const nextIsLyric = i + 1 < displayLines.length && nextPlain.length > 0 && !isChordLine(displayLines[i + 1]);
+                const isSectionHeader = !isBlank && !isChords && (/^\[[^\]]+\]$/.test(plainLine) || /^Tom:\s*[A-G]/i.test(plainLine));
 
-              let lineStyleClass = isChords
-                ? 'text-chord-orange !text-chord-orange pb-1 mt-2 font-bold'
-                : 'text-black mb-2 font-bold';
+                const isSyncable = isSyncableLyricLine(line, isChordLine);
+                const draftTiming = isSyncMode ? draftTimingMap.get(i) : undefined;
+                const playbackTiming = !isSyncMode ? savedTimingMap.get(i) : undefined;
+                const isNextSyncTarget = isSyncMode && nextUnmarkedLineId === i;
+                const isActiveKaraokeLine = !isSyncMode && activeLineId === i;
+                const isPassedKaraokeLine =
+                  !isSyncMode &&
+                  Boolean(playbackTiming) &&
+                  (isKaraokePlaying || currentTime > 0) &&
+                  currentTime >= playbackTiming!.endTime;
 
-              if (isPairedActiveChord) {
-                lineStyleClass = 'text-orange-700 !text-orange-700 pb-0.5 mt-2 font-extrabold';
-              }
+                const isPairedActiveChord =
+                  !isSyncMode &&
+                  isChords &&
+                  activeLineId !== null &&
+                  activeLineId === i + 1;
 
-              if (isSyncMode && isSyncable) {
-                if (draftTiming) {
-                  lineStyleClass =
-                    'bg-emerald-50 text-emerald-950 border border-emerald-300 rounded-xl px-2.5 py-1 my-1 cursor-pointer transition-colors';
-                } else if (isNextSyncTarget) {
-                  lineStyleClass =
-                    'bg-amber-50 text-gray-950 border-2 border-amber-400 rounded-xl px-2.5 py-1 my-1 cursor-pointer shadow-2xs transition-colors';
+                let lineStyleClass = '';
+                if (isBlank) {
+                  lineStyleClass = prevWasBlank ? 'h-1.5 min-h-0' : 'h-3 min-h-0';
+                } else if (isChords) {
+                  const topGap = prevWasBlank || i === 0 ? 'mt-0.5' : 'mt-2.5';
+                  const bottomGap = nextIsLyric ? 'mb-0 pb-0 leading-[1.06]' : 'mb-1 leading-[1.15]';
+                  lineStyleClass = isPairedActiveChord
+                    ? `text-orange-700 !text-orange-700 font-extrabold ${topGap} ${bottomGap}`
+                    : `text-chord-orange !text-chord-orange font-bold ${topGap} ${bottomGap}`;
+                } else if (isSectionHeader) {
+                  lineStyleClass = `${i === 0 ? 'mt-0' : 'mt-3'} mb-1 text-orange-700 font-extrabold leading-[1.18]`;
                 } else {
-                  lineStyleClass =
-                    'text-gray-900 hover:bg-orange-50/80 rounded-xl px-2 py-0.5 my-0.5 cursor-pointer transition-colors';
+                  const topGap = prevIsChord ? 'mt-0 pt-0' : 'mt-0.5';
+                  lineStyleClass = `text-gray-950 font-bold ${topGap} mb-1 leading-[1.16]`;
                 }
-              } else if (!isSyncMode && isSyncable && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
-                if (isActiveKaraokeLine) {
-                  lineStyleClass =
-                    'bg-orange-600 text-white rounded-xl px-3 py-1 my-1 shadow-sm cursor-pointer transition-colors duration-200';
-                } else if (isPassedKaraokeLine) {
-                  lineStyleClass =
-                    'text-emerald-800/80 bg-emerald-50/60 rounded-lg px-2 py-0.5 mb-1.5 cursor-pointer transition-colors duration-200';
-                } else {
-                  lineStyleClass =
-                    'text-gray-950 hover:bg-orange-50 rounded-lg px-2 py-0.5 mb-1.5 cursor-pointer transition-colors duration-200';
-                }
-              }
 
-              const handleLineClick = () => {
-                if (isSyncMode && isSyncable) {
-                  markPhrase(i);
-                } else if (!isSyncMode && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
-                  jumpToTiming(playbackTiming);
+                if (!isBlank && isSyncMode && isSyncable) {
+                  const topGap = prevIsChord ? 'mt-0' : 'mt-0.5';
+                  if (draftTiming) {
+                    lineStyleClass =
+                      `bg-emerald-50 text-emerald-950 border border-emerald-300 rounded-lg px-2 py-0.5 ${topGap} mb-1 leading-[1.16] cursor-pointer transition-colors`;
+                  } else if (isNextSyncTarget) {
+                    lineStyleClass =
+                      `bg-amber-50 text-gray-950 border-2 border-amber-400 rounded-lg px-2 py-0.5 ${topGap} mb-1 leading-[1.16] cursor-pointer shadow-2xs transition-colors`;
+                  } else {
+                    lineStyleClass =
+                      `text-gray-900 hover:bg-orange-50/80 rounded-lg px-1.5 py-0.5 ${topGap} mb-1 leading-[1.16] cursor-pointer transition-colors`;
+                  }
+                } else if (!isBlank && !isSyncMode && isSyncable && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
+                  const topGap = prevIsChord ? 'mt-0' : 'mt-0.5';
+                  if (isActiveKaraokeLine) {
+                    lineStyleClass =
+                      `bg-orange-600 text-white rounded-lg px-2.5 py-0.5 ${topGap} mb-1 leading-[1.16] shadow-sm cursor-pointer transition-colors duration-200`;
+                  } else if (isPassedKaraokeLine) {
+                    lineStyleClass =
+                      `text-emerald-800/80 bg-emerald-50/60 rounded-lg px-2 py-0.5 ${topGap} mb-1 leading-[1.16] cursor-pointer transition-colors duration-200`;
+                  } else {
+                    lineStyleClass =
+                      `text-gray-950 hover:bg-orange-50 rounded-lg px-1.5 py-0.5 ${topGap} mb-1 leading-[1.16] cursor-pointer transition-colors duration-200`;
+                  }
                 }
-              };
 
-              if (isHtml) {
+                const handleLineClick = () => {
+                  if (isSyncMode && isSyncable) {
+                    markPhrase(i);
+                  } else if (!isSyncMode && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
+                    jumpToTiming(playbackTiming);
+                  }
+                };
+
+                if (isBlank) {
+                  return (
+                    <div
+                      key={i}
+                      ref={(el) => {
+                        lineRefs.current[i] = el;
+                      }}
+                      className={lineStyleClass}
+                      aria-hidden="true"
+                    />
+                  );
+                }
+
+                if (isHtml) {
+                  return (
+                    <div
+                      key={i}
+                      ref={(el) => {
+                        lineRefs.current[i] = el;
+                      }}
+                      onClick={handleLineClick}
+                      className={`relative flex items-center justify-between gap-3 whitespace-pre ${lineStyleClass}`}
+                    >
+                      <span
+                        className="whitespace-pre shrink-0"
+                        dangerouslySetInnerHTML={{ __html: transposeHtml(line || '&nbsp;', transpose) }}
+                      />
+                      {isSyncMode && draftTiming && (
+                        <span className="shrink-0 font-mono tabular-nums text-[10px] font-extrabold text-emerald-700 bg-white/90 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                          {formatShortTime(draftTiming.startTime)}
+                        </span>
+                      )}
+                      {isSyncMode && isNextSyncTarget && !draftTiming && (
+                        <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wide text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                          Tocar
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+
+                const parts = line.split(/(\s+)/);
+
                 return (
                   <div
                     key={i}
@@ -2183,12 +2166,28 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                       lineRefs.current[i] = el;
                     }}
                     onClick={handleLineClick}
-                    className={`min-h-[1.2em] relative flex items-center justify-between gap-2 ${lineStyleClass}`}
+                    className={`relative flex items-center justify-between gap-3 whitespace-pre ${lineStyleClass}`}
                   >
-                    <span
-                      className="flex-1 min-w-0"
-                      dangerouslySetInnerHTML={{ __html: transposeHtml(line || '&nbsp;', transpose) }}
-                    />
+                    <div className="whitespace-pre shrink-0">
+                      {parts.map((part, j) => {
+                        const trimmedPart = part.trim();
+                        const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
+                        if (isChord && trimmedPart.length > 0) {
+                          let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
+                          chordToDisplay = formatChordNotation(chordToDisplay);
+                          return (
+                            <span
+                              key={j}
+                              className="font-mono font-bold text-chord-orange !text-chord-orange"
+                            >
+                              {part.replace(trimmedPart, chordToDisplay)}
+                            </span>
+                          );
+                        }
+                        return <span key={j}>{part}</span>;
+                      })}
+                    </div>
+
                     {isSyncMode && draftTiming && (
                       <span className="shrink-0 font-mono tabular-nums text-[10px] font-extrabold text-emerald-700 bg-white/90 border border-emerald-200 px-1.5 py-0.5 rounded-md">
                         {formatShortTime(draftTiming.startTime)}
@@ -2201,52 +2200,8 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                     )}
                   </div>
                 );
-              }
-
-              const parts = line.split(/(\s+)/);
-
-              return (
-                <div
-                  key={i}
-                  ref={(el) => {
-                    lineRefs.current[i] = el;
-                  }}
-                  onClick={handleLineClick}
-                  className={`min-h-[1.2em] relative flex items-center justify-between gap-2 ${lineStyleClass}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    {parts.map((part, j) => {
-                      const trimmedPart = part.trim();
-                      const isChord = isChords && CHORD_REGEX_EXACT.test(trimmedPart);
-                      if (isChord && trimmedPart.length > 0) {
-                        let chordToDisplay = transpose !== 0 ? transposeChord(trimmedPart, transpose) : trimmedPart;
-                        chordToDisplay = formatChordNotation(chordToDisplay);
-                        return (
-                          <span
-                            key={j}
-                            className="font-mono font-bold text-chord-orange !text-chord-orange"
-                          >
-                            {part.replace(trimmedPart, chordToDisplay)}
-                          </span>
-                        );
-                      }
-                      return <span key={j}>{part}</span>;
-                    })}
-                  </div>
-
-                  {isSyncMode && draftTiming && (
-                    <span className="shrink-0 font-mono tabular-nums text-[10px] font-extrabold text-emerald-700 bg-white/90 border border-emerald-200 px-1.5 py-0.5 rounded-md">
-                      {formatShortTime(draftTiming.startTime)}
-                    </span>
-                  )}
-                  {isSyncMode && isNextSyncTarget && !draftTiming && (
-                    <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wide text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
-                      Tocar
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -2286,6 +2241,29 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
           {/* Divider between Navigation and Font Size */}
           {(onPrev || onNext) && <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>}
+
+          {/* Controle de Tamanho da Fonte */}
+          <div className="flex items-center bg-orange-50/90 border border-orange-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setFontSize((prev) => Math.max(14, prev - 1))}
+              className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
+              title="Diminuir fonte"
+            >
+              A-
+            </button>
+            <span className="px-1.5 text-[10px] font-black text-orange-800 tabular-nums select-none">
+              {fontSize}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFontSize((prev) => Math.min(36, prev + 1))}
+              className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
+              title="Aumentar fonte"
+            >
+              A+
+            </button>
+          </div>
 
           {/* 1. Copiar Letra */}
           <button 
@@ -2411,7 +2389,15 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
               {/* Player Iframe gerenciado pela API do YouTube (com fallback se offline/bloqueado) */}
               <div className="aspect-video relative w-full bg-black select-auto">
-                {youtubeVideoId ? (
+                {!isOnline ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-zinc-200 text-xs p-5 text-center bg-zinc-900 gap-2">
+                    <Youtube className="w-7 h-7 text-orange-400 opacity-80" />
+                    <p className="font-bold text-white">Vídeo indisponível no modo off-line</p>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      A cifra e o Player Karaokê continuam funcionando normalmente sem internet.
+                    </p>
+                  </div>
+                ) : youtubeVideoId ? (
                   <>
                     <div ref={ytMountRef} className="w-full h-full" />
                     {ytApiFailed && (
@@ -2760,11 +2746,7 @@ export default function App() {
     };
   }, []);
 
-  const isIntentionalRestartRef = useRef(false);
-  const [isRestartingApp, setIsRestartingApp] = useState(false);
-  const flushPendingKaraokeSyncRef = useRef<(() => Promise<void>) | null>(null);
-
-  const clearSessionState = useCallback(() => {
+  const handleLogout = async () => {
     if (userId && navigator.onLine) {
       updateDoc(doc(db, 'access_users', userId), {
         isOnline: false,
@@ -2788,7 +2770,7 @@ export default function App() {
     localStorage.removeItem('offline_userId');
     localStorage.removeItem('offline_sessionId');
     localStorage.removeItem('offline_isMasterAdmin');
-  }, [userId]);
+  };
 
   // Active status/presence real-time heartbeat
   useEffect(() => {
@@ -2827,14 +2809,14 @@ export default function App() {
         if (snapshot.exists()) {
           const data = snapshot.data() as AccessUser;
           if (data.currentSessionId && data.currentSessionId !== sessionId) {
-            clearSessionState();
+            handleLogout();
             alert("Aviso: Sua conta foi conectada em outro dispositivo. Você foi desconectado para garantir a segurança.");
           }
         }
       });
       return () => unsub();
     }
-  }, [userId, sessionId, clearSessionState]);
+  }, [userId, sessionId]);
 
   // Visitor list and detailed geolocation tracking
   const [visits, setVisits] = useState<any[]>([]);
@@ -2967,8 +2949,10 @@ export default function App() {
   const [muralSongsExpanded, setMuralSongsExpanded] = useState(false);
   const [muralEventsExpanded, setMuralEventsExpanded] = useState(false);
 
-  // Photo States
-  const [massaPhotos, setMassaPhotos] = useState<MassaPhoto[]>([]);
+  // Photo States (com cache off-line seguro)
+  const [massaPhotos, setMassaPhotos] = useState<MassaPhoto[]>(() =>
+    readOfflineCache<MassaPhoto[]>('offline_cache_massa_photos', [])
+  );
   const [activePhotoSlide, setActivePhotoSlide] = useState(0);
   const [lightboxPhotos, setLightboxPhotos] = useState<MassaPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -3154,9 +3138,9 @@ export default function App() {
             throw new Error('Modo off-line sem cache prévio para esta data.');
           }
 
-          // Buscar da API pública liturgia-diaria-api diretamente no navegador
+          // Buscar da API pública liturgia-diaria-api diretamente no navegador (com timeout para modo off-line/rede lenta)
           const apiUrl = `https://liturgia.up.railway.app/?dia=${dayVal}&mes=${monthVal}`;
-          const response = await fetch(apiUrl);
+          const response = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) });
           if (!response.ok) {
             throw new Error(`API responded with status: ${response.status}`);
           }
@@ -3297,38 +3281,18 @@ export default function App() {
   const [viewingSong, setViewingSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Partial<Song> | null>(null);
 
-  // Prevenção de saída/recarregamento acidental durante edição de cifras (respeita reinício intencional)
+  // Prevenção de saída/recarregamento acidental durante edição de cifras
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isIntentionalRestartRef.current) return;
       if (viewMode === 'edit-song' && editingSong && (editingSong.title || editingSong.content)) {
-        localStorage.setItem('songDraft', JSON.stringify(editingSong));
         e.preventDefault();
         e.returnValue = '';
         return '';
       }
     };
 
-    const persistDraftOnLeave = () => {
-      if (viewMode === 'edit-song' && editingSong && (editingSong.title || editingSong.content || editingSong.artist)) {
-        localStorage.setItem('songDraft', JSON.stringify(editingSong));
-      }
-    };
-
-    const handleVisibilitySave = () => {
-      if (document.visibilityState === 'hidden') {
-        persistDraftOnLeave();
-      }
-    };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', persistDraftOnLeave);
-    document.addEventListener('visibilitychange', handleVisibilitySave);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('pagehide', persistDraftOnLeave);
-      document.removeEventListener('visibilitychange', handleVisibilitySave);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [viewMode, editingSong]);
   
   // Playlist selection/editing
@@ -3396,8 +3360,12 @@ export default function App() {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Song[];
       setSongs(docs);
       writeOfflineCache('offline_cache_songs', docs);
+      setLoading(false);
+      clearTimeout(timeout);
     }, (error) => {
       console.error("Songs listener error:", error);
+      setLoading(false);
+      clearTimeout(timeout);
     });
 
     const playlistsQuery = query(
@@ -3497,6 +3465,7 @@ export default function App() {
         return getTime(b) - getTime(a);
       });
       setMassaPhotos(sortedDocs);
+      writeOfflineCache('offline_cache_massa_photos', sortedDocs.slice(0, 12));
     }, (error) => {
       console.error("Photos listener error:", error);
     });
@@ -3687,7 +3656,7 @@ export default function App() {
       return;
     }
     try {
-      await deleteDoc(doc(db, 'songs', id));
+      await awaitOfflineSafe(deleteDoc(doc(db, 'songs', id)));
       setDeletingId(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `songs/${id}`);
@@ -3811,14 +3780,14 @@ export default function App() {
         }
 
         // 2. Add document to Firestore directly (bypassing Firebase Storage API setup completely)
-        await addDoc(collection(db, 'massa_photos'), {
+        await awaitOfflineSafe(addDoc(collection(db, 'massa_photos'), {
           url: base64Url,
           date: autoFormattedDate,
           description: newPhotoDesc.trim() || '',
           storagePath: null,
           createdAt: serverTimestamp(),
           isBase64: true
-        });
+        }));
 
         // Short timeout to let UI update and separate sequential batch saves nicely
         await new Promise(resolve => setTimeout(resolve, 80));
@@ -3839,8 +3808,8 @@ export default function App() {
 
   const handleDeletePhoto = async (photoId: string, storagePath?: string) => {
     try {
-      await deleteDoc(doc(db, 'massa_photos', photoId));
-      if (storagePath && storage) {
+      await awaitOfflineSafe(deleteDoc(doc(db, 'massa_photos', photoId)));
+      if (storagePath && storage && navigator.onLine) {
         const fileRef = ref(storage, storagePath);
         await deleteObject(fileRef).catch(err => {
           console.error("Error deleting from Storage (might not exist):", err);
@@ -3959,7 +3928,7 @@ export default function App() {
         }
 
         // Add document to Firestore directly (bypassing Firebase Storage API setup completely)
-        await addDoc(collection(db, 'massa_photos'), {
+        await awaitOfflineSafe(addDoc(collection(db, 'massa_photos'), {
           url: base64Url,
           date: newBannerDate.trim() || 'Destaque',
           description: newBannerDesc.trim() || '',
@@ -3967,7 +3936,7 @@ export default function App() {
           createdAt: serverTimestamp(),
           isBase64: true,
           isBanner: true
-        });
+        }));
 
         // Short timeout to let UI update and separate sequential batch saves nicely
         await new Promise(resolve => setTimeout(resolve, 80));
@@ -4038,7 +4007,7 @@ export default function App() {
       return;
     }
     try {
-      await deleteDoc(doc(db, 'playlists', id));
+      await awaitOfflineSafe(deleteDoc(doc(db, 'playlists', id)));
       setDeletingId(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `playlists/${id}`);
@@ -4175,11 +4144,11 @@ export default function App() {
     if (!newEventName.trim() || !newEventDate.trim()) return;
     setEventSaving(true);
     try {
-      await addDoc(collection(db, 'events'), {
+      await awaitOfflineSafe(addDoc(collection(db, 'events'), {
         name: newEventName.trim(),
         date: newEventDate.trim(),
         createdAt: serverTimestamp()
-      });
+      }));
       setNewEventName('');
       setNewEventDate('');
     } catch (err) {
@@ -4192,7 +4161,7 @@ export default function App() {
   const handleDeleteEvent = async (eventId: string) => {
     if (!window.confirm("Deseja realmente excluir este evento? Esta ação não pode ser desfeita.")) return;
     try {
-      await deleteDoc(doc(db, 'events', eventId));
+      await awaitOfflineSafe(deleteDoc(doc(db, 'events', eventId)));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `events/${eventId}`);
     }
@@ -4244,16 +4213,16 @@ export default function App() {
       };
 
       if (editingLessonId) {
-        await updateDoc(doc(db, 'video_lessons', editingLessonId), payload);
+        await awaitOfflineSafe(updateDoc(doc(db, 'video_lessons', editingLessonId), payload));
         if (activeVideoLesson?.id === editingLessonId) {
           setActiveVideoLesson({ ...activeVideoLesson, ...payload });
         }
         setLessonSuccessMsg('Vídeo aula atualizada com sucesso!');
       } else {
-        await addDoc(collection(db, 'video_lessons'), {
+        await awaitOfflineSafe(addDoc(collection(db, 'video_lessons'), {
           ...payload,
           createdAt: serverTimestamp(),
-        });
+        }));
         setLessonSuccessMsg('Vídeo aula salva com sucesso no perfil Vilmardigital!');
       }
 
@@ -4284,7 +4253,7 @@ export default function App() {
   const handleDeleteVideoLesson = async (lessonId: string) => {
     if (!isMasterProfile) return;
     try {
-      await deleteDoc(doc(db, 'video_lessons', lessonId));
+      await awaitOfflineSafe(deleteDoc(doc(db, 'video_lessons', lessonId)));
       if (activeVideoLesson?.id === lessonId) {
         setActiveVideoLesson(null);
       }
@@ -4332,127 +4301,14 @@ export default function App() {
       try {
         const transpositions = { ...(selectedPlaylist.transpositions || {}) };
         transpositions[songId] = transpose;
-        await updateDoc(doc(db, 'playlists', selectedPlaylist.id), {
+        await awaitOfflineSafe(updateDoc(doc(db, 'playlists', selectedPlaylist.id), {
           transpositions,
           updatedAt: serverTimestamp()
-        });
+        }));
       } catch (err) {
         console.error("Error saving transposition:", err);
       }
     }
-  };
-
-  // Salva alterações pendentes (cifra, playlist, marcações de karaokê e cache local) antes de reiniciar na página inicial
-  const savePendingWorkBeforeExit = async () => {
-    try {
-      if (flushPendingKaraokeSyncRef.current) {
-        await flushPendingKaraokeSyncRef.current();
-      }
-
-      if (viewMode === 'edit-song' && editingSong) {
-        const hasSongContent = Boolean(editingSong.content && editingSong.content.trim() !== '');
-        const canSaveSong =
-          !editingSong.id ||
-          isMasterAdmin ||
-          editingSong.ownerId === userIdentifier;
-
-        if (hasSongContent && canSaveSong) {
-          let songContent = editingSong.content || '';
-          if (saveOnlyIntroAndChords) {
-            songContent = extractOnlyIntroAndChords(songContent);
-          }
-          const data = {
-            title: editingSong.title || '',
-            artist: editingSong.artist || '',
-            content: songContent,
-            category: (editingSong.category || selectedCategory || 'Comum').trim(),
-            youtubeUrl: editingSong.youtubeUrl || '',
-            lineHeight: editingSong.lineHeight || 1.5,
-            letterSpacing: editingSong.letterSpacing || 0,
-            textAlign: editingSong.textAlign || 'left',
-            ownerId: editingSong.id ? (editingSong.ownerId || 'Vilmardigital') : userIdentifier,
-            updatedAt: serverTimestamp()
-          };
-
-          if (editingSong.id) {
-            await awaitOfflineSafe(updateDoc(doc(db, 'songs', editingSong.id), data));
-          } else {
-            await awaitOfflineSafe(addDoc(collection(db, 'songs'), {
-              ...data,
-              createdAt: serverTimestamp()
-            }));
-          }
-          localStorage.removeItem('songDraft');
-        } else if (editingSong.title?.trim() || editingSong.content?.trim() || editingSong.artist?.trim()) {
-          localStorage.setItem('songDraft', JSON.stringify(editingSong));
-        }
-      }
-
-      if (viewMode === 'edit-playlist' && editingPlaylist) {
-        const hasPlaylistData = Boolean(
-          editingPlaylist.title?.trim() || (editingPlaylist.songIds && editingPlaylist.songIds.length > 0)
-        );
-        const canSavePlaylist =
-          !editingPlaylist.id ||
-          isMasterAdmin ||
-          editingPlaylist.ownerId === userIdentifier;
-
-        if (hasPlaylistData && canSavePlaylist) {
-          const data = {
-            title: editingPlaylist.title || 'Nova Playlist',
-            date: editingPlaylist.date || '',
-            songIds: editingPlaylist.songIds || [],
-            transpositions: editingPlaylist.transpositions || {},
-            ownerId: editingPlaylist.id ? editingPlaylist.ownerId : userIdentifier,
-            updatedAt: serverTimestamp()
-          };
-
-          if (editingPlaylist.id) {
-            await awaitOfflineSafe(updateDoc(doc(db, 'playlists', editingPlaylist.id), data));
-          } else {
-            await awaitOfflineSafe(addDoc(collection(db, 'playlists'), {
-              ...data,
-              createdAt: serverTimestamp()
-            }));
-          }
-        }
-      }
-
-      writeOfflineCache('offline_cache_songs', songs);
-      writeOfflineCache('offline_cache_playlists', playlists);
-      writeOfflineCache('offline_cache_events', events);
-      writeOfflineCache('offline_cache_video_lessons', videoLessons);
-    } catch (err) {
-      console.error('Erro ao salvar alterações antes de reiniciar:', err);
-    }
-  };
-
-  const restartToInitialPage = async (logoutUser: boolean) => {
-    if (isRestartingApp) return;
-    setIsRestartingApp(true);
-
-    await savePendingWorkBeforeExit();
-
-    if (logoutUser) {
-      clearSessionState();
-    }
-
-    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      await Promise.race([
-        navigator.serviceWorker.getRegistration().then((reg) => reg?.update()).catch(() => {}),
-        new Promise((resolve) => window.setTimeout(resolve, 400))
-      ]);
-    }
-
-    isIntentionalRestartRef.current = true;
-    setEditingSong(null);
-    setEditingPlaylist(null);
-    setViewingSong(null);
-    window.location.replace(`${window.location.origin}/`);
-  };
-
-  const handleLogout = async () => {
-    await restartToInitialPage(true);
   };
 
   const reloadNoticeBanner = reloadNotice ? (
@@ -4614,11 +4470,13 @@ export default function App() {
               </button>
             )}
             <button 
-              type="button"
-              disabled={isRestartingApp}
-              onClick={() => restartToInitialPage(false)}
-              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:opacity-60"
-              title="Salvar alterações e reiniciar na Página Inicial"
+              onClick={() => {
+                setActiveTab('songs');
+                setViewMode('categories');
+                setCurrentCategoryTab(null);
+              }}
+              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
+              title="Ir para o Menu Principal"
             >
               <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
             </button>
@@ -4652,11 +4510,9 @@ export default function App() {
             <OfflineIndicator />
             <PWAInstallButton compact />
             <button 
-              type="button"
-              disabled={isRestartingApp}
               onClick={handleLogout}
-              className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all cursor-pointer disabled:opacity-50"
-              title="Sair, salvar e reiniciar na página inicial"
+              className="p-1.5 -mr-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-full transition-all"
+              title="Sair"
             >
               <LogOut className="w-4.5 h-4.5" />
             </button>
@@ -7465,7 +7321,6 @@ export default function App() {
             onClose={() => setViewingSong(null)} 
             userRole={userRole}
             isMasterAdmin={isMasterAdmin}
-            flushPendingSyncRef={flushPendingKaraokeSyncRef}
             initialTranspose={viewMode === 'view-playlist' && selectedPlaylist ? (selectedPlaylist.transpositions?.[viewingSong.id] || 0) : 0}
             onTransposeChange={(val) => handleTransposeChange(viewingSong.id, val)}
             onTimingsSaved={(songId, timings) => {

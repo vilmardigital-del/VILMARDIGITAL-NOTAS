@@ -64,12 +64,20 @@
 }
 
 @layer utilities {
-  .rich-text-song div {
-    min-height: 1.2em;
+  .rich-text-song div,
+  .rich-text-song p,
+  .rich-text-song pre {
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: inline !important;
   }
   .rich-text-song, .rich-text-song * {
     font-size: inherit !important;
-    font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New" !important;
+    line-height: inherit !important;
+    letter-spacing: 0px !important;
+    white-space: pre !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
   }
   .text-3d-title {
     color: #10b981; /* Primary bright emerald */

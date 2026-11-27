@@ -4967,8 +4967,8 @@ export default function App() {
                         <h3 className="font-extrabold text-xs sm:text-sm text-zinc-900 uppercase tracking-wide">
                           Localizar Salmos no YouTube
                         </h3>
-                        <p className="text-[10px] text-gray-500 font-bold uppercase">
-                          Digite o salmo ou refrão para buscar vídeos existentes no YouTube
+                        <p className="text-[11px] text-gray-500 font-bold">
+                          Digite a "Melodia do Salmo 100" número do dia referente
                         </p>
                       </div>
                     </div>
@@ -4995,7 +4995,7 @@ export default function App() {
                         type="text"
                         value={salmoYoutubeQuery}
                         onChange={(e) => setSalmoYoutubeQuery(e.target.value)}
-                        placeholder="Ex: Salmo 22, O Senhor é meu pastor, Salmo de domingo..."
+                        placeholder="Ex: Melodia do Salmo 101"
                         className="w-full bg-red-50/30 border border-red-200 rounded-xl pl-10 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 text-zinc-900 placeholder:text-gray-400"
                       />
                       {salmoYoutubeQuery && (

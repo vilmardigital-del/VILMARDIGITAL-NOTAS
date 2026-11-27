@@ -115,6 +115,11 @@ import {
   playCountdownCue,
   stopCountdownAudio
 } from './lib/karaokeUtils';
+import {
+  MASS_MOMENTS,
+  MassMomentKey,
+  generateLiturgicalSuggestions
+} from './lib/liturgicalSuggestions';
 
 const readOfflineCache = <T,>(key: string, fallback: T): T => {
   try {
@@ -3118,6 +3123,44 @@ export default function App() {
   const [liturgiaLoading, setLiturgiaLoading] = useState<boolean>(false);
   const [liturgiaError, setLiturgiaError] = useState<string | null>(null);
 
+  // Sugestões Musicais da Liturgia (Entrada, Ato Penitencial, Glória, Salmo, Ofertório, Comunhão, Final)
+  const [liturgiaSongsOpen, setLiturgiaSongsOpen] = useState(false);
+  const [selectedMassMoment, setSelectedMassMoment] = useState<'all' | MassMomentKey>('all');
+  const [liturgiaYtLabel, setLiturgiaYtLabel] = useState<string | null>(null);
+  const [liturgiaYtTargetCategory, setLiturgiaYtTargetCategory] = useState<Category>('Entrada');
+  const [liturgiaYtResults, setLiturgiaYtResults] = useState<Array<{
+    id: string;
+    title: string;
+    channel: string;
+    duration: string;
+    views: string;
+    thumbnail: string;
+    url: string;
+  }>>([]);
+  const [liturgiaYtLoading, setLiturgiaYtLoading] = useState(false);
+  const [liturgiaYtError, setLiturgiaYtError] = useState<string | null>(null);
+  const [activeLiturgiaYtVideo, setActiveLiturgiaYtVideo] = useState<{
+    id: string;
+    title: string;
+    channel: string;
+    url: string;
+  } | null>(null);
+  const [liturgiaCopied, setLiturgiaCopied] = useState(false);
+  const liturgiaSongsRef = useRef<HTMLDivElement>(null);
+  const liturgiaYtPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLiturgiaYtResults([]);
+    setLiturgiaYtError(null);
+    setLiturgiaYtLabel(null);
+    setActiveLiturgiaYtVideo(null);
+  }, [liturgiaDate]);
+
+  const liturgiaSuggestionsResult = useMemo(() => {
+    if (!liturgiaData) return null;
+    return generateLiturgicalSuggestions(liturgiaData, songs);
+  }, [liturgiaData, songs]);
+
   useEffect(() => {
     if (activeTab !== 'liturgia') return;
     
@@ -4310,6 +4353,85 @@ export default function App() {
       setSalmoYoutubeResults([]);
     } finally {
       setSalmoYoutubeLoading(false);
+    }
+  };
+
+  const handleSearchLiturgiaYoutube = async (
+    queryText: string,
+    label: string,
+    targetCategory: Category
+  ) => {
+    const q = queryText.trim();
+    if (!q) return;
+
+    setLiturgiaYtLabel(label);
+    setLiturgiaYtTargetCategory(targetCategory);
+    setLiturgiaYtError(null);
+
+    if (!navigator.onLine) {
+      setLiturgiaYtResults([]);
+      setLiturgiaYtError('Você está no modo off-line. Conecte-se à internet para ouvir sugestões no YouTube.');
+      return;
+    }
+
+    setLiturgiaYtLoading(true);
+    setLiturgiaYtResults([]);
+    setActiveLiturgiaYtVideo(null);
+
+    window.setTimeout(() => {
+      liturgiaYtPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 80);
+
+    try {
+      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao buscar vídeos no YouTube.');
+      }
+      const videos = Array.isArray(data.videos) ? data.videos : [];
+      setLiturgiaYtResults(videos);
+      if (videos.length === 0) {
+        setLiturgiaYtError(`Nenhum vídeo encontrado no YouTube para "${label}".`);
+      }
+    } catch (err: any) {
+      setLiturgiaYtError(err?.message || 'Não foi possível localizar vídeos no YouTube.');
+      setLiturgiaYtResults([]);
+    } finally {
+      setLiturgiaYtLoading(false);
+    }
+  };
+
+  const handleCopyLiturgiaSuggestions = async () => {
+    if (!liturgiaSuggestionsResult || !liturgiaData) return;
+    const { context, groups } = liturgiaSuggestionsResult;
+    const lines: string[] = [
+      `SUGESTÕES DE MÚSICAS PARA A MISSA`,
+      `${liturgiaData.readableDate || liturgiaDate} • ${context.celebracao} (${context.seasonLabel})`,
+      ''
+    ];
+
+    for (const group of groups) {
+      lines.push(`• ${group.moment.label.toUpperCase()}:`);
+      if (group.appSongs.length > 0) {
+        group.appSongs.slice(0, 2).forEach((s) => {
+          lines.push(`  - ${s.title}${s.artist ? ` (${s.artist})` : ''} [Cifra no app]`);
+        });
+      }
+      group.curatedSuggestions.slice(0, 2).forEach((item) => {
+        lines.push(`  - ${item.title} (${item.artist})`);
+      });
+      if (group.liturgicalNote) {
+        lines.push(`  (${group.liturgicalNote})`);
+      }
+      lines.push('');
+    }
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n').trim());
+      setLiturgiaCopied(true);
+      window.setTimeout(() => setLiturgiaCopied(false), 3000);
+    } catch {
+      alert('Não foi possível copiar as sugestões.');
     }
   };
 
@@ -6074,6 +6196,433 @@ export default function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* Ferramenta de Busca de Músicas por Momento Litúrgico da Missa */}
+                      {liturgiaSuggestionsResult && (
+                        <div
+                          ref={liturgiaSongsRef}
+                          className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border-2 border-orange-200 flex flex-col gap-4 mt-1"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-orange-100 pb-4">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div className="bg-orange-100 text-orange-600 p-2.5 rounded-2xl shrink-0">
+                                <ListMusic className="w-5 h-5" />
+                              </div>
+                              <div className="min-w-0">
+                                <h3 className="font-extrabold text-zinc-900 text-sm sm:text-base leading-tight">
+                                  Sugestões de Músicas para a Missa
+                                </h3>
+                                <p className="text-[11px] text-gray-500 font-semibold mt-0.5 leading-snug">
+                                  {liturgiaSuggestionsResult.context.seasonLabel} • Cor {liturgiaSuggestionsResult.context.corLiturgica}
+                                  {liturgiaSuggestionsResult.context.salmoRef ? ` • ${liturgiaSuggestionsResult.context.salmoRef}` : ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                              {liturgiaSongsOpen && (
+                                <button
+                                  type="button"
+                                  onClick={handleCopyLiturgiaSuggestions}
+                                  className={`px-3 py-2 rounded-xl text-xs font-extrabold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    liturgiaCopied
+                                      ? 'bg-emerald-600 text-white border-emerald-600'
+                                      : 'bg-orange-50 hover:bg-orange-100 text-orange-700 border-orange-200'
+                                  }`}
+                                >
+                                  {liturgiaCopied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
+                                  <span>{liturgiaCopied ? 'Copiado!' : 'Copiar Roteiro'}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextState = !liturgiaSongsOpen;
+                                  setLiturgiaSongsOpen(nextState);
+                                  if (nextState) {
+                                    setSelectedMassMoment('all');
+                                    window.setTimeout(() => {
+                                      liturgiaSongsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }, 80);
+                                  }
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 shadow-sm active:scale-95 cursor-pointer ${
+                                  liturgiaSongsOpen
+                                    ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                                }`}
+                              >
+                                <Search className="w-3.5 h-3.5" />
+                                <span>{liturgiaSongsOpen ? 'Ocultar Sugestões' : 'Buscar Sugestões da Missa'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {!liturgiaSongsOpen ? (
+                            <div className="flex flex-wrap gap-1.5 text-[11px] text-gray-600 font-semibold">
+                              <span className="text-gray-500 mr-1">Partes incluídas:</span>
+                              {MASS_MOMENTS.map((m) => (
+                                <button
+                                  key={m.key}
+                                  type="button"
+                                  onClick={() => {
+                                    setLiturgiaSongsOpen(true);
+                                    setSelectedMassMoment(m.key);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-orange-50/70 hover:bg-orange-100 text-orange-800 border border-orange-100 font-bold transition-colors cursor-pointer"
+                                >
+                                  {m.shortLabel}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-4">
+                              {/* Filtro por parte da Missa */}
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedMassMoment('all')}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer border ${
+                                    selectedMassMoment === 'all'
+                                      ? 'bg-orange-600 text-white border-orange-600 shadow-2xs'
+                                      : 'bg-gray-50 hover:bg-orange-50 text-gray-700 border-gray-200'
+                                  }`}
+                                >
+                                  Todas (7)
+                                </button>
+                                {MASS_MOMENTS.map((m) => (
+                                  <button
+                                    key={m.key}
+                                    type="button"
+                                    onClick={() => setSelectedMassMoment(m.key)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer border ${
+                                      selectedMassMoment === m.key
+                                        ? 'bg-orange-600 text-white border-orange-600 shadow-2xs'
+                                        : 'bg-gray-50 hover:bg-orange-50 text-gray-700 border-gray-200'
+                                    }`}
+                                  >
+                                    {m.shortLabel}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Painel Inline de Resultados / Vídeo do YouTube para a sugestão selecionada */}
+                              {(liturgiaYtLoading || liturgiaYtError || liturgiaYtResults.length > 0 || activeLiturgiaYtVideo) && (
+                                <div
+                                  ref={liturgiaYtPanelRef}
+                                  className="bg-red-50/40 border border-red-200 rounded-2xl p-3.5 flex flex-col gap-3"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Youtube className="w-4 h-4 text-red-600 shrink-0" />
+                                      <span className="text-xs font-extrabold text-zinc-900 truncate">
+                                        Vídeos no YouTube: {liturgiaYtLabel}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setLiturgiaYtResults([]);
+                                        setLiturgiaYtError(null);
+                                        setLiturgiaYtLabel(null);
+                                        setActiveLiturgiaYtVideo(null);
+                                      }}
+                                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                                      title="Fechar busca do YouTube"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
+
+                                  {liturgiaYtLoading && (
+                                    <p className="text-xs font-bold text-gray-600 py-2">
+                                      Buscando vídeos no YouTube para este momento da missa...
+                                    </p>
+                                  )}
+
+                                  {liturgiaYtError && (
+                                    <div className="bg-white border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs font-bold">
+                                      {liturgiaYtError}
+                                    </div>
+                                  )}
+
+                                  {activeLiturgiaYtVideo && (
+                                    <div className="bg-zinc-950 rounded-2xl overflow-hidden border border-red-500/70 shadow-md">
+                                      <div className="px-3 py-2 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <p className="text-xs font-extrabold text-white truncate">
+                                            {activeLiturgiaYtVideo.title}
+                                          </p>
+                                          <p className="text-[10px] text-zinc-400 font-semibold truncate">
+                                            {activeLiturgiaYtVideo.channel}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <a
+                                            href={activeLiturgiaYtVideo.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                                            title="Abrir no YouTube"
+                                          >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                          </a>
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveLiturgiaYtVideo(null)}
+                                            className="p-1.5 bg-zinc-800 hover:bg-red-600 text-zinc-200 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                            title="Fechar Vídeo"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="aspect-video w-full bg-black">
+                                        <iframe
+                                          key={activeLiturgiaYtVideo.id}
+                                          src={`https://www.youtube.com/embed/${activeLiturgiaYtVideo.id}?autoplay=1`}
+                                          title={activeLiturgiaYtVideo.title}
+                                          className="w-full h-full border-0"
+                                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                          allowFullScreen
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {liturgiaYtResults.length > 0 && (
+                                    <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1">
+                                      {liturgiaYtResults.slice(0, 6).map((video) => {
+                                        const isPlaying = activeLiturgiaYtVideo?.id === video.id;
+                                        return (
+                                          <div
+                                            key={video.id}
+                                            onClick={() => setActiveLiturgiaYtVideo(video)}
+                                            className={`flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer ${
+                                              isPlaying
+                                                ? 'bg-white border-red-400 shadow-xs'
+                                                : 'bg-white/80 hover:bg-white border-red-100'
+                                            }`}
+                                          >
+                                            <div className="relative w-20 aspect-video rounded-lg overflow-hidden bg-zinc-900 shrink-0">
+                                              <img
+                                                src={video.thumbnail}
+                                                alt={video.title}
+                                                className="w-full h-full object-cover"
+                                                referrerPolicy="no-referrer"
+                                              />
+                                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                                                <Play className="w-3.5 h-3.5 text-white fill-current" />
+                                              </div>
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                              <p className="text-xs font-extrabold text-zinc-900 line-clamp-2 leading-snug">
+                                                {video.title}
+                                              </p>
+                                              <p className="text-[10px] text-gray-500 font-semibold truncate mt-0.5">
+                                                {video.channel}{video.duration ? ` • ${video.duration}` : ''}
+                                              </p>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                              {userRole === 'admin' && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setEditingSong({
+                                                      title: video.title,
+                                                      category: liturgiaYtTargetCategory,
+                                                      youtubeUrl: video.url,
+                                                      content: ''
+                                                    });
+                                                    setActiveTab('songs');
+                                                    setViewMode('edit-song');
+                                                  }}
+                                                  className="px-2 py-1 bg-orange-100 hover:bg-orange-200 text-orange-800 rounded-lg text-[10px] font-black uppercase cursor-pointer"
+                                                  title={`Criar cifra em ${liturgiaYtTargetCategory}`}
+                                                >
+                                                  + Cifra
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Lista das 7 Partes Litúrgicas da Missa */}
+                              <div className="flex flex-col gap-3.5">
+                                {liturgiaSuggestionsResult.groups
+                                  .filter((g) => selectedMassMoment === 'all' || g.moment.key === selectedMassMoment)
+                                  .map((group, idx) => (
+                                    <div
+                                      key={group.moment.key}
+                                      className="rounded-2xl border border-orange-100 bg-orange-50/20 p-4 flex flex-col gap-3"
+                                    >
+                                      <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="w-6 h-6 rounded-lg bg-orange-600 text-white text-xs font-black flex items-center justify-center shrink-0">
+                                              {selectedMassMoment === 'all'
+                                                ? idx + 1
+                                                : MASS_MOMENTS.findIndex((m) => m.key === group.moment.key) + 1}
+                                            </span>
+                                            <h4 className="font-extrabold text-zinc-900 text-sm">
+                                              {group.moment.label}
+                                            </h4>
+                                            {group.appSongs.length > 0 && (
+                                              <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                                                {group.appSongs.length} no app
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-[11px] text-gray-500 font-medium mt-0.5">
+                                            {group.moment.description}
+                                          </p>
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleSearchLiturgiaYoutube(
+                                              group.defaultYoutubeQuery,
+                                              group.moment.label,
+                                              group.moment.appCategory
+                                            )
+                                          }
+                                          className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-red-50 text-red-600 border border-red-200 text-[11px] font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                                          title={`Buscar sugestões de ${group.moment.label} no YouTube`}
+                                        >
+                                          <Youtube className="w-3.5 h-3.5" />
+                                          <span>Buscar no YouTube</span>
+                                        </button>
+                                      </div>
+
+                                      {group.liturgicalNote && (
+                                        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3 py-2 text-[11px] font-semibold flex items-start gap-2">
+                                          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                          <span>{group.liturgicalNote}</span>
+                                        </div>
+                                      )}
+
+                                      {/* Cifras já cadastradas no Repertório do App */}
+                                      {group.appSongs.length > 0 && (
+                                        <div className="flex flex-col gap-1.5">
+                                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">
+                                            Cifras disponíveis no seu repertório
+                                          </span>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {group.appSongs.map((appSong) => (
+                                              <button
+                                                key={appSong.id}
+                                                type="button"
+                                                onClick={() => setViewingSong(appSong)}
+                                                className="text-left p-2.5 rounded-xl bg-white hover:bg-emerald-50/70 border border-emerald-200 hover:border-emerald-400 transition-all flex items-center justify-between gap-2 shadow-2xs cursor-pointer group"
+                                              >
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-extrabold text-zinc-900 truncate group-hover:text-emerald-800">
+                                                    {appSong.title}
+                                                  </p>
+                                                  <p className="text-[10px] text-gray-500 font-semibold truncate">
+                                                    {appSong.artist || appSong.category}
+                                                  </p>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                  {appSong.youtubeUrl && (
+                                                    <Youtube className="w-3.5 h-3.5 text-red-500" />
+                                                  )}
+                                                  <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                                                    Abrir Cifra
+                                                  </span>
+                                                </div>
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Sugestões Litúrgicas Recomendadas para o Dia */}
+                                      <div className="flex flex-col gap-1.5">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-orange-700">
+                                          Sugestões recomendadas para este dia litúrgico
+                                        </span>
+                                        <div className="flex flex-col gap-2">
+                                          {group.curatedSuggestions.map((item, sIdx) => (
+                                            <div
+                                              key={sIdx}
+                                              className="p-2.5 rounded-xl bg-white border border-orange-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-extrabold text-zinc-900 leading-snug">
+                                                  {item.title}
+                                                </p>
+                                                <p className="text-[10px] text-orange-700 font-bold">
+                                                  {item.artist}
+                                                </p>
+                                                <p className="text-[11px] text-gray-500 font-medium mt-0.5 leading-snug">
+                                                  {item.reason}
+                                                </p>
+                                              </div>
+
+                                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                                {item.matchedAppSong && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setViewingSong(item.matchedAppSong!)}
+                                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                                  >
+                                                    <Music className="w-3 h-3" />
+                                                    <span>Abrir Cifra</span>
+                                                  </button>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleSearchLiturgiaYoutube(
+                                                      item.youtubeQuery,
+                                                      item.title,
+                                                      group.moment.appCategory
+                                                    )
+                                                  }
+                                                  className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                                >
+                                                  <Play className="w-3 h-3" />
+                                                  <span>Ouvir</span>
+                                                </button>
+                                                {userRole === 'admin' && !item.matchedAppSong && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setEditingSong({
+                                                        title: item.title.replace(/\([^)]*\)/g, '').trim(),
+                                                        artist: item.artist,
+                                                        category: group.moment.appCategory,
+                                                        content: ''
+                                                      });
+                                                      setActiveTab('songs');
+                                                      setViewMode('edit-song');
+                                                    }}
+                                                    className="px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                                    title={`Adicionar esta cifra na categoria ${group.moment.appCategory}`}
+                                                  >
+                                                    <Plus className="w-3 h-3" />
+                                                    <span>Cifra</span>
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -7279,10 +7828,10 @@ export default function App() {
             setActiveTab('liturgia');
             setViewMode('categories'); // fallback safe viewMode
           }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 px-0.5 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Church className="w-5 h-5" />
-          <span className="text-[8px] font-extrabold uppercase tracking-tight">Liturgia</span>
+          <Church className="w-5 h-5 shrink-0" />
+          <span className="text-[7px] sm:text-[8px] font-extrabold uppercase tracking-tight leading-[1.05] text-center">Liturgia sugestão de música</span>
         </button>
 
         <button 

@@ -1165,10 +1165,17 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const localClockStartPerfRef = useRef(0);
   const localClockBaseTimeRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const isKaraokePlayingRef = useRef(false);
+  const loopRestartCooldownRef = useRef(0);
+  const tapStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
   }, [currentTime]);
+
+  useEffect(() => {
+    isKaraokePlayingRef.current = isKaraokePlaying;
+  }, [isKaraokePlaying]);
 
   const clearCountdownTimers = useCallback(() => {
     if (countdownTimerRef.current !== null) {
@@ -1310,8 +1317,22 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
               } else if (e.data === 2) {
                 setYtIsPlaying(false);
               } else if (e.data === 0) {
-                setYtIsPlaying(false);
-                setIsKaraokePlaying(false);
+                if (isKaraokePlayingRef.current) {
+                  loopRestartCooldownRef.current = performance.now();
+                  resetLocalClock(0);
+                  if (scrollContainerRef.current) {
+                    scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                  try {
+                    e.target.seekTo(0, true);
+                    e.target.playVideo();
+                  } catch {
+                    startLocalClock(0);
+                  }
+                } else {
+                  setYtIsPlaying(false);
+                  setIsKaraokePlaying(false);
+                }
               }
             },
             onError: () => {
@@ -1345,14 +1366,19 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     return savedTimings.reduce((max, t) => Math.max(max, t.endTime), 0);
   }, [savedTimings]);
 
-  // Atualização contínua do tempo em Sincronização ou Player Karaokê
+  // Atualização contínua do tempo em Sincronização ou Player Karaokê (com reinício automático em loop até pausar ou sair)
   useEffect(() => {
     if (!isSyncMode && !isKaraokePlaying) return;
 
     const interval = window.setInterval(() => {
       let nextTime = currentTimeRef.current;
+      const usingYtClock =
+        showPlayer &&
+        ytReady &&
+        ytPlayerRef.current &&
+        typeof ytPlayerRef.current.getCurrentTime === 'function';
 
-      if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+      if (usingYtClock) {
         try {
           const t = ytPlayerRef.current.getCurrentTime();
           if (typeof t === 'number' && !Number.isNaN(t)) {
@@ -1363,13 +1389,35 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         }
       } else if (localClockRunningRef.current) {
         nextTime = localClockBaseTimeRef.current + (performance.now() - localClockStartPerfRef.current) / 1000;
-        if (isKaraokePlaying && maxSavedEndTime > 0 && nextTime >= maxSavedEndTime + 0.5) {
-          localClockRunningRef.current = false;
-          localClockBaseTimeRef.current = 0;
-          setIsKaraokePlaying(false);
-          setCurrentTime(0);
-          return;
+      }
+
+      if (
+        isKaraokePlaying &&
+        maxSavedEndTime > 0 &&
+        nextTime >= maxSavedEndTime + 0.5 &&
+        performance.now() - loopRestartCooldownRef.current > 1200
+      ) {
+        loopRestartCooldownRef.current = performance.now();
+        localClockBaseTimeRef.current = 0;
+        localClockStartPerfRef.current = performance.now();
+        currentTimeRef.current = 0;
+        setCurrentTime(0);
+
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
+        if (usingYtClock) {
+          try {
+            ytPlayerRef.current.seekTo(0, true);
+            ytPlayerRef.current.playVideo();
+          } catch {
+            localClockRunningRef.current = true;
+          }
+        } else {
+          localClockRunningRef.current = true;
+        }
+        return;
       }
 
       setCurrentTime(nextTime);
@@ -1439,6 +1487,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     clearCountdownTimers();
     setIsSyncMode(false);
     pauseLocalClock();
+    resetLocalClock(0);
   };
 
   const markPhrase = useCallback((explicitLineId?: number) => {
@@ -1574,7 +1623,19 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       onTimingsSaved?.(song.id, sorted);
       setIsSyncMode(false);
       pauseLocalClock();
-      setSyncNotice({ type: 'success', text: 'Sincronização salva! Aperte Player para tocar e rolar automaticamente.' });
+      resetLocalClock(0);
+      if (showPlayer && ytReady && ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+          ytPlayerRef.current.seekTo(0, true);
+        } catch {
+          // ignore
+        }
+      }
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      setSyncNotice({ type: 'success', text: 'Sincronização salva! Toque no meio da tela (ou em Player) para iniciar/pausar.' });
       window.setTimeout(() => setSyncNotice(null), 5000);
     } catch (err: any) {
       console.error('Erro ao salvar sincronização:', err);
@@ -1747,21 +1808,26 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     startCountInPopup('sync', currentTimeRef.current);
   };
 
-  const jumpToTiming = (timing: SongTiming) => {
-    resetLocalClock(timing.startTime);
-    if (isKaraokePlaying && (!showPlayer || !ytReady || ytApiFailed)) {
-      startLocalClock(timing.startTime);
+  const handleSongAreaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    tapStartRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleSongAreaClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isSyncMode || savedTimings.length === 0 || countdownStep !== null) return;
+
+    const start = tapStartRef.current;
+    tapStartRef.current = null;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) {
+      return;
     }
-    if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-      try {
-        ytPlayerRef.current.seekTo(timing.startTime, true);
-        if (isKaraokePlaying) {
-          ytPlayerRef.current.playVideo();
-        }
-      } catch {
-        // ignore
-      }
-    }
+
+    const selectedText = window.getSelection()?.toString().trim();
+    if (selectedText) return;
+
+    const targetEl = e.target as HTMLElement | null;
+    if (targetEl?.closest('button, a, input, textarea, select')) return;
+
+    toggleKaraokePlayer();
   };
 
   const isKaraokeLayoutActive = isSyncMode || isKaraokePlaying;
@@ -2037,7 +2103,11 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       <div 
         ref={scrollContainerRef}
         id="song-content-area"
-        className="flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative"
+        onPointerDown={handleSongAreaPointerDown}
+        onClick={handleSongAreaClick}
+        className={`flex-1 overflow-auto bg-gray-50/30 transition-all duration-500 relative ${
+          !isSyncMode && savedTimings.length > 0 ? 'cursor-pointer' : ''
+        }`}
       >
         <div className={`mx-auto max-w-5xl px-4 sm:px-8 py-6 md:py-8 columns-1 transition-all duration-300 ${
           isKaraokeLayoutActive ? 'pb-44' : 'pb-32'
@@ -2132,8 +2202,6 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
                 const handleLineClick = () => {
                   if (isSyncMode && isSyncable) {
                     markPhrase(i);
-                  } else if (!isSyncMode && playbackTiming && (isKaraokePlaying || currentTime > 0)) {
-                    jumpToTiming(playbackTiming);
                   }
                 };
 

@@ -7436,7 +7436,7 @@ export default function App() {
             setEditingSong({});
             setViewMode('edit-song');
           }}
-          className="fixed right-6 bottom-20 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-16 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
@@ -7449,22 +7449,22 @@ export default function App() {
             setPlaylistSongSearchTerm('');
             setViewMode('edit-playlist');
           }}
-          className="fixed right-6 bottom-20 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
+          className="fixed right-6 bottom-16 w-14 h-14 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-orange-300 active:scale-90 transition-transform z-20"
         >
           <Plus className="w-8 h-8" />
         </button>
       )}
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-2 left-4 right-4 bg-orange-600 rounded-[28px] flex justify-around p-2 z-40 shadow-2xl shadow-orange-600/30">
+      <nav className="fixed bottom-0 left-0 right-0 bg-orange-600 rounded-none border-t border-orange-500/40 flex items-stretch justify-around px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] z-40 shadow-2xl shadow-orange-600/30">
         <button 
           onClick={() => {
             setActiveTab('songs');
             setViewMode('categories');
           }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'songs' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 transition-colors ${activeTab === 'songs' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Music className="w-5 h-5" />
+          <Music className="w-4.5 h-4.5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Cifras</span>
         </button>
         <button 
@@ -7472,9 +7472,9 @@ export default function App() {
             setActiveTab('playlists');
             setViewMode('playlist-list');
           }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'playlists' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 transition-colors ${activeTab === 'playlists' ? 'text-white' : 'text-orange-200'}`}
         >
-          <ListMusic className="w-5 h-5" />
+          <ListMusic className="w-4.5 h-4.5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Playlists</span>
         </button>
 
@@ -7483,10 +7483,10 @@ export default function App() {
             setActiveTab('liturgia');
             setViewMode('categories'); // fallback safe viewMode
           }}
-          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 px-0.5 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 px-0.5 transition-colors ${activeTab === 'liturgia' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Church className="w-5 h-5 shrink-0" />
-          <span className="text-[7px] sm:text-[8px] font-extrabold uppercase tracking-tight leading-[1.05] text-center">Liturgia sugestão de música</span>
+          <Church className="w-4.5 h-4.5 shrink-0" />
+          <span className="text-[7px] sm:text-[8px] font-extrabold uppercase tracking-tight leading-[1.02] text-center">Liturgia sugestão de música</span>
         </button>
 
         <button 
@@ -7494,9 +7494,9 @@ export default function App() {
             setActiveTab('photos');
             setViewMode('photos');
           }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'photos' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 transition-colors ${activeTab === 'photos' ? 'text-white' : 'text-orange-200'}`}
         >
-          <Calendar className="w-5 h-5" />
+          <Calendar className="w-4.5 h-4.5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Eventos</span>
         </button>
 
@@ -7505,9 +7505,9 @@ export default function App() {
             setActiveTab('video_aulas');
             setViewMode('video_aulas');
           }}
-          className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'video_aulas' ? 'text-white' : 'text-orange-200'}`}
+          className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 transition-colors ${activeTab === 'video_aulas' ? 'text-white' : 'text-orange-200'}`}
         >
-          <PlayCircle className="w-5 h-5" />
+          <PlayCircle className="w-4.5 h-4.5" />
           <span className="text-[8px] font-extrabold uppercase tracking-tight">Vídeo Aulas</span>
         </button>
 
@@ -7523,9 +7523,9 @@ export default function App() {
               setActiveTab('users');
               setViewMode('manage-users');
             }}
-            className={`flex flex-col items-center gap-0.5 flex-1 py-1 transition-colors ${activeTab === 'users' ? 'text-white' : 'text-orange-200'}`}
+            className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-0.5 transition-colors ${activeTab === 'users' ? 'text-white' : 'text-orange-200'}`}
           >
-            <Lock className="w-5 h-5" />
+            <Lock className="w-4.5 h-4.5" />
             <span className="text-[8px] font-extrabold uppercase tracking-tight">Acessos</span>
           </button>
         )}

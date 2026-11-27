@@ -1126,6 +1126,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [isKaraokePlaying, setIsKaraokePlaying] = useState(false);
+  const prevIsKaraokePlayingRef = useRef(false);
+  useEffect(() => {
+    if (prevIsKaraokePlayingRef.current && !isKaraokePlaying) {
+      setShowControls(true);
+    }
+    prevIsKaraokePlayingRef.current = isKaraokePlaying;
+  }, [isKaraokePlaying]);
   const [currentTime, setCurrentTime] = useState(0);
   const [ytReady, setYtReady] = useState(false);
   const [ytIsPlaying, setYtIsPlaying] = useState(false);
@@ -1683,12 +1690,10 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
 
   const toggleKaraokePlayer = () => {
     if (savedTimings.length === 0) return;
-    if (countdownStep !== null) {
-      clearCountdownTimers();
-      return;
-    }
+    clearCountdownTimers();
     if (isKaraokePlaying) {
       setIsKaraokePlaying(false);
+      setShowControls(true);
       pauseLocalClock();
       if (showPlayer && ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
         try {
@@ -1702,13 +1707,13 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
         currentTimeRef.current >= maxSavedEndTime && maxSavedEndTime > 0
           ? 0
           : currentTimeRef.current;
-      startCountInPopup('playback', startFrom);
+      beginKaraokePlaybackImmediate(startFrom);
     }
   };
 
   const restartKaraokePlayer = () => {
     if (savedTimings.length === 0) return;
-    setIsKaraokePlaying(false);
+    clearCountdownTimers();
     pauseLocalClock();
     resetLocalClock(0);
     if (showPlayer && ytReady && ytPlayerRef.current) {
@@ -1722,7 +1727,7 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    startCountInPopup('playback', 0);
+    beginKaraokePlaybackImmediate(0);
   };
 
   const startSyncWithCountdown = () => {
@@ -1768,9 +1773,20 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       {/* Floating Exit for Full Screen mode */}
       {isAppFullScreen && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+          {isKaraokePlaying && (
+            <button
+              type="button"
+              onClick={toggleKaraokePlayer}
+              className="h-10 px-3.5 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow-lg font-bold text-xs transition-all cursor-pointer"
+              title="Pausar Player Karaokê"
+            >
+              <Pause className="w-4 h-4" />
+              <span>Pausar</span>
+            </button>
+          )}
           <button
             onClick={toggleFullscreen}
-            className="w-10 h-10 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-full shadow-lg transition-all"
+            className="w-10 h-10 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-full shadow-lg transition-all cursor-pointer"
             title="Sair do Modo Tela Cheia"
           >
             <Minimize2 className="w-5 h-5" />
@@ -2207,141 +2223,143 @@ const FullScreenSong = ({ song, onClose, onPrev, onNext, initialTranspose = 0, o
       </div>
 
       {/* Floating Controls Bar (Navigation, Font Size & Hide) on the Bottom Right */}
-      {showControls ? (
-        <div 
-          onMouseEnter={() => setIsBarHoveredOrTouched(true)}
-          onMouseLeave={() => setIsBarHoveredOrTouched(false)}
-          onTouchStart={handleBarTouchStart}
-          onTouchMove={handleBarTouchStart}
-          onTouchEnd={handleBarTouchEnd}
-          className="fixed bottom-6 right-6 flex items-center gap-2.5 p-2 rounded-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)] transition-all duration-300 bg-white/95 backdrop-blur-md border border-orange-200 shadow-2xl opacity-100"
-        >
-          {/* Playlist Navigation Controls */}
-          {(onPrev || onNext) && (
-            <div className="flex items-center gap-1 rounded-xl p-0.5 shadow-sm transition-all bg-orange-600">
-              <button 
-                disabled={!onPrev}
-                onClick={onPrev} 
-                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                title="Música anterior"
+      {!isKaraokePlaying && (
+        showControls ? (
+          <div 
+            onMouseEnter={() => setIsBarHoveredOrTouched(true)}
+            onMouseLeave={() => setIsBarHoveredOrTouched(false)}
+            onTouchStart={handleBarTouchStart}
+            onTouchMove={handleBarTouchStart}
+            onTouchEnd={handleBarTouchEnd}
+            className="fixed bottom-6 right-6 flex items-center gap-2.5 p-2 rounded-2xl z-30 animate-in fade-in zoom-in-95 duration-200 max-w-[calc(100vw-32px)] transition-all duration-300 bg-white/95 backdrop-blur-md border border-orange-200 shadow-2xl opacity-100"
+          >
+            {/* Playlist Navigation Controls */}
+            {(onPrev || onNext) && (
+              <div className="flex items-center gap-1 rounded-xl p-0.5 shadow-sm transition-all bg-orange-600">
+                <button 
+                  disabled={!onPrev}
+                  onClick={onPrev} 
+                  className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                  title="Música anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <div className="w-[1px] h-5 bg-orange-400"></div>
+                <button 
+                  disabled={!onNext}
+                  onClick={onNext} 
+                  className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
+                  title="Próxima música"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {/* Divider between Navigation and Font Size */}
+            {(onPrev || onNext) && <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>}
+
+            {/* Controle de Tamanho da Fonte */}
+            <div className="flex items-center bg-orange-50/90 border border-orange-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
+              <button
+                type="button"
+                onClick={() => setFontSize((prev) => Math.max(14, prev - 1))}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
+                title="Diminuir fonte"
               >
-                <ChevronLeft className="w-5 h-5" />
+                A-
               </button>
-              <div className="w-[1px] h-5 bg-orange-400"></div>
-              <button 
-                disabled={!onNext}
-                onClick={onNext} 
-                className="w-8 h-8 flex items-center justify-center text-white disabled:opacity-30 hover:bg-orange-500 rounded-lg transition-all cursor-pointer"
-                title="Próxima música"
+              <span className="px-1.5 text-[10px] font-black text-orange-800 tabular-nums select-none">
+                {fontSize}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFontSize((prev) => Math.min(36, prev + 1))}
+                className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
+                title="Aumentar fonte"
               >
-                <ChevronRight className="w-5 h-5" />
+                A+
               </button>
             </div>
-          )}
 
-          {/* Divider between Navigation and Font Size */}
-          {(onPrev || onNext) && <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>}
-
-          {/* Controle de Tamanho da Fonte */}
-          <div className="flex items-center bg-orange-50/90 border border-orange-200/80 rounded-xl p-0.5 shadow-2xs shrink-0">
-            <button
-              type="button"
-              onClick={() => setFontSize((prev) => Math.max(14, prev - 1))}
-              className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
-              title="Diminuir fonte"
+            {/* 1. Copiar Letra */}
+            <button 
+              onClick={() => {
+                const lyricsOnly = song.content.replace(CHORD_REGEX, '');
+                navigator.clipboard.writeText(lyricsOnly);
+                alert('Letra da música copiada com sucesso!');
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
+              title="Copiar Letra (Sem Cifras)"
             >
-              A-
+              <Clipboard className="w-4 h-4" />
             </button>
-            <span className="px-1.5 text-[10px] font-black text-orange-800 tabular-nums select-none">
-              {fontSize}
-            </span>
+
+            {/* 2. Play do YouTube */}
+            {song.youtubeUrl && (
+              <button 
+                onClick={() => setShowPlayer(!showPlayer)}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
+                  showPlayer 
+                    ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
+                    : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
+                }`}
+                title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
+              >
+                <Youtube className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* 3. Botão Player Karaokê (na barra flutuante também para fácil acesso no modo tela cheia) */}
+            {savedTimings.length > 0 && !isSyncMode && (
+              <button
+                type="button"
+                onClick={toggleKaraokePlayer}
+                className={`h-8 px-2.5 flex items-center justify-center gap-1 rounded-lg transition-all cursor-pointer border font-bold text-xs whitespace-nowrap ${
+                  isKaraokePlaying
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border-orange-200 shadow-2xs'
+                }`}
+                title={isKaraokePlaying ? 'Pausar Player Karaokê' : 'Iniciar Player Karaokê'}
+              >
+                {isKaraokePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                <span>{isKaraokePlaying ? 'Pausar' : 'Player'}</span>
+              </button>
+            )}
+
+            {/* 4. Tela Cheia */}
+            <button 
+              onClick={toggleFullscreen}
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
+              title="Modo Tela Cheia"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+
+            <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>
+
+            {/* Hide Button */}
             <button
               type="button"
-              onClick={() => setFontSize((prev) => Math.min(36, prev + 1))}
-              className="w-7 h-7 flex items-center justify-center hover:bg-white hover:text-orange-600 rounded-lg text-gray-700 font-black text-xs transition-all cursor-pointer"
-              title="Aumentar fonte"
+              onClick={() => setShowControls(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer text-gray-500 hover:text-orange-600 hover:bg-orange-50"
+              title="Ocultar botões"
             >
-              A+
+              <EyeOff className="w-5 h-5" />
             </button>
           </div>
-
-          {/* 1. Copiar Letra */}
-          <button 
-            onClick={() => {
-              const lyricsOnly = song.content.replace(CHORD_REGEX, '');
-              navigator.clipboard.writeText(lyricsOnly);
-              alert('Letra da música copiada com sucesso!');
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
-            title="Copiar Letra (Sem Cifras)"
-          >
-            <Clipboard className="w-4 h-4" />
-          </button>
-
-          {/* 2. Play do YouTube */}
-          {song.youtubeUrl && (
-            <button 
-              onClick={() => setShowPlayer(!showPlayer)}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border ${
-                showPlayer 
-                  ? 'bg-orange-600 text-white border-orange-600 shadow-xs' 
-                  : 'text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs'
-              }`}
-              title={showPlayer ? "Ocultar Vídeo do YouTube" : "Ver Vídeo do YouTube"}
-            >
-              <Youtube className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* 3. Botão Player Karaokê (na barra flutuante também para fácil acesso no modo tela cheia) */}
-          {savedTimings.length > 0 && !isSyncMode && (
+        ) : (
+          <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
             <button
               type="button"
-              onClick={toggleKaraokePlayer}
-              className={`h-8 px-2.5 flex items-center justify-center gap-1 rounded-lg transition-all cursor-pointer border font-bold text-xs whitespace-nowrap ${
-                isKaraokePlaying
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                  : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border-orange-200 shadow-2xs'
-              }`}
-              title={isKaraokePlaying ? 'Pausar Player Karaokê' : 'Iniciar Player Karaokê'}
+              onClick={() => setShowControls(true)}
+              className="w-12 h-12 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-600 hover:text-white rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95"
+              title="Exibir ferramentas de visualização (Tamanho / Músicas)"
             >
-              {isKaraokePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              <span>{isKaraokePlaying ? 'Pausar' : 'Player'}</span>
+              <Eye className="w-6 h-6" />
             </button>
-          )}
-
-          {/* 4. Tela Cheia */}
-          <button 
-            onClick={toggleFullscreen}
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer border text-gray-600 hover:text-orange-600 hover:bg-orange-50 border-gray-200/60 bg-white shadow-2xs"
-            title="Modo Tela Cheia"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
-
-          <div className="w-[1px] h-6 mx-0.5 bg-orange-200"></div>
-
-          {/* Hide Button */}
-          <button
-            type="button"
-            onClick={() => setShowControls(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer text-gray-500 hover:text-orange-600 hover:bg-orange-50"
-            title="Ocultar botões"
-          >
-            <EyeOff className="w-5 h-5" />
-          </button>
-        </div>
-      ) : (
-        <div className="fixed bottom-6 right-6 z-30 animate-in fade-in zoom-in-95 duration-200">
-          <button
-            type="button"
-            onClick={() => setShowControls(true)}
-            className="w-12 h-12 flex items-center justify-center bg-white/95 backdrop-blur-md border border-orange-200 text-orange-600 hover:bg-orange-600 hover:text-white rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95"
-            title="Exibir ferramentas de visualização (Tamanho / Músicas)"
-          >
-            <Eye className="w-6 h-6" />
-          </button>
-        </div>
+          </div>
+        )
       )}
 
       {/* Floating Draggable Player (com API do YouTube para sincronização de tempo) */}

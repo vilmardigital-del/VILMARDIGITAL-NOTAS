@@ -474,33 +474,12 @@ export const extractOnlyIntroAndChords = (rawContent: string): string => {
 
 // Components
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
-  <div className={`relative flex items-center justify-center ${className}`}>
-    {/* Rosário Beads SVG */}
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible">
-      {/* Circunferência do Rosário - Contas */}
-      {[...Array(12)].map((_, i) => {
-        const radiusX = 48;
-        const radiusY = 48;
-        const angle = (i * 360 / 12) - 90;
-        const rad = (angle * Math.PI) / 180;
-        const x = 50 + radiusX * Math.cos(rad);
-        const y = 48 + radiusY * Math.sin(rad);
-        return <circle key={i} cx={x} cy={y} r="2.5" fill="#16a34a" className="opacity-60" />;
-      })}
-      {/* Medalha e Cruz na parte de baixo */}
-      <circle cx="50" cy="94" r="3" fill="#16a34a" />
-      <path d="M50 96 L50 103" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" />
-      <path d="M47 99 L53 99" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-    
-    {/* Guitar Pick Shape SVG */}
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-[80%] h-[80%] left-[10%] top-[8%] drop-shadow-sm">
-      <path 
-        d="M 10 32 C 10 15 25 2 50 2 C 75 2 90 15 90 32 C 90 55 65 92 50 98 C 35 92 10 55 10 32 Z" 
-        fill="#16a34a" 
-      />
-    </svg>
-    <Music className="relative z-10 w-[35%] h-[35%] text-white -translate-y-1" />
+  <div className={`relative flex items-center justify-center overflow-hidden ${className}`}>
+    <img
+      src="/assets/aistudio/IMG_3533_e60df95e.jpeg"
+      alt="Paróquia Nossa Senhora da Luz - Foz do Iguaçu/PR"
+      className="w-full h-full object-cover"
+    />
   </div>
 );
 
@@ -622,8 +601,8 @@ const PasswordView = ({ onUnlock, accessUsers, massaPhotos }: { onUnlock: (role:
             className="absolute inset-x-0 inset-y-0 bg-emerald-500 rounded-full blur-xl opacity-40 animate-pulse"
           />
           
-          <div className="relative w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-2xl flex items-center justify-center p-1.5 shadow-lg shadow-emerald-500/15 border border-emerald-100/80">
-            <Logo className="w-10 h-10 sm:w-12 sm:h-12" />
+          <div className="relative w-14 h-14 sm:w-16 sm:h-16 bg-emerald-950 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg shadow-emerald-500/20 border-2 border-emerald-400/60">
+            <Logo className="w-full h-full" />
           </div>
         </motion.div>
 
@@ -4683,10 +4662,10 @@ export default function App() {
                 setViewMode('categories');
                 setCurrentCategoryTab(null);
               }}
-              className="shrink-0 bg-white rounded-lg p-0.5 shadow-2xs border border-emerald-200 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-white"
+              className="shrink-0 bg-emerald-950 rounded-xl overflow-hidden shadow-2xs border border-emerald-400/60 hover:border-emerald-500 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
               title="Ir para o Menu Principal"
             >
-              <Logo className="w-8 h-8 sm:w-9 sm:h-9" />
+              <Logo className="w-9 h-9 sm:w-10 sm:h-10" />
             </button>
           </div>
 
